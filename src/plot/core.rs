@@ -1,0 +1,273 @@
+use std::{
+    ops::Range,
+    path::{Path, PathBuf},
+};
+
+use plotters::{
+    coord::{types::RangedCoordf64, Shift},
+    prelude::*,
+};
+
+use crate::{
+    basis::Basis,
+    display::PolynomialDisplay,
+    plot::{Palettes, PlottingElement},
+    statistics::Confidence,
+    value::{CoordExt, Value},
+    CurveFit, Polynomial,
+};
+
+/// Error occurring during plotting
+#[derive(Debug, thiserror::Error)]
+pub enum PlottingError<'root> {
+    /// Error drawing the plot
+    #[error("Error drawing plot: {0}")]
+    Draw(#[from] DrawingAreaErrorKind<<plotters::prelude::BitMapBackend<'root> as plotters::prelude::DrawingBackend>::ErrorType>),
+
+    /// Error casting a value
+    #[error("A value could not be represented as f64")]
+    Cast,
+}
+
+/// Type alias for the root drawing area.
+pub type PlotRoot<'root> = DrawingArea<BitMapBackend<'root>, Shift>;
+
+/// Debug plot for curves and fits
+pub struct Plot<'root> {
+    chart: ChartContext<'root, BitMapBackend<'root>, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
+    palettes: Palettes,
+}
+impl<'root> Plot<'root> {
+    /// Returns the directory where plot outputs are saved.
+    #[must_use]
+    pub fn plots_dir() -> PathBuf {
+        let target_dir = std::env::var("TARGET_DIR").unwrap_or_else(|_| "target".into());
+        Path::new(&target_dir).join("plot_output")
+    }
+
+    /// Create a new plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be created.
+    pub fn new(
+        root: &PlotRoot<'root>,
+        title: &str,
+        x_range: Range<f64>,
+        y_range: Range<f64>,
+    ) -> Result<Self, PlottingError<'root>> {
+        let palettes = Palettes::default();
+        let chart = ChartBuilder::on(root)
+            .caption(title, ("sans-serif", 24).into_font())
+            .margin(5)
+            .x_label_area_size(30)
+            .y_label_area_size(50)
+            .build_cartesian_2d(x_range, y_range)?;
+
+        Ok(Plot { chart, palettes })
+    }
+
+    /// Create a plot from a function
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be created.
+    pub fn from_canonical<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
+        root: &PlotRoot<'root>,
+        title: &str,
+        function: &Polynomial<B, T>,
+        x_range: Range<T>,
+    ) -> Result<Self, PlottingError<'root>> {
+        let solution = function.solve_range(x_range.clone(), T::one());
+        let x = solution.x();
+        let y = solution.y();
+
+        let min_y = y.iter().copied().fold(T::infinity(), T::min);
+        let max_y = y.iter().copied().fold(T::neg_infinity(), T::max);
+        let y_range = min_y..max_y;
+
+        //
+        // T(Range) -> f64(Range)
+        let x_range: Range<f64> = cast(x_range.start)?..cast(x_range.end)?;
+        let y_range: Range<f64> = cast(y_range.start)?..cast(y_range.end)?;
+
+        Self::new(root, title, x_range, y_range)?.with_canonical(function, &x)
+    }
+
+    /// Create a plot from a curve fit
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be created.
+    pub fn from_fit<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
+        root: &PlotRoot<'root>,
+        title: &str,
+        fit: &CurveFit<B, T>,
+        confidence: Confidence,
+    ) -> Result<Self, PlottingError<'root>> {
+        let x_range = fit.x_range();
+        let y_range = fit.y_range();
+
+        //
+        // T(Range) -> f64(Range)
+        let x_range: Range<f64> = cast(*x_range.start())?..cast(*x_range.end())?;
+        let y_range: Range<f64> = cast(*y_range.start())?..cast(*y_range.end())?;
+
+        Self::new(root, title, x_range, y_range)?.with_fit(fit, confidence)
+    }
+
+    /// Add a plotting element to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be created.
+    pub fn with_element<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
+        mut self,
+        element: &PlottingElement<B, T>,
+        confidence: Confidence,
+        x: &[T],
+    ) -> Result<Self, PlottingError<'root>> {
+        match element {
+            PlottingElement::Fit(fit) => self.with_fit(fit, confidence),
+            PlottingElement::Canonical(canonical) => self.with_canonical(canonical, x),
+            PlottingElement::Data(data) => {
+                let palette = self.palettes.next();
+                let data = data.as_f64().map_err(|_| PlottingError::Cast)?;
+                self.with_line(&data, "Data", 1, palette.data)
+            }
+        }
+    }
+
+    /// Add a curve fit to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be created.
+    pub fn with_fit<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
+        mut self,
+        fit: &CurveFit<B, T>,
+        confidence: Confidence,
+    ) -> Result<Self, PlottingError<'root>> {
+        let palette = self.palettes.next();
+        let data = fit.data().as_f64().map_err(|_| PlottingError::Cast)?;
+        let solution = fit.solution().as_f64().map_err(|_| PlottingError::Cast)?;
+
+        //
+        // Confidence bands
+        let covariance = fit.covariance().map_err(|_| PlottingError::Cast)?;
+        let confidence = covariance
+            .solution_confidence(confidence)
+            .map_err(|_| PlottingError::Cast)?;
+        let bands = confidence
+            .into_iter()
+            .map(|band| {
+                let (low, high) = (band.lower, band.upper);
+                Some((cast(low).ok()?, cast(high).ok()?))
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or(PlottingError::Cast)?;
+
+        //
+        // Residuals
+        let residuals = fit
+            .residuals()
+            .iter()
+            .zip(&solution)
+            .map(|(r, s)| {
+                let r = cast(*r).ok()?;
+                Some((s.0, r))
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or(PlottingError::Cast)?;
+
+        let equation = fit.equation();
+        self.with_line(&data, &format!("Source Data ({equation})"), 1, palette.data)?
+            .with_confidence(&solution, &bands, palette.fit_error)?
+            .with_line(&solution, &equation, 1, palette.fit)?
+            .with_line(
+                &residuals,
+                &format!("Residuals ({equation})"),
+                1,
+                palette.fit_residual,
+            )
+    }
+
+    /// Add a polynomial to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be modified.
+    pub fn with_canonical<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
+        mut self,
+        func: &Polynomial<B, T>,
+        x: &[T],
+    ) -> Result<Self, PlottingError<'root>> {
+        let palette = self.palettes.next();
+        let data = func
+            .solve(x.iter().copied())
+            .as_f64()
+            .map_err(|_| PlottingError::Cast)?;
+        self.with_line(&data, &func.equation(), 3, palette.canonical)
+    }
+
+    /// Add a line to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be modified.
+    pub fn with_line(
+        mut self,
+        data: &[(f64, f64)],
+        label: &str,
+        width: u32,
+        color: impl Into<ShapeStyle>,
+    ) -> Result<Self, PlottingError<'root>> {
+        let style = color.into().stroke_width(width);
+        self.chart
+            .draw_series(LineSeries::new(data.iter().copied(), style))?
+            .label(label)
+            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], style));
+
+        Ok(self)
+    }
+
+    /// Add a confidence band to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be modified.
+    pub fn with_confidence(
+        mut self,
+        data: &[(f64, f64)],
+        bands: &[(f64, f64)],
+        color: impl Into<ShapeStyle>,
+    ) -> Result<Self, PlottingError<'root>> {
+        let style = color.into().stroke_width(1);
+
+        let series = data
+            .iter()
+            .zip(bands.iter())
+            .map(|(&(x, y), &(low, high))| ErrorBar::new_vertical(x, low, y, high, style, 1));
+        self.chart.draw_series(series)?;
+
+        Ok(self)
+    }
+
+    /// Build the final plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be modified.
+    pub fn build(mut self) -> Result<(), PlottingError<'root>> {
+        //
+        // Mesh and axes
+        self.chart
+            .configure_mesh()
+            .x_label_formatter(&|v| format!("{v:.2e}"))
+            .y_label_formatter(&|v| format!("{v:.2e}"))
+            .draw()?;
+        self.chart
+            .configure_series_labels()
+            .background_style(WHITE.mix(0.8))
+            .border_style(BLACK)
+            .position(SeriesLabelPosition::UpperLeft)
+            .draw()?;
+
+        Ok(())
+    }
+}
+
+fn cast<'root, T: Value>(value: T) -> Result<f64, PlottingError<'root>> {
+    num_traits::cast(value).ok_or(PlottingError::Cast)
+}
