@@ -5,7 +5,7 @@
 //!
 //! # Goodness-of-fit vs Model Selection
 //!
-//! - **Goodness-of-fit**: How well does the model explain the data? Use [`r_squared`].
+//! - **Goodness-of-fit**: How well does the model explain the data? Use [`r_squared`] or [`residual_variance`].
 //!   - Returns a value between 0 and 1.
 //!   - 0 = model explains none of the variance.
 //!   - 1 = model perfectly fits the data.
@@ -15,7 +15,7 @@
 //!   - Options:
 //!     - `AIC`: Akaike Information Criterion, more lenient penalty for complexity.
 //!     - `BIC`: Bayesian Information Criterion, stricter penalty for complexity.
-//!   - Lower scores are better; not a measure of goodness-of-fit.
+//!   - Lower scores are better; but not a measure of goodness-of-fit outside the context of model selection.
 //!
 //! # Examples
 //!
@@ -54,11 +54,11 @@ use crate::value::Value;
 /// # Returns
 /// The residual variance as a `T`.
 ///
-/// # Formula
-/// ```text
-/// σ² = Σ (y_i - y_fit_i)² / (n - k)
-/// ```
-/// where n is the number of data points and k is the number of parameters.
+/// > # Technical Details
+/// > ```math
+/// > σ² = Σ (y_i - y_fit_i)² / (n - k)
+/// > ```
+/// > where n is the number of data points and k is the number of parameters.
 ///
 /// # Example
 /// ```
@@ -99,6 +99,16 @@ pub fn residual_variance<T: Value>(
 /// # Returns
 /// The proportion of variance explained by the model.
 ///
+/// > # Technical Details
+/// >
+/// > R-squared is calculated as:
+/// > ```math
+/// > R² = 1 - (SS_res / SS_tot)
+/// > where
+/// >   SS_res = Σ (y_i - y_fit_i)²
+/// >   SS_tot = Σ (y_i - y_mean)²
+/// > ```
+///
 /// # Example
 /// ```
 /// # use polyfit::statistics::r_squared;
@@ -121,8 +131,16 @@ pub fn r_squared<T: Value>(y: impl Iterator<Item = T>, y_fit: impl Iterator<Item
 ///
 /// # Returns
 /// The arithmetic mean of all elements in `data`.
+/// - Returns zero if the iterator yields no elements.
 ///
-/// Returns zero if the iterator yields no elements.
+/// > # Technical Details
+/// > The mean is calculated as:
+/// > ```math
+/// > Mean = (Σ x_i) / N
+/// > Where
+/// > - N is the number of elements
+/// > - x_i are the individual elements
+/// > ```
 ///
 /// # Examples
 /// ```ignore
@@ -162,15 +180,14 @@ pub fn mean<T: Value>(data: impl Iterator<Item = T>) -> T {
 /// assert_eq!(s, 0.816496580927726); // sqrt(2/3)
 /// ```
 pub fn stddev_and_mean<T: Value>(data: impl Iterator<Item = T>) -> (T, T) {
-    let mut mean = T::zero();
+    let data: Vec<_> = data.collect();
+    let mean = mean(data.iter().copied());
     let mut sum_sq_diff = T::zero();
     let mut count = T::zero();
     for value in data {
-        mean += value;
         sum_sq_diff += Value::powi(value - mean, 2);
         count += T::one();
     }
-    mean /= count;
     let dev = (sum_sq_diff / count).sqrt();
 
     (dev, mean)
@@ -269,8 +286,14 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
 /// assert_eq!(r, 8.0); // 9 - 1
 /// ```
 pub fn spread<T: Value>(data: &[T]) -> T {
-    let min = data.iter().copied().fold(T::infinity(), T::min);
-    let max = data.iter().copied().fold(T::neg_infinity(), T::max);
+    let min = data
+        .iter()
+        .copied()
+        .fold(T::infinity(), <T as nalgebra::RealField>::min);
+    let max = data
+        .iter()
+        .copied()
+        .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
     max - min
 }
 
@@ -577,7 +600,7 @@ impl ScoringMethod {
         k: T,
     ) -> T {
         let (log_likelihood, n) = robust_mse_with_n(y, y_fit);
-        let log_likelihood = log_likelihood.max(T::epsilon());
+        let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
         if n == T::zero() {
             return T::nan();
         }
@@ -648,12 +671,13 @@ impl DegreeBound {
                     DegreeBound::Arbitrary(_) => unreachable!(),
                 };
 
-                #[allow(clippy::cast_possible_truncation)]
-                #[allow(clippy::cast_precision_loss)]
-                #[allow(clippy::cast_sign_loss)]
                 let smooth_lim = (n as f64)
                     .powf(1.0 / (2.0 * f64::from(est_smoothness) + 1.0))
-                    .floor() as usize;
+                    .floor();
+
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let smooth_lim = smooth_lim as usize;
+
                 let obs_lim = (n / max_n_per_k).saturating_sub(1);
 
                 smooth_lim.min(obs_lim).min(hard_cap).min(theoretical_max)
@@ -870,7 +894,10 @@ impl<T: Value> DomainNormalizer<T> {
     /// Creates a new `DomainNormalizer` from the range of the given data and a destination range.
     pub fn from_data(data: impl Iterator<Item = T>, dst_range: (T, T)) -> Self {
         let (min, max) = data.fold((T::infinity(), T::neg_infinity()), |(lo, hi), v| {
-            (lo.min(v), hi.max(v))
+            (
+                nalgebra::RealField::min(lo, v),
+                nalgebra::RealField::max(hi, v),
+            )
         });
 
         Self {
@@ -894,7 +921,7 @@ impl<T: Value> DomainNormalizer<T> {
         let (src_min, src_max) = self.src_range;
         let (dst_min, dst_max) = self.dst_range;
         let value = dst_min + (x - src_min) * (dst_max - dst_min) / (src_max - src_min);
-        value.clamp(dst_min, dst_max)
+        nalgebra::RealField::clamp(value, dst_min, dst_max)
     }
 
     /// Denormalizes a value from the destination range back to the source range.
@@ -902,7 +929,7 @@ impl<T: Value> DomainNormalizer<T> {
         let (src_min, src_max) = self.src_range;
         let (dst_min, dst_max) = self.dst_range;
         let value = src_min + (x - dst_min) * (src_max - src_min) / (dst_max - dst_min);
-        value.clamp(src_min, src_max)
+        nalgebra::RealField::clamp(value, src_min, src_max)
     }
 }
 

@@ -1,7 +1,4 @@
-use std::{
-    ops::Range,
-    path::{Path, PathBuf},
-};
+use std::ops::Range;
 
 use plotters::{
     coord::{types::RangedCoordf64, Shift},
@@ -38,13 +35,6 @@ pub struct Plot<'root> {
     palettes: Palettes,
 }
 impl<'root> Plot<'root> {
-    /// Returns the directory where plot outputs are saved.
-    #[must_use]
-    pub fn plots_dir() -> PathBuf {
-        let target_dir = std::env::var("TARGET_DIR").unwrap_or_else(|_| "target".into());
-        Path::new(&target_dir).join("plot_output")
-    }
-
     /// Create a new plot
     ///
     /// # Errors
@@ -80,8 +70,14 @@ impl<'root> Plot<'root> {
         let x = solution.x();
         let y = solution.y();
 
-        let min_y = y.iter().copied().fold(T::infinity(), T::min);
-        let max_y = y.iter().copied().fold(T::neg_infinity(), T::max);
+        let min_y = y
+            .iter()
+            .copied()
+            .fold(T::infinity(), <T as nalgebra::RealField>::min);
+        let max_y = y
+            .iter()
+            .copied()
+            .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
         let y_range = min_y..max_y;
 
         //
@@ -104,6 +100,8 @@ impl<'root> Plot<'root> {
     ) -> Result<Self, PlottingError<'root>> {
         let x_range = fit.x_range();
         let y_range = fit.y_range();
+
+        println!("{:?} {:?}", x_range, y_range);
 
         //
         // T(Range) -> f64(Range)

@@ -1,4 +1,3 @@
-//! Polynomial curve fit type, generic over data type and basis
 use std::{borrow::Cow, ops::Range};
 
 use crate::{
@@ -89,6 +88,8 @@ where
     /// without enforcing the usual invariants (e.g., degree must match the number
     /// of coefficients expected by the basis).
     ///
+    /// The length of coefficients must be equal to `Basis::k(degree)`
+    ///
     /// # Parameters
     /// - `basis`: The polynomial basis
     /// - `coefficients`: The coefficients for the polynomial, possibly borrowed or owned
@@ -131,7 +132,17 @@ where
 
     /// Returns a reference to the polynomial’s coefficients.
     ///
-    /// The index of each coefficient corresponds to the power of `x`.
+    /// The index of each coefficient the jth basis function.
+    ///
+    /// For example in a monomial expression `y(x) = 2x^2 - 3x + 1`;
+    /// coefficients = [1.0, -3.0, 2.0]
+    ///
+    /// > # Technical Details
+    /// >
+    /// > Formally, for each coefficient *j*, and the jth basis function *B_j(x)*, the relationship is:
+    /// > ```math
+    /// > y(x) = Σ (c_j * B_j(x))
+    /// > ```
     #[must_use]
     pub fn coefficients(&self) -> &[T] {
         &self.coefficients
@@ -139,7 +150,17 @@ where
 
     /// Returns a mutable reference to the polynomial’s coefficients.
     ///
-    /// The index of each coefficient corresponds to the power of `x`.
+    /// The index of each coefficient the jth basis function.
+    ///
+    /// For example in a monomial expression `y(x) = 2x^2 - 3x + 1`;
+    /// coefficients = [1.0, -3.0, 2.0]
+    ///
+    /// > # Technical Details
+    /// >
+    /// > Formally, for each coefficient *j*, and the jth basis function *B_j(x)*, the relationship is:
+    /// > ```math
+    /// > y(x) = Σ (c_j * B_j(x))
+    /// > ```
     #[must_use]
     pub fn coefficients_mut(&mut self) -> &mut [T] {
         self.coefficients.to_mut()
@@ -147,7 +168,9 @@ where
 
     /// Returns the degree of the polynomial.
     ///
-    /// This is defined as the number of coefficients minus one.
+    /// The number of actual components, or basis functions, in the expression of a degree is defined by the basis.
+    ///
+    /// That number is called k. For most basis choices, `k = degree + 1`.
     #[must_use]
     pub fn degree(&self) -> usize {
         self.degree
@@ -160,6 +183,13 @@ where
     ///
     /// # Returns
     /// The computed y-value using the polynomial basis and coefficients.
+    ///
+    /// > # Technical Details
+    /// >
+    /// > Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *c_j* and basis function *B_j(x)*, this function returns:
+    /// > ```math
+    /// > y(x) = Σ (c_j * B_j(x))
+    /// > ```
     ///
     /// # Example
     /// ```
@@ -185,6 +215,13 @@ where
     /// # Returns
     /// A `Vec` of `(x, y)` pairs corresponding to each input value.
     ///
+    /// > # Technical Details
+    /// >
+    /// > Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *c_j* and basis function *B_j(x)*, this function returns:
+    /// > ```math
+    /// > y(x) = Σ (c_j * B_j(x))
+    /// > ```
+    ///
     /// # Example
     /// ```
     /// # use polyfit::MonomialPolynomial;
@@ -205,6 +242,13 @@ where
     /// # Returns
     /// A `Vec` of `(x, y)` pairs for each sampled point.
     ///
+    /// > # Technical Details
+    /// >
+    /// > Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *c_j* and basis function *B_j(x)*, this function returns:
+    /// > ```math
+    /// > y(x) = Σ (c_j * B_j(x))
+    /// > ```
+    ///
     /// # Example
     /// ```
     /// # use polyfit::MonomialPolynomial;
@@ -224,6 +268,8 @@ where
     /// # Parameters
     /// - `data`: A slice of `(x, y)` pairs to compare against the polynomial fit.
     ///
+    /// See [`statistics::r_squared`] for more details.
+    ///
     /// # Returns
     /// The R-squared value as type `T`.
     pub fn r_squared(&self, data: &[(T, T)]) -> T {
@@ -237,11 +283,14 @@ where
     /// Computes the derivative of this polynomial.
     ///
     /// # Type Parameters
-    /// - `B2`: The basis type for the derivative (defaults to `Self` if not changed).
+    /// - `B2`: The basis type for the derivative (determined by the implementing `DifferentialBasis` trait).
     ///
     /// # Returns
     /// - `Ok(Polynomial<'static, B2, T>)`: The derivative polynomial.
     /// - `Err`: If computing the derivative fails.
+    ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`DifferentialBasis`].
     ///
     /// # Errors
     /// If the basis cannot compute the derivative coefficients, an error is returned.
@@ -274,8 +323,17 @@ where
     /// # Returns
     /// A vector of `x` values where the critical points occur.
     ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`DifferentialBasis`].
+    ///
     /// # Errors
     /// Returns an error if the critical points cannot be found.
+    ///
+    /// > # Technical Details
+    /// >
+    /// > The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
+    /// >
+    /// > This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
     ///
     /// # Example
     /// ```rust
@@ -294,10 +352,13 @@ where
     /// Computes the indefinite integral of this polynomial.
     ///
     /// # Type Parameters
-    /// - `B2`: The basis type for the integral (defaults to `Self` if not changed).
+    /// - `B2`: The basis type for the integral (determined by the implementing `DifferentialBasis` trait).
     ///
     /// # Parameters
     /// - `constant`: Constant of integration (value at x = 0).
+    ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`IntegralBasis`].
     ///
     /// # Returns
     /// - `Ok(Polynomial<'static, B2, T>)`: The integral polynomial.
@@ -344,6 +405,14 @@ where
     ///
     /// # Errors
     /// If the basis cannot compute the integral coefficients, an error is returned.
+    ///
+    /// > # Technical Details
+    /// >
+    /// > The area under the curve is computed using the definite integral of the polynomial
+    /// > between the specified bounds:
+    /// > ```math
+    /// > Area = ∫[x_min to x_max] f(x) dx = F(x_max) - F(x_min)
+    /// > ```
     ///
     /// # Example
     /// ```rust

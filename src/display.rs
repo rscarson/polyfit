@@ -15,9 +15,7 @@
 //! # Helpers
 //! - [`format_coefficient`]: Formats a numeric coefficient, skipping zeros.
 //! - [`exponentiate`]: Converts a number to a Unicode superscript for exponents.
-#![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-
-use crate::value::Value;
+use crate::value::{IntClampedCast, Value};
 
 pub mod unicode;
 
@@ -123,7 +121,7 @@ pub trait PolynomialDisplay<T: Value> {
 
         for (i, &coef) in coefficients.iter().rev().enumerate() {
             let degree_ = degree - i;
-            if let Some(term) = self.format_term(degree_ as i32, coef) {
+            if let Some(term) = self.format_term(degree_.clamped_cast(), coef) {
                 terms.push(term);
             }
         }

@@ -64,6 +64,9 @@
 //!
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
+#![allow(clippy::needless_range_loop)] // The worst clippy lint
+#![allow(clippy::cast_precision_loss)] // I don't care about this one
+#![allow(clippy::similar_names)] //       Clippy does not get to decide what names are similar
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod test;

@@ -1,4 +1,12 @@
 //! Debug utilities for plotting fits and curves
+//!
+//! Mainly used through the [`plot!`] macro.
+//! - The asserts built-in will use this on failure if the `plotting` feature is active!
+//!
+//! You can also use the [`Plot`] struct directly for more control (I also expose [`plotters`] directly)
+//!
+//! The [`plot_filename!`] macro can be used to generate a unique filename for each plot.
+//! - This is how the asserts get a filename on failure
 pub use plotters;
 
 mod core;
@@ -66,7 +74,7 @@ macro_rules! plot {
         let mut confidence = $crate::statistics::Confidence::P95; $( confidence = $confidence; )?
         let mut title = "Graph Output".to_string(); $( title = $title.to_string(); )?
         let function = $crate::plot::PlottingElement::from($function);
-        let x_range = function.x_range(); $( x_range = Some($x_range); )?
+        let mut x_range = function.x_range(); $( x_range = Some($x_range); )?
 
         //
         // Prep the backend
@@ -100,6 +108,8 @@ macro_rules! plot {
 }
 
 /// Generate a filename for a plot: `target/plot_output/{file}_line_{line}_{datetime}.png`
+///
+/// Creates the necessary directories if they don't exist.
 #[macro_export]
 macro_rules! plot_filename {
     () => {{
@@ -110,7 +120,8 @@ macro_rules! plot_filename {
             .unwrap_or_default()
             .as_secs();
 
-        let plots_dir = $crate::plot::Plot::plots_dir();
+        let target_dir = ::std::env::var("TARGET_DIR").unwrap_or_else(|_| "target".into());
+        let plots_dir = ::std::path::Path::new(&target_dir).join("plot_output");
         let _ = std::fs::create_dir_all(&plots_dir);
 
         let filename = format!("{file}_line_{line}_{datetime}.png");

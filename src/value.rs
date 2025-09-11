@@ -39,6 +39,7 @@ use crate::error::Error;
 pub trait Value:
     nalgebra::Scalar
     + nalgebra::ComplexField<RealField = Self>
+    + nalgebra::RealField
     + num_traits::float::FloatCore
     + std::fmt::LowerExp
 {
@@ -54,6 +55,11 @@ pub trait Value:
     /// Returns an error if the cast fails
     fn try_cast<U: num_traits::NumCast>(n: U) -> Result<Self, Error> {
         num_traits::cast(n).ok_or(Error::CastFailed)
+    }
+
+    /// Converts the value to `usize`
+    fn as_usize(&self) -> Option<usize> {
+        num_traits::cast(*self)
     }
 
     /// Raises the value to the power of an integer
@@ -86,7 +92,7 @@ pub trait Value:
     fn f_signum(&self) -> Self {
         match self {
             _ if self.is_nan() => Self::nan(),
-            _ if self.is_sign_negative() => -Self::one(),
+            _ if nalgebra::RealField::is_sign_negative(self) => -Self::one(),
             _ => Self::one(),
         }
     }
@@ -95,6 +101,7 @@ pub trait Value:
 impl<T> Value for T where
     T: nalgebra::Scalar
         + nalgebra::ComplexField<RealField = Self>
+        + nalgebra::RealField
         + num_traits::float::FloatCore
         + std::fmt::LowerExp
 {
@@ -173,7 +180,10 @@ pub trait CoordExt<T: Value> {
     fn x_range(&self) -> Option<Range<T>> {
         let x_min = self.x_iter().fold(None, |acc: Option<(T, T)>, x| {
             Some(match acc {
-                Some((min, max)) => (min.min(x), max.max(x)),
+                Some((min, max)) => (
+                    nalgebra::RealField::min(min, x),
+                    nalgebra::RealField::max(max, x),
+                ),
                 None => (x, x),
             })
         });
@@ -184,7 +194,10 @@ pub trait CoordExt<T: Value> {
     fn y_range(&self) -> Option<Range<T>> {
         let y_min = self.y_iter().fold(None, |acc: Option<(T, T)>, y| {
             Some(match acc {
-                Some((min, max)) => (min.min(y), max.max(y)),
+                Some((min, max)) => (
+                    nalgebra::RealField::min(min, y),
+                    nalgebra::RealField::max(max, y),
+                ),
                 None => (y, y),
             })
         });
@@ -225,6 +238,32 @@ impl<T: Value> CoordExt<T> for &[(T, T)] {
     }
 }
 
+/// Trait for infallible integer casting with clamping.
+pub trait IntClampedCast: num_traits::PrimInt {
+    /// Clamps a value to the range of the target type and casts it.
+    fn clamped_cast<T: num_traits::PrimInt>(self) -> T {
+        //
+        // Simple case: self is in range of T
+        if let Some(v) = num_traits::cast(self) {
+            return v;
+        }
+
+        let min = match num_traits::cast::<T, Self>(T::min_value()) {
+            Some(v) => v,              // Self can go lower than T - clamp to min
+            None => Self::min_value(), // Self cannot go lower than T
+        };
+
+        let max = match num_traits::cast::<T, Self>(T::max_value()) {
+            Some(v) => v,              // Self can go higher than T - clamp to max
+            None => Self::max_value(), // Self cannot go higher than T
+        };
+
+        let clamped = self.clamp(min, max);
+        num_traits::cast(clamped).expect("clamped value should be in range")
+    }
+}
+impl<T: num_traits::PrimInt> IntClampedCast for T {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +273,100 @@ mod tests {
         let range = ValueRange::new(0.0, 1.0, 0.1);
         let values: Vec<_> = range.collect();
         assert_eq!(values.len(), 11);
+    }
+
+    #[test]
+    fn clamped_cast_edge_cases() {
+        // i8 -> i8 (trivial)
+        assert_eq!(0i8.clamped_cast::<i8>(), 0);
+        assert_eq!(127i8.clamped_cast::<i8>(), 127);
+        assert_eq!((-128i8).clamped_cast::<i8>(), -128);
+
+        // i8 -> u8 (negative clamps to 0)
+        assert_eq!(0i8.clamped_cast::<u8>(), 0);
+        assert_eq!(127i8.clamped_cast::<u8>(), 127);
+        assert_eq!((-1i8).clamped_cast::<u8>(), 0);
+        assert_eq!((-128i8).clamped_cast::<u8>(), 0);
+
+        // u8 -> i8 (overflow clamps to 127)
+        assert_eq!(0u8.clamped_cast::<i8>(), 0);
+        assert_eq!(127u8.clamped_cast::<i8>(), 127);
+        assert_eq!(128u8.clamped_cast::<i8>(), 127);
+        assert_eq!(255u8.clamped_cast::<i8>(), 127);
+
+        // i16 -> i8 (underflow/overflow)
+        assert_eq!(0i16.clamped_cast::<i8>(), 0);
+        assert_eq!(127i16.clamped_cast::<i8>(), 127);
+        assert_eq!(128i16.clamped_cast::<i8>(), 127);
+        assert_eq!((-1i16).clamped_cast::<i8>(), -1);
+        assert_eq!((-128i16).clamped_cast::<i8>(), -128);
+        assert_eq!((-129i16).clamped_cast::<i8>(), -128);
+        assert_eq!(32767i16.clamped_cast::<i8>(), 127);
+        assert_eq!((-32768i16).clamped_cast::<i8>(), -128);
+
+        // i16 -> u8
+        assert_eq!(0i16.clamped_cast::<u8>(), 0);
+        assert_eq!(255i16.clamped_cast::<u8>(), 255);
+        assert_eq!(256i16.clamped_cast::<u8>(), 255);
+        assert_eq!((-1i16).clamped_cast::<u8>(), 0);
+        assert_eq!((-32768i16).clamped_cast::<u8>(), 0);
+
+        // u16 -> i8
+        assert_eq!(0u16.clamped_cast::<i8>(), 0);
+        assert_eq!(127u16.clamped_cast::<i8>(), 127);
+        assert_eq!(128u16.clamped_cast::<i8>(), 127);
+        assert_eq!(255u16.clamped_cast::<i8>(), 127);
+        assert_eq!(65535u16.clamped_cast::<i8>(), 127);
+
+        // i32 -> i16
+        assert_eq!(0i32.clamped_cast::<i16>(), 0);
+        assert_eq!(32767i32.clamped_cast::<i16>(), 32767);
+        assert_eq!(32768i32.clamped_cast::<i16>(), 32767);
+        assert_eq!((-32768i32).clamped_cast::<i16>(), -32768);
+        assert_eq!((-32769i32).clamped_cast::<i16>(), -32768);
+
+        // i32 -> u16
+        assert_eq!(0i32.clamped_cast::<u16>(), 0);
+        assert_eq!(65535i32.clamped_cast::<u16>(), 65535);
+        assert_eq!(65536i32.clamped_cast::<u16>(), 65535);
+        assert_eq!((-1i32).clamped_cast::<u16>(), 0);
+        assert_eq!((-32768i32).clamped_cast::<u16>(), 0);
+
+        // u32 -> i16
+        assert_eq!(0u32.clamped_cast::<i16>(), 0);
+        assert_eq!(32767u32.clamped_cast::<i16>(), 32767);
+        assert_eq!(32768u32.clamped_cast::<i16>(), 32767);
+        assert_eq!(65535u32.clamped_cast::<i16>(), 32767);
+        assert_eq!(u32::MAX.clamped_cast::<i16>(), 32767);
+
+        // u32 -> u16
+        assert_eq!(0u32.clamped_cast::<u16>(), 0);
+        assert_eq!(65535u32.clamped_cast::<u16>(), 65535);
+        assert_eq!(65536u32.clamped_cast::<u16>(), 65535);
+        assert_eq!(u32::MAX.clamped_cast::<u16>(), 65535);
+
+        // i64 -> i8
+        assert_eq!(i64::MIN.clamped_cast::<i8>(), -128);
+        assert_eq!(i64::MAX.clamped_cast::<i8>(), 127);
+        assert_eq!((-129i64).clamped_cast::<i8>(), -128);
+        assert_eq!(128i64.clamped_cast::<i8>(), 127);
+
+        // u64 -> i8
+        assert_eq!(0u64.clamped_cast::<i8>(), 0);
+        assert_eq!(255u64.clamped_cast::<i8>(), 127);
+        assert_eq!(u64::MAX.clamped_cast::<i8>(), 127);
+
+        // i128 -> u8
+        assert_eq!(0i128.clamped_cast::<u8>(), 0);
+        assert_eq!(255i128.clamped_cast::<u8>(), 255);
+        assert_eq!(256i128.clamped_cast::<u8>(), 255);
+        assert_eq!((-1i128).clamped_cast::<u8>(), 0);
+        assert_eq!(i128::MIN.clamped_cast::<u8>(), 0);
+
+        // u128 -> i8
+        assert_eq!(0u128.clamped_cast::<i8>(), 0);
+        assert_eq!(127u128.clamped_cast::<i8>(), 127);
+        assert_eq!(128u128.clamped_cast::<i8>(), 127);
+        assert_eq!(u128::MAX.clamped_cast::<i8>(), 127);
     }
 }

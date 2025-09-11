@@ -32,20 +32,42 @@ pub fn subscript(s: &str) -> String {
 
 /// Greek symbols
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
 #[repr(u64)]
 pub enum Greek {
+    /// α
     LowerAlpha = 'α' as u64,
+
+    /// Α
     UpperAlpha = 'Α' as u64,
+
+    /// β
     LowerBeta = 'β' as u64,
+
+    /// Β
     UpperBeta = 'Β' as u64,
+
+    /// γ
     LowerGamma = 'γ' as u64,
+
+    /// Γ
     UpperGamma = 'Γ' as u64,
+
+    /// δ
     LowerDelta = 'δ' as u64,
+
+    /// Δ
     UpperDelta = 'Δ' as u64,
+
+    /// ε
     LowerEpsilon = 'ε' as u64,
+
+    /// Ε
     UpperEpsilon = 'Ε' as u64,
+
+    /// ζ
     LowerZeta = 'ζ' as u64,
+
+    /// Ζ
     UpperZeta = 'Ζ' as u64,
 }
 impl std::fmt::Display for Greek {

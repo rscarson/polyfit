@@ -111,9 +111,9 @@ macro_rules! test_basis_orthogonal {
                 .map(|&x| {
                     (0..k)
                         .map(|i| $crate::value::Value::abs(basis.solve_function(i, x)))
-                        .fold(T::zero(), |a, b| a.max(b))
+                        .fold(T::zero(), |a, b| nalgebra::RealField::max(a, b))
                 })
-                .fold(T::zero(), |a, b| a.max(b));
+                .fold(T::zero(), |a, b| nalgebra::RealField::max(a, b));
 
             let tol = T::epsilon() * T::try_cast(xs.len() * 10).unwrap_or(T::one()) * max_val;
 

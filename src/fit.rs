@@ -11,6 +11,12 @@ use crate::{
     MonomialPolynomial, Polynomial,
 };
 
+/// Fourier series curve
+///
+/// Uses a Fourier series basis, which is particularly well-suited for modeling periodic functions.
+/// The basis functions include sine and cosine terms, allowing for effective representation of oscillatory behavior.
+pub type FourierFit<T = f64> = CurveFit<crate::basis::FourierBasis<T>, T>;
+
 /// Normalized Chebyshev polynomial curve
 ///
 /// Uses the Chebyshev polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
@@ -262,8 +268,14 @@ where
         let data = data.to_vec();
         let k = basis.k(degree);
 
-        let min_x = data.iter().map(|&(x, _)| x).fold(T::infinity(), T::min);
-        let max_x = data.iter().map(|&(x, _)| x).fold(T::neg_infinity(), T::max);
+        let min_x = data
+            .iter()
+            .map(|&(x, _)| x)
+            .fold(T::infinity(), <T as nalgebra::RealField>::min);
+        let max_x = data
+            .iter()
+            .map(|&(x, _)| x)
+            .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
         let x_range = min_x..=max_x;
 
         let mut matrix = DMatrix::zeros(data.len(), k);
@@ -750,12 +762,12 @@ where
             .data
             .iter()
             .map(|&(_, y)| y)
-            .fold(T::infinity(), T::min);
+            .fold(T::infinity(), <T as nalgebra::RealField>::min);
         let max_y = self
             .data
             .iter()
             .map(|&(_, y)| y)
-            .fold(T::neg_infinity(), T::max);
+            .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
         min_y..=max_y
     }
 
@@ -1180,5 +1192,25 @@ mod tests {
         assert_eq!(points.len(), xs.len());
         let range_points = fit.solve_range(0.0..2.0, 1.0).unwrap();
         assert_eq!(range_points.len(), 2);
+    }
+
+    #[test]
+    fn test_fourier() {
+        let basis = crate::basis::FourierBasis::new(&[(0.0, 1.0), (100.0, 1.0)]);
+        let poly = unsafe {
+            crate::Polynomial::from_raw(
+                basis,
+                std::borrow::Cow::Borrowed(&[10.0, 5.0, 3.0, 6.0, 4.0]),
+                2,
+            )
+        };
+        let data = poly.solve_range(0.0..101.0, 1.0);
+        let fit =
+            crate::FourierFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+
+        println!("{fit}");
+        println!("{poly}");
+
+        crate::plot!(&fit, functions = [&poly]);
     }
 }

@@ -3,6 +3,7 @@ use std::ops::Range;
 use crate::{basis::Basis, display::PolynomialDisplay, value::Value, CurveFit, Polynomial};
 
 /// Elements that can be plotted
+#[derive(Debug, Clone)]
 pub enum PlottingElement<'a, B, T: Value>
 where
     B: Basis<T>,

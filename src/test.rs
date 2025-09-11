@@ -72,13 +72,11 @@ macro_rules! function {
     };
 
     (const $name:ident (x) = $($rest:tt)+ ) => {
-        #[allow(non_upper_case_globals)]
-        const $name: $crate::MonomialPolynomial = $crate::function!($($rest)+);
+        const $name: $crate::MonomialPolynomial<'static> = $crate::function!($($rest)+);
     };
 
     (static $name:ident (x) = $($rest:tt)+ ) => {
-        #[allow(non_upper_case_globals)]
-        static $name: $crate::MonomialPolynomial = $crate::function!($($rest)+);
+        static $name: $crate::MonomialPolynomial<'static> = $crate::function!($($rest)+);
     };
 }
 
