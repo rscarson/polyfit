@@ -3,7 +3,7 @@ use std::ops::{Range, RangeInclusive};
 use nalgebra::{DMatrix, DVector, SVD};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntoMonomialBasis},
+    basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis},
     display::PolynomialDisplay,
     error::{Error, Result},
     statistics::{self, Confidence, ConfidenceBand, DegreeBound, ScoringMethod},
@@ -89,7 +89,7 @@ where
 
     /// Computes the standard error of the coefficient at j.
     ///
-    /// Returns None if the coefficient is not valid.
+    /// Returns None if the coefficient does not exist.
     ///
     /// This is the estimated standard deviation of the coefficient, providing
     /// a measure of its uncertainty.
@@ -170,6 +170,33 @@ where
         let x = self.fit.data().iter().map(|(x, _)| *x);
         x.map(|x| self.confidence_band(x, confidence_level))
             .collect()
+    }
+
+    /// Identifies outliers in the original dataset based on the confidence intervals.
+    ///
+    /// An outlier is defined as a data point where the actual `y` value falls outside
+    /// the computed confidence band for its corresponding `x`.
+    ///
+    /// # Parameters
+    /// - `confidence_level`: Confidence level used to determine the bounds (e.g., P95).
+    ///
+    /// # Returns
+    /// - `Ok(Vec<((T, T, ConfidenceBand<T>))>)` containing the index and `(x, y, confidence_band)` of each outlier.
+    /// - `Err` if confidence intervals cannot be computed.
+    ///
+    /// # Errors
+    /// Returns an error if the confidence level cannot be cast to the required type.
+    pub fn outliers(&self, confidence_level: Confidence) -> Result<Vec<(T, T, ConfidenceBand<T>)>> {
+        let bands = self.solution_confidence(confidence_level)?;
+        let mut outliers = Vec::new();
+
+        for ((x, y), band) in self.fit.data().iter().zip(bands) {
+            if *y < band.lower || *y > band.upper {
+                outliers.push((*x, *y, band));
+            }
+        }
+
+        Ok(outliers)
     }
 }
 
@@ -264,7 +291,7 @@ where
             return Err(Error::DegreeTooHigh(degree));
         }
 
-        let basis = B::new(data);
+        let basis = B::from_data(data);
         let data = data.to_vec();
         let k = basis.k(degree);
 
@@ -477,7 +504,7 @@ where
     /// - The final linear solve fails (`Algebra`).
     ///
     /// # Example
-    /// ```
+    /// ```rust
     /// # use polyfit::{ChebyshevFit, CurveFit};
     /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
     /// let fit = ChebyshevFit::new(data, 2).unwrap();
@@ -531,17 +558,85 @@ where
         CurveFitCovariance::new(self)
     }
 
-    /// Computes the critical points of the fitted polynomial.
+    /// Finds the critical points (where the derivative is zero) of a polynomial in this basis.
     ///
-    /// This returns the x-values where the polynomial has local minima or maxima.
+    /// This corresponds to the polynomial's local minima and maxima (The `x` values where curvature changes).
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
+    ///
+    /// This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
+    /// </div>
+    ///
+    /// # Returns
+    /// A vector of `x` values where the critical points occur.
+    ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`DifferentialBasis`].
     ///
     /// # Errors
-    /// Returns an error if the critical points cannot be computed.
+    /// Returns an error if the critical points cannot be found.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::MonomialPolynomial;
+    /// # use polyfit::statistics::Confidence;
+    /// # use polyfit::MonomialFit;
+    /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
+    /// let critical_points = model.critical_points().unwrap();
+    /// ```
     pub fn critical_points(&self) -> Result<Vec<T>>
     where
         B: DifferentialBasis<T>,
     {
         self.function.critical_points()
+    }
+
+    /// Computes the definite integral (area under the curve) of the fitted polynomial
+    /// between `x_min` and `x_max`.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The area under the curve is computed using the definite integral of the polynomial
+    /// between the specified bounds:
+    /// ```math
+    /// Area = ∫[x_min to x_max] f(x) dx = F(x_max) - F(x_min)
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
+    /// - `x_min`: Lower bound of integration.
+    /// - `x_max`: Upper bound of integration.
+    /// - `constant`: Constant of integration (value at x = 0) for the indefinite integral.
+    ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`IntegralBasis`].
+    ///
+    /// # Returns
+    /// - `Ok(T)`: The computed area under the curve between `x_min` and `x_max`.
+    /// - `Err`: If computing the integral fails (e.g., basis cannot compute integral coefficients).
+    ///
+    /// # Errors
+    /// If the basis cannot compute the integral coefficients, an error is returned.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::statistics::Confidence;
+    /// # use polyfit::MonomialFit;
+    /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
+    /// let area = model.area_under_curve(0.0, 3.0, None).unwrap();
+    /// println!("Area under curve: {}", area);
+    /// ```
+    pub fn area_under_curve(&self, x_min: T, x_max: T, constant: Option<T>) -> Result<T>
+    where
+        B: IntegralBasis<T>,
+    {
+        self.function.area_under_curve(x_min, x_max, constant)
     }
 
     /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign).
@@ -550,43 +645,17 @@ where
     /// Returns an error if the derivative cannot be computed.
     ///
     /// # Example
-    /// ```ignore
-    /// let fit = Fit::new(...);
+    /// ```rust
+    /// # use polyfit::{MonomialFit, statistics::ScoringMethod};
+    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
+    /// let fit = MonomialFit::new(data, 2).unwrap();
     /// let violations = fit.monotonicity_violations().unwrap();
     /// ```
     pub fn monotonicity_violations(&self) -> Result<Vec<T>>
     where
         B: DifferentialBasis<T>,
     {
-        let dx = self.function.derivative()?;
-        let critical_points = dx.basis().critical_points(dx.coefficients())?;
-
-        if critical_points.is_empty() {
-            // No critical points -> derivative does not change sign
-            return Ok(vec![]);
-        }
-
-        let mut violated_at = vec![];
-
-        let x_range = self.x_range();
-        let mut prev_sign = dx.y(*x_range.start()).f_signum();
-        for &x in &critical_points {
-            let y = dx.y(x);
-            if Value::abs(y) > T::epsilon() {
-                let sign = y.f_signum();
-                if sign != prev_sign {
-                    violated_at.push(x);
-                }
-                prev_sign = sign;
-            }
-        }
-
-        let sign = dx.y(*x_range.end()).f_signum();
-        if sign != prev_sign {
-            violated_at.push(*x_range.end());
-        }
-
-        Ok(violated_at)
+        self.function.monotonicity_violations(self.x_range.clone())
     }
 
     /// Computes the quality score of the polynomial fit using the specified method.
@@ -617,6 +686,24 @@ where
     }
 
     /// Computes the residuals of the fit.
+    ///
+    /// Residuals are the differences between the observed `y` values and the predicted `y` values from the fitted polynomial.
+    /// They provide insight into the fit quality and can be used for diagnostic purposes.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// residual_i = y_i - f(x_i)
+    /// where
+    ///   y_i = observed value, f(x_i) = predicted value from the polynomial at x_i
+    /// ```
+    /// </div>
+    ///
+    /// # Returns
+    /// A vector of residuals, where each element corresponds to a data point.
+    ///
     pub fn residuals(&self) -> Vec<T> {
         let y = self.data.y_iter();
         let y_fit = self.solution().into_iter().map(|(_, y)| y);
@@ -624,6 +711,8 @@ where
     }
 
     /// Computes the residual variance of the model's predictions.
+    ///
+    /// See [`statistics::residual_variance`].
     ///
     /// Residual variance is the unbiased estimate of the variance of the
     /// errors (σ²) after fitting a model. It's used for confidence intervals
@@ -670,17 +759,18 @@ where
         statistics::mean_absolute_error(y, y_fit)
     }
 
-    /// Computes the coefficient of determination (R²) for the polynomial fit.
+    /// Calculates the R-squared value for the model compared to provided data.
     ///
-    /// The R² value measures how well the model explains the variance in the data.
-    /// - `R² = 1.0` indicates a perfect fit.
-    /// - `R² = 0.0` indicates that the model does no better than the mean of the data.
+    /// R-squared is a statistical measure of how well the polynomial explains
+    /// the variance in the data. Values closer to 1 indicate a better fit.
     ///
     /// # Parameters
-    /// - `data`: Slice of `(x, y)` points to compare against the model.
+    /// - `data`: A slice of `(x, y)` pairs to compare against the polynomial fit.
+    ///
+    /// See [`statistics::r_squared`] for more details.
     ///
     /// # Returns
-    /// R² as a numeric value of type `T`.
+    /// The R-squared value as type `T`.
     ///
     /// # Example
     /// ```
@@ -697,16 +787,18 @@ where
         statistics::r_squared(y, y_fit)
     }
 
-    /// Computes how well this curve fit matches a target polynomial.
+    /// Calculates the R-squared value for the model compared to provided function.
     ///
-    /// This calculates R² by evaluating the target polynomial at the same `x`
-    /// values as the model’s data and comparing the predicted `y` values.
+    /// R-squared is a statistical measure of how well the polynomial explains
+    /// the variance in the data. Values closer to 1 indicate a better fit.
     ///
     /// # Parameters
-    /// - `function`: The target [`Polynomial`] to compare against.
+    /// - `data`: A slice of `(x, y)` pairs to compare against the polynomial fit.
+    ///
+    /// See [`statistics::r_squared`] for more details.
     ///
     /// # Returns
-    /// R² as a numeric value of type `T`.
+    /// The R-squared value as type `T`.
     ///
     /// # Example
     /// ```
@@ -730,21 +822,38 @@ where
         self.r_squared(&data)
     }
 
-    /// Returns the degree of the polynomial
+    /// Returns the degree of the polynomial.
+    ///
+    /// The number of actual components, or basis functions, in the expression of a degree is defined by the basis.
+    ///
+    /// That number is called k. For most basis choices, `k = degree + 1`.
     pub fn degree(&self) -> usize {
         self.function.degree()
     }
 
-    /// Returns a reference to the coefficients of the polynomial.
+    /// Returns a reference to the polynomial’s coefficients.
     ///
-    /// The coefficient at index `i` corresponds to `x^i` in the polynomial.
+    /// The index of each coefficient the jth basis function.
+    ///
+    /// For example in a monomial expression `y(x) = 2x^2 - 3x + 1`;
+    /// coefficients = [1.0, -3.0, 2.0]
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Formally, for each coefficient *j*, and the jth basis function *`B_j(x)`*, the relationship is:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
     pub fn coefficients(&self) -> &[T] {
         self.function.coefficients()
     }
 
     /// Returns a reference to the data points used for fitting.
     ///
-    /// Each element is a `(x, y)` tuple representing a measured data point.
+    /// Each element is a `(x, y)` tuple representing a data point.
     pub fn data(&self) -> &[(T, T)] {
         &self.data
     }
@@ -756,7 +865,7 @@ where
 
     /// Returns the inclusive range of y-values in the dataset.
     ///
-    /// This is computed dynamically from the stored data points.
+    /// This is computed dynamically from the stored data points. Use sparingly
     pub fn y_range(&self) -> RangeInclusive<T> {
         let min_y = self
             .data
@@ -771,10 +880,20 @@ where
         min_y..=max_y
     }
 
-    /// Evaluates the polynomial curve at a given x-value.
+    /// Evaluates the polynomial at a given x-value.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *`c_j`* and basis function *`B_j(x)`*, this function returns:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
     ///
     /// # Parameters
-    /// - `x`: The x-coordinate to evaluate.
+    /// - `x`: The point at which to evaluate the polynomial.
     ///
     /// # Returns
     /// The corresponding y-value as `T` if `x` is within the valid range.
@@ -838,6 +957,16 @@ where
 
     /// Evaluates the curve at multiple x-values.
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *`c_j`* and basis function *`B_j(x)`*, this function returns:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     /// - `x`: An iterator of x-values to evaluate.
     ///
@@ -867,6 +996,16 @@ where
     }
 
     /// Evaluates the curve at evenly spaced points over a range.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *`c_j`* and basis function *`B_j(x)`*, this function returns:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
     ///
     /// # Parameters
     /// - `range`: The start and end x-values to evaluate.
@@ -907,7 +1046,7 @@ where
     /// The [`Polynomial`] form is considered a canonical function, not a fit estimate.
     ///
     /// # Returns
-    /// A [`Polynomial`] that borrows the basis and coefficients from this fit.
+    /// A reference to the [`Polynomial`] that this fit uses internally.
     ///
     /// # Example
     /// ```
@@ -935,7 +1074,7 @@ where
     /// The [`Polynomial`] form is considered a canonical function, not a fit estimate.
     ///
     /// # Returns
-    /// A [`Polynomial`] that borrows the basis and coefficients from this fit.
+    /// The [`Polynomial`] that this fit uses internally
     ///
     /// # Example
     /// ```
@@ -1192,25 +1331,5 @@ mod tests {
         assert_eq!(points.len(), xs.len());
         let range_points = fit.solve_range(0.0..2.0, 1.0).unwrap();
         assert_eq!(range_points.len(), 2);
-    }
-
-    #[test]
-    fn test_fourier() {
-        let basis = crate::basis::FourierBasis::new(&[(0.0, 1.0), (100.0, 1.0)]);
-        let poly = unsafe {
-            crate::Polynomial::from_raw(
-                basis,
-                std::borrow::Cow::Borrowed(&[10.0, 5.0, 3.0, 6.0, 4.0]),
-                2,
-            )
-        };
-        let data = poly.solve_range(0.0..101.0, 1.0);
-        let fit =
-            crate::FourierFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
-
-        println!("{fit}");
-        println!("{poly}");
-
-        crate::plot!(&fit, functions = [&poly]);
     }
 }

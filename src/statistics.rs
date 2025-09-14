@@ -1,11 +1,38 @@
-//! Statistical utilities for polynomial fitting.
+//! Functions and tools for evaluating polynomial fits and scoring models
 //!
 //! This module provides functions and types to evaluate how well a polynomial model
 //! fits a dataset, and to score models when automatically selecting polynomial degrees.
 //!
-//! # Goodness-of-fit vs Model Selection
+//! # Model Fit / Regression Diagnostics
+//! - [`r_squared`]: Proportion of variance explained by the model. Higher is better (0 to 1).
+//! - [`adjusted_r_squared`]: R² adjusted for number of predictors. Use to compare models of different degrees.
+//! - [`residual_variance`]: Unbiased estimate of variance of errors after fitting. Used for confidence intervals.
+//! - [`residual_normality`]: Likelihood that the residuals are normally distributed. Results near 0 or 1 indicate non-normality, higher results do not guarantee normality.
 //!
-//! - **Goodness-of-fit**: How well does the model explain the data? Use [`r_squared`] or [`residual_variance`].
+//! # Confidence Intervals
+//! - [`ConfidenceBand`]: Represents a confidence interval with lower and upper bounds, determined by a given probability.
+//! - [`Confidence`]: Enum for common confidence levels (68%, 95%, 99%).
+//!
+//! # Model Selection
+//! - [`ScoringMethod`]: Enum for model selection criteria (AIC, BIC) with methods to calculate scores.
+//! - [`DegreeBound`]: Enum to specify constraints on polynomial degree when automatically selecting it.
+//!
+//! # Error Metrics
+//! - [`mean_absolute_error`]: Average absolute difference between observed and predicted values. Lower is better.
+//! - [`mean_squared_error`]: Average squared difference between observed and predicted values. Lower is better.
+//! - [`root_mean_squared_error`]: Square root of MSE, giving error in same units as observed values. Lower is better.
+//! - [`huber_log_likelihood`]: Robust error metric less sensitive to outliers. Higher is better.
+//!
+//! # Descriptive Statistics
+//! - [`mean`]: Arithmetic mean of a dataset.
+//! - [`stddev_and_mean`]: Standard deviation and mean of a dataset.
+//! - [`median_absolute_deviation`]: Average absolute deviation from the mean.
+//! - [`spread`]: Difference between maximum and minimum values in a dataset.
+//! - [`skewness_and_kurtosis`]: Measures of asymmetry and "tailedness" of the distribution.
+//!
+//! # Model Fit vs Model Selection
+//!
+//! - **Model Fit**: How well does the model explain the data? Use [`r_squared`] or [`residual_variance`].
 //!   - Returns a value between 0 and 1.
 //!   - 0 = model explains none of the variance.
 //!   - 1 = model perfectly fits the data.
@@ -33,11 +60,6 @@
 //! let score = ScoringMethod::AIC.calculate(y.into_iter(), y_fit.into_iter(), 3.0);
 //! println!("AIC score = {score}");
 //! ```
-//!
-//! # Notes
-//!
-//! - Use `r_squared` to evaluate how well a model fits your data.
-//! - Use AIC/BIC only when automatically selecting polynomial degree or comparing candidate models.
 use crate::value::Value;
 
 /// Computes the residual variance of a model's predictions.
@@ -45,6 +67,18 @@ use crate::value::Value;
 /// Residual variance is the unbiased estimate of the variance of the
 /// errors (σ²) after fitting a model. It's used for confidence intervals
 /// and covariance estimates of the fitted parameters.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// σ² = Σ (y_i - y_fit_i)² / (n - k)
+/// where
+///   y_i = observed values, y_fit_i = predicted values,
+///   n = number of observations, k = number of model parameters
+/// ```
+/// </div>
 ///
 /// # Parameters
 /// - `y`: Iterator over the observed (actual) values.
@@ -54,14 +88,8 @@ use crate::value::Value;
 /// # Returns
 /// The residual variance as a `T`.
 ///
-/// > # Technical Details
-/// > ```math
-/// > σ² = Σ (y_i - y_fit_i)² / (n - k)
-/// > ```
-/// > where n is the number of data points and k is the number of parameters.
-///
 /// # Example
-/// ```
+/// ```rust
 /// # use polyfit::statistics::residual_variance;
 /// let y = vec![1.0, 2.0, 3.0];
 /// let y_fit = vec![0.9, 2.1, 2.95];
@@ -92,6 +120,19 @@ pub fn residual_variance<T: Value>(
 /// - `0` means the model explains none of the variation.
 /// - `1` means the model explains all the variation.
 ///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// R-squared is calculated as:
+/// ```math
+/// R² = 1 - (SS_res / SS_tot)
+/// where
+///   SS_res = Σ (y_i - y_fit_i)²
+///   SS_tot = Σ (y_i - y_mean)²
+/// ```
+/// </div>
+///
 /// # Parameters
 /// - `y`: The actual (observed) values.
 /// - `y_fit`: The predicted values from the model.
@@ -99,18 +140,8 @@ pub fn residual_variance<T: Value>(
 /// # Returns
 /// The proportion of variance explained by the model.
 ///
-/// > # Technical Details
-/// >
-/// > R-squared is calculated as:
-/// > ```math
-/// > R² = 1 - (SS_res / SS_tot)
-/// > where
-/// >   SS_res = Σ (y_i - y_fit_i)²
-/// >   SS_tot = Σ (y_i - y_mean)²
-/// > ```
-///
 /// # Example
-/// ```
+/// ```rust
 /// # use polyfit::statistics::r_squared;
 /// let y = vec![1.0, 2.0, 3.0];
 /// let y_fit = vec![1.1, 1.9, 3.05];
@@ -123,6 +154,19 @@ pub fn r_squared<T: Value>(y: impl Iterator<Item = T>, y_fit: impl Iterator<Item
 
 /// Computes the arithmetic mean of a sequence of values.
 ///
+/// This is the average value, calculated as the sum of all values divided by the count.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// Mean = (Σ x_i) / N
+/// where
+///   x_i = each value in the dataset, N = total number of values
+/// ```
+/// </div>
+///
 /// # Type Parameters
 /// - `T`: A numeric type implementing the `Value` trait.
 ///
@@ -133,19 +177,10 @@ pub fn r_squared<T: Value>(y: impl Iterator<Item = T>, y_fit: impl Iterator<Item
 /// The arithmetic mean of all elements in `data`.
 /// - Returns zero if the iterator yields no elements.
 ///
-/// > # Technical Details
-/// > The mean is calculated as:
-/// > ```math
-/// > Mean = (Σ x_i) / N
-/// > Where
-/// > - N is the number of elements
-/// > - x_i are the individual elements
-/// > ```
-///
 /// # Examples
-/// ```ignore
+/// ```rust
 /// let values = vec![1.0, 2.0, 3.0];
-/// let m = mean(values.into_iter());
+/// let m = polyfit::statistics::mean(values.into_iter());
 /// assert_eq!(m, 2.0);
 /// ```
 pub fn mean<T: Value>(data: impl Iterator<Item = T>) -> T {
@@ -159,8 +194,21 @@ pub fn mean<T: Value>(data: impl Iterator<Item = T>) -> T {
 }
 
 /// Computes the standard deviation of a sequence of values.
+/// - Uses the population formula (divides by `N`) rather than `N-1`.
 ///
-/// Uses the population formula (divides by `N`) rather than `N-1`.
+/// The standard deviation measures the amount of variation or dispersion in a dataset. This function also returns the mean, for performance reasons.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// σ = sqrt( (Σ (x_i - Mean)²) / N )
+/// where
+///   x_i = each value in the dataset, Mean = arithmetic mean
+///   N = total number of values
+/// ```
+/// </div>
 ///
 /// # Type Parameters
 /// - `T`: A numeric type implementing the `Value` trait.
@@ -174,9 +222,9 @@ pub fn mean<T: Value>(data: impl Iterator<Item = T>) -> T {
 /// Returns zero if the iterator yields no elements.
 ///
 /// # Examples
-/// ```ignore
+/// ```rust
 /// let values = vec![1.0, 2.0, 3.0];
-/// let (s, _) = stddev_and_mean(values.into_iter());
+/// let (s, _) = polyfit::statistics::stddev_and_mean(values.into_iter());
 /// assert_eq!(s, 0.816496580927726); // sqrt(2/3)
 /// ```
 pub fn stddev_and_mean<T: Value>(data: impl Iterator<Item = T>) -> (T, T) {
@@ -195,6 +243,28 @@ pub fn stddev_and_mean<T: Value>(data: impl Iterator<Item = T>) -> (T, T) {
 
 /// Computes the skewness and excess kurtosis of a dataset.
 ///
+/// Skewness measures the asymmetry of the distribution:
+/// - Positive skew → tail to the right
+/// - Negative skew → tail to the left
+///
+/// Kurtosis measures the "tailedness" of the distribution:
+/// - Excess kurtosis = kurtosis - 3 (so that a normal distribution has excess kurtosis of 0)
+/// - Positive excess kurtosis → heavier tails than normal
+/// - Negative excess kurtosis → lighter tails than normal
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// Skewness = (Σ ((x_i - Mean) / StdDev)³) / N
+/// Kurtosis = (Σ ((x_i - Mean) / StdDev)⁴) / N - 3
+/// where
+///   x_i = each value in the dataset, Mean = arithmetic mean
+///   StdDev = standard deviation, N = total number of values
+/// ```
+/// </div>
+///
 /// # Type Parameters
 /// - `T`: A numeric type implementing the `Value` trait.
 ///
@@ -212,9 +282,9 @@ pub fn stddev_and_mean<T: Value>(data: impl Iterator<Item = T>) -> (T, T) {
 /// - Uses population formulas (divide by `N` rather than `N-1`).
 ///
 /// # Examples
-/// ```ignore
+/// ```rust
 /// let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-/// let (skew, kurt) = skewness_and_kurtosis(&data);
+/// let (skew, kurt) = polyfit::statistics::skewness_and_kurtosis(&data);
 /// println!("Skewness = {}, Kurtosis = {}", skew, kurt);
 /// ```
 pub fn skewness_and_kurtosis<T: Value>(residuals: &[T]) -> (T, T) {
@@ -240,10 +310,45 @@ pub fn skewness_and_kurtosis<T: Value>(residuals: &[T]) -> (T, T) {
     (skewness, kurtosis)
 }
 
-/// Returns a probability of the residuals being normally distributed
+/// Returns a score measuring if the residuals can be normally distributed.
+/// - Normality refers to how closely the residuals follow a normal (Gaussian) distribution, and can check how well a model fits the data.
+/// - Values near 0 are said to 'reject' normality, while values near 1 'do not reject' normality.
+///   - In practice, values below 0.05 are often considered to reject normality.
+///   - This means any value below 0.05 indicates the residuals are likely not normally distributed.
+///   - Values above 0.05 do not guarantee normality, just that we do not have strong evidence to reject it.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// k² = (skewness / σ_skew)² + (kurtosis / σ_kurt)²
+/// score = exp(-k² / 2)
+/// where
+///   σ_skew = √(6 / N), σ_kurt = √(24 / N)
+///   N = number of residuals
+/// ```
+/// skewness and kurtosis as defined in [`skewness_and_kurtosis`]
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
+/// # Parameters
+/// - `residuals`: A slice of values representing the residuals from a model fit.
+///
+/// # Returns
+/// A likelihood score between 0 and 1 indicating how likely the residuals are normally distributed.
 ///
 /// # Panics
 /// If T cannot hold 24, which would be silly
+///
+/// # Examples
+/// ```rust
+/// let residuals = vec![0.5, -0.2, 0.1, -0.4, 0.3];
+/// let normality_score = polyfit::statistics::residual_normality(&residuals);
+/// println!("Normality Score = {}", normality_score);
+/// ```
 pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
     let six = T::try_cast(6.0).unwrap();
     let twentyfour = T::try_cast(24.0).unwrap();
@@ -263,9 +368,8 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
     (-k_squared / T::two()).exp()
 }
 
-/// Computes the range (spread) of a dataset.
-///
-/// The spread is defined as the difference between the maximum and minimum values.
+/// Computes the range (spread) of a dataset
+/// - The spread is the difference between the maximum and minimum values.
 ///
 /// # Type Parameters
 /// - `T`: A numeric type implementing the `Value` trait.
@@ -280,9 +384,9 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
 /// - Returns `T::infinity() - T::neg_infinity()` if `data` is empty  
 ///
 /// # Examples
-/// ```ignore
+/// ```rust
 /// let values = vec![2.0, 5.0, 1.0, 9.0];
-/// let r = spread(&values);
+/// let r = polyfit::statistics::spread(&values);
 /// assert_eq!(r, 8.0); // 9 - 1
 /// ```
 pub fn spread<T: Value>(data: &[T]) -> T {
@@ -301,6 +405,21 @@ pub fn spread<T: Value>(data: &[T]) -> T {
 ///
 /// Adjusted R² accounts for the number of predictors in a model, penalizing
 /// overly complex models. Use it to compare models of different degrees.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// R²_adj = R² - (1 - R²) * (k / (n - k))
+/// where
+///   n = number of observations, k = number of model parameters
+/// ```
+/// [`r_squared`] is used to compute R²
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
 ///
 /// # Parameters
 /// - `y`: Iterator over observed values.
@@ -363,6 +482,21 @@ fn r_squared_with_n<T: Value>(
 /// MAE measures the average absolute difference between observed (`y`)
 /// and predicted (`y_fit`) values. Lower values indicate a closer fit.
 ///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// MAE = (Σ |y_i - y_fit_i|) / N
+/// where
+///   y_i = observed values, y_fit_i = predicted values,
+///   N = number of observations
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
 /// # Parameters
 /// - `y`: Iterator over observed values.
 /// - `y_fit`: Iterator over predicted values.
@@ -371,7 +505,7 @@ fn r_squared_with_n<T: Value>(
 /// The mean absolute error as a `T`.
 ///
 /// # Example
-/// ```
+/// ```rust
 /// # use polyfit::statistics::mean_absolute_error;
 /// let y = vec![1.0, 2.0, 3.0];
 /// let y_fit = vec![1.1, 1.9, 3.05];
@@ -394,6 +528,21 @@ pub fn mean_absolute_error<T: Value>(
 ///
 /// RMSE is the square root of the mean squared error, giving the error
 /// in the same units as the observed values. Lower values indicate a better fit.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// RMSE = √( (Σ (y_i - y_fit_i)²) / N )
+/// where
+///   y_i = observed values, y_fit_i = predicted values,
+///   N = number of observations
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
 ///
 /// # Parameters
 /// - `y`: Iterator over observed values.
@@ -427,6 +576,21 @@ pub fn root_mean_squared_error<T: Value>(
 /// observed (`y`) and predicted (`y_fit`) values. Lower values indicate
 /// a better fit.
 ///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// MSE = (Σ (y_i - y_fit_i)²) / N
+/// where
+///   y_i = observed values, y_fit_i = predicted values,
+///   N = number of observations
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
 /// # Parameters
 /// - `y`: Iterator over the observed (actual) values.
 /// - `y_fit`: Iterator over the predicted values from a model.
@@ -450,8 +614,44 @@ pub fn mean_squared_error<T: Value>(
 }
 
 /// Computes the log-likelihood of the Huber loss for a set of data points.
+/// - Huber loss is a robust error metric that is less sensitive to outliers than MSE.
+/// - Higher values indicate a better fit.
 ///
-/// This measures how well the model predicts the data, with a focus on robustness to outliers.
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// - Uses `1.345` as the Huber constant, which is standard for 95% efficiency with normally distributed errors.
+/// - This is the value recommended by Peter J. Huber in his original paper "Robust Estimation of a Location Parameter" (1964).
+/// ```math
+/// delta = 1.345 * MAD
+/// LogLikelihood = - (Σ huber_loss(y_i - y_fit_i, delta)) / N
+/// huber_loss(r, delta) = { 0.5 * r²                    if |r| ≤ delta
+///                        { delta * (|r| - 0.5 * delta) if |r| > delta
+/// where
+///   y_i = observed values, y_fit_i = predicted values,
+///   N = number of observations
+/// ```
+/// [`median_absolute_deviation`] is used to compute MAD
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
+/// # Parameters
+/// - `y`: Iterator over observed values.
+/// - `y_fit`: Iterator over predicted values.
+///
+/// # Returns
+/// The Huber log-likelihood as a `T`.
+///
+/// # Example
+/// ```rust
+/// # use polyfit::statistics::huber_log_likelihood;
+/// let y = vec![1.0, 2.0, 3.0];
+/// let y_fit = vec![1.1, 1.9, 3.05];
+/// let ll = huber_log_likelihood(y.into_iter(), y_fit.into_iter());
+/// ```
 pub fn huber_log_likelihood<T: Value>(
     y: impl Iterator<Item = T>,
     y_fit: impl Iterator<Item = T>,
@@ -508,9 +708,23 @@ fn huber_loss<T: Value>(r: T, delta: T) -> T {
 }
 
 /// Computes the median absolute deviation (MAD) between two sets of values.
+/// - MAD is a measure of variability that is robust to outliers.
+/// - Lower values indicate a closer fit.
+/// - Uses the median of the absolute deviations from the median.
 ///
-/// MAD is a robust measure of the variability of a dataset. It is the median of the absolute
-/// deviations from the median of the data.
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// MAD = median( |y_i - y_fit_i| )
+/// where
+///   y_i = observed values, y_fit_i = predicted values
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
 ///
 /// # Parameters
 /// - `y`: Iterator over the observed (actual) values.
@@ -520,7 +734,7 @@ fn huber_loss<T: Value>(r: T, delta: T) -> T {
 /// The median absolute deviation as a `T`.
 ///
 /// # Example
-/// ```
+/// ```rust
 /// # use polyfit::statistics::median_absolute_deviation;
 /// let y = vec![1.0, 2.0, 3.0];
 /// let y_fit = vec![1.1, 1.9, 3.05];
@@ -550,41 +764,80 @@ pub fn median_absolute_deviation<T: Value>(
 ///
 /// These are used when automatically selecting the "best" polynomial degree.
 ///
-/// - `AIC`: Akaike Information Criterion. Uses a more lenient penalty for model complexity.
-///   - If `n/k < 4`, the corrected version (`AICc`) is used.
-/// - `BIC`: Bayesian Information Criterion. Uses a stricter penalty for model complexity.
-///
 /// # Selecting a method
 /// - `AIC`: Picks a slightly more complex model if it fits better.
 /// - `BIC`: Prefers simpler models, even if the fit is slightly worse.
-/// -
+///
+/// - AIC is a good default for general use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScoringMethod {
-    /// More lenient penalty for complexity
+    /// Akaike Information Criterion. Uses a more lenient penalty for model complexity
+    /// - Picks a slightly more complex model if it fits better.
+    ///
+    /// This is the default choice for most applications.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// AIC is calculated as:
+    /// ```math
+    /// AIC = { n * ln(L) + 2k
+    ///       { n * ln(L) + 2k + (2k(k+1)) / (n - k - 1)  if (n / k < 2 + 2) AND (n > k + 1)
+    /// where
+    ///   L = likelihood of the model (using Huber loss)
+    ///   n = number of observations, k = number of model parameters
+    /// ```
+    /// </div>
     AIC,
 
-    /// More stringent penalty for complexity
+    /// Bayesian Information Criterion. Uses a stricter penalty for model complexity.
+    /// - Prefers simpler models, even if the fit is slightly worse.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// BIC is calculated as:
+    /// ```math
+    /// BIC = n * ln(L) + k * ln(n)
+    /// where
+    ///   L = likelihood of the model (using Huber loss)
+    ///   n = number of observations, k = number of model parameters
+    /// ```
+    /// </div>
     BIC,
 }
 impl ScoringMethod {
     /// Calculate the model's score using this scoring method.
     ///
-    /// # Parameters
-    /// - `y`: The actual (observed) values.
-    /// - `y_fit`: The predicted values from the model.
-    /// - `k`: The number of model parameters (usually `degree + 1`).
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// In place of MSE, which is susceptible to outliers, we use a robust loss function based on the
+    /// Huber loss. This combines the ideas of MSE and MAE, providing a balance between the two.
+    ///
+    /// For more details, see the documentation for [`huber_log_likelihood`], [`ScoringMethod::AIC`], and [`ScoringMethod::BIC`].
+    /// </div>
     ///
     /// # Notes
     /// - Lower scores indicate a "better" choice for automatically selecting the polynomial degree.
     /// - This is **not** a measure of how well the model fits your data. For that, use `r_squared`.
     ///
+    /// # Type Parameters
+    /// - `T`: A numeric type implementing the `Value` trait.
+    ///
+    /// # Parameters
+    /// - `y`: Iterator over the observed (actual) values.
+    /// - `y_fit`: Iterator over the predicted values from the model.
+    /// - `k`: Number of model parameters (degrees of freedom used by the fit).
+    ///
+    /// # Returns
+    /// The computed score as a `T`.
+    ///
     /// # Errors
     /// Returns an error if the huber loss constant cannot be cast to the required type.
-    ///
-    /// > **Technical Details**
-    /// >
-    /// > In place of MSE, which is susceptible to outliers, we use a robust loss function based on the
-    /// > Huber loss. This combines the ideas of MSE and MAE, providing a balance between the two.
     ///
     /// # Example
     /// ```
@@ -620,40 +873,59 @@ impl ScoringMethod {
     }
 }
 
-/// Specifies a limit on the maximum polynomial degree used for fitting, helping to prevent overfitting.
+/// In order to find the best fitting polynomial degree, we need to limit the maximum degree considered.
+/// The choice of degree bound can significantly impact the model's performance and its ability to generalize.
 ///
-/// > **Technical Details**
-/// >
-/// > The maximum degree is chosen as the minimum of four constraints:
-/// > 1. The theoretical maximum for non-interpolating fits (`n - 1`).
-/// > 2. `n^(1/(2s+1))`, where `s` is the assumed smoothness of the underlying function:
-/// >    - Conservative: `s = 2 → n^(1/5)`
-/// >    - Relaxed: `s = 1 → n^(1/3)`
-/// >    This comes from minimizing mean squared error via the bias–variance tradeoff for polynomial series estimators (Stone, 1982; Tsybakov, 2009).
-/// > 3. `(n / n_k_ratio_limit)`, where `n_k_ratio_limit` is a heuristic for the minimum number of observations per coefficient:
-/// >    - Conservative: 15 observations per parameter
-/// >    - Relaxed: 8 observations per parameter
-/// >    This ensures variance of coefficient estimates remains reasonable (Harrell, 2015; Babyak, 2004).
-/// > 4. A hard cap:
-/// >    - Conservative: 8
-/// >    - Relaxed: 15
-/// >
-/// > Conservative hits the hard-cap of 8 at n ~= 32,000
-/// > Relaxed hits the hard-cap of 15 at n ~= 3,375
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// The maximum degree is chosen as the minimum of four constraints:
+///
+/// 1. Theoretical maximum for non-interpolating fits: `n - 1`, where `n` is the number of observations.
+///
+/// 2. A hard cap to prevent excessively high degrees:
+/// - Conservative: 8
+/// - Relaxed: 15
+///
+/// 3. Smoothness (`s`):
+/// ```math
+/// lim_smooth = n ^ (1 / (2s + 1))
+/// where
+///   s = assumed smoothness of the underlying function
+///   n = number of observations
+/// ```
+///
+/// 4. Observations per parameter:
+/// ```math
+/// lim_obs = (n / n_k_ratio_limit) - 1
+/// where
+///   n_k_ratio_limit = minimum required number of observations per coefficient
+///   n = number of observations
+/// ```
+/// </div>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DegreeBound {
-    /// Stricter bound; limits model complexity more aggressively. Recommended for small datasets or when overfitting is a major concern.
+    /// Limits model complexity more aggressively, recommended for small datasets or when overfitting is a major concern.
+    ///   - Assumes the data is smoother (s=2)
+    ///   - Requires more observations per parameter (15)
+    ///   - Lower hard cap (8)
+    ///   - Hard cap reached when n ~= 32,000
     Conservative,
 
-    /// Looser bound; allows higher complexity. Useful when the underlying function may be more complex and the dataset is moderate in size.
+    /// Allows for higher complexity, useful when the underlying function may be more complex and the dataset is moderate in size.
+    /// - Assumes the data is less 'smooth' (s=1)
+    /// - Allows for fewer observations per parameter (8)
+    /// - Higher hard cap (15)
+    /// - Hard cap reached when n ~= 3,375
     Relaxed,
 
     /// User-specified maximum degree. Use only if you understand the implications for overfitting and numerical stability.
-    Arbitrary(usize),
+    Custom(usize),
 }
 impl From<usize> for DegreeBound {
     fn from(value: usize) -> Self {
-        DegreeBound::Arbitrary(value)
+        DegreeBound::Custom(value)
     }
 }
 impl DegreeBound {
@@ -663,12 +935,12 @@ impl DegreeBound {
     pub fn max_degree(self, n: usize) -> usize {
         let theoretical_max = n.saturating_sub(1);
         match self {
-            DegreeBound::Arbitrary(d) => d.min(theoretical_max),
+            DegreeBound::Custom(d) => d.min(theoretical_max),
             DegreeBound::Conservative | DegreeBound::Relaxed => {
                 let (hard_cap, max_n_per_k, est_smoothness) = match self {
                     DegreeBound::Conservative => (8, 15, 2),
                     DegreeBound::Relaxed => (15, 8, 1),
-                    DegreeBound::Arbitrary(_) => unreachable!(),
+                    DegreeBound::Custom(_) => unreachable!(),
                 };
 
                 let smooth_lim = (n as f64)
@@ -930,6 +1202,13 @@ impl<T: Value> DomainNormalizer<T> {
         let (dst_min, dst_max) = self.dst_range;
         let value = src_min + (x - dst_min) * (src_max - src_min) / (dst_max - dst_min);
         nalgebra::RealField::clamp(value, src_min, src_max)
+    }
+}
+impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (src_min, src_max) = self.src_range;
+        let (dst_min, dst_max) = self.dst_range;
+        write!(f, "T[ {src_min}..{src_max} -> {dst_min}..{dst_max} ]")
     }
 }
 

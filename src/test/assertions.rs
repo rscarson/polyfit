@@ -12,14 +12,13 @@
 /// ![Failure Plot](https://github.com/rscarson/polyfit/blob/main/.github/assets/example_fail.png)
 ///
 /// ```rust
-/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, test::Noise, assert_fits};
+/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, transforms::ApplyNoise, assert_fits};
 ///
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).normal_noise(0.1).expect("Failed to add noise");
+/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(0.1, None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 /// assert_fits!(&test, &fit, 0.9);
-/// ```
 /// ```
 #[macro_export]
 macro_rules! assert_fits {
@@ -40,7 +39,7 @@ macro_rules! assert_fits {
             );
 
             // And finally, assert to end the test
-            assert!(r2 < threshold, "R² = {r2} is above {threshold}");
+            assert!(r2 < threshold, "R² = {r2} is below {threshold}");
         }
     }};
 
@@ -67,10 +66,10 @@ macro_rules! assert_fits {
 ///
 /// # Example
 /// ```rust
-/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, test::Noise, assert_r_squared};
+/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, transforms::ApplyNoise, assert_r_squared};
 ///
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).normal_noise(0.1).expect("Failed to add noise");
+/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(0.1, None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 /// assert_r_squared!(fit, 0.95);
@@ -90,7 +89,7 @@ macro_rules! assert_r_squared {
                 $crate::plot!(fit, title = &format!("Polynomial Fit (R² = {r2:.4})"));
 
                 // And finally, assert to end the test
-                assert!(r2 >= threshold, "R² = {r2} is above {threshold}");
+                assert!(r2 >= threshold, "R² = {r2} is below {threshold}");
             }
         }
     };
@@ -114,10 +113,10 @@ macro_rules! assert_r_squared {
 ///
 /// # Example
 /// ```rust
-/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, test::Noise, assert_residuals_normal};
+/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, transforms::ApplyNoise, assert_residuals_normal};
 ///
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).normal_noise(0.1).expect("Failed to add noise");
+/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(0.1, None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 ///
@@ -159,7 +158,7 @@ macro_rules! assert_residuals_normal {
 /// Asserts that the spread (max - min) of the residuals of a fit is within a specified tolerance.
 ///
 /// This ensures that no residual is too large, i.e., the fit is sufficiently close to the data.
-/// Unlike `assert_normal_residuals`, this checks **magnitude**, not distribution shape.
+/// Unlike `assert_residuals_normal`, this checks **magnitude**, not distribution shape.
 ///
 /// # Parameters
 /// - `fit`: The curve fit to test.
@@ -233,9 +232,9 @@ macro_rules! assert_monotone {
 /// within floating-point epsilon tolerance.
 ///
 /// This macro expands into a small helper function that:
-/// - Evaluates the polynomial at `x` using [`Polynomial::y`].
+/// - Evaluates the polynomial at `x` using [`crate::Polynomial::y`].
 /// - Compares the result against the expected value.
-/// - Panics if the difference exceeds [`T::epsilon()`].
+/// - Panics if the difference exceeds `::epsilon()` for the type `T`.
 ///
 /// # Arguments
 ///
@@ -271,7 +270,7 @@ macro_rules! assert_y {
 
 /// Asserts that two numeric values are approximately equal within machine epsilon.
 ///
-/// This is a strict comparison using [`Value::epsilon`] for the type `T`.
+/// This is a strict comparison using `::epsilon()` for the type `T`.
 /// Use this when you want to ensure results are numerically identical up to
 /// floating-point precision limits.
 ///
@@ -281,7 +280,7 @@ macro_rules! assert_y {
 /// - `$msg`: Custom failure message.
 ///
 /// # Panics
-/// Panics if the absolute difference `|a - b|` exceeds `T::epsilon()`.
+/// Panics if the absolute difference `|a - b|` exceeds `::epsilon()` for the type `T`.
 ///
 /// # Examples
 /// ```
@@ -293,7 +292,7 @@ macro_rules! assert_close {
     ($a:expr, $b:expr $(, $msg:expr $(, $($args:tt),*)?)?) => {{
         fn assert_close<T: $crate::value::Value>(a: T, b: T, msg: &str) {
             assert!(
-                $crate::value::Value::abs(a - b) <= T::epsilon(),
+                a == b || $crate::value::Value::abs(a - b) <= T::epsilon(),
                 "{msg}: {a} != {b}"
             );
         }

@@ -1,0 +1,36 @@
+name: Docs
+# By a huge margin the slowest test, so we run it separately
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # Run tests with all features
+    - name: Run complete tests
+      run: cargo test --all-features --doc
+
+    # Test documentation generation
+    - name: Test documentation
+      run: cargo doc --all-features --no-deps
+
+    #
+    # Run all examples
+    #
+
+    - name: simple_fit
+      run: cargo run --example simple_fit --features "plotting"

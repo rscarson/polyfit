@@ -1,4 +1,7 @@
-use std::{borrow::Cow, ops::Range};
+use std::{
+    borrow::Cow,
+    ops::{Range, RangeInclusive},
+};
 
 use crate::{
     basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis},
@@ -59,12 +62,12 @@ impl<'a, T: Value> MonomialPolynomial<'a, T> {
 
 /// Represents a polynomial function in a given basis.
 ///
-/// Unlike [`CurveFit`], this struct is **not tied to any dataset or matrix**, making it a canonical function that
+/// Unlike [`crate::CurveFit`], this struct is **not tied to any dataset or matrix**, making it a canonical function that
 /// can be evaluated for **any x-value** without range restrictions.
 ///
 /// # Type Parameters
 /// - `'a`: Lifetime for borrowed basis or coefficients, if used.
-/// - `B`: The polynomial basis (e.g., [`MonomialBasis`], [`ChebyshevBasis`]).
+/// - `B`: The polynomial basis (e.g., [`MonomialBasis`], [`crate::basis::ChebyshevBasis`]).
 /// - `T`: Numeric type for the coefficients, default is `f64`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Polynomial<'a, B, T: Value = f64>
@@ -105,6 +108,25 @@ where
         }
     }
 
+    /// Creates a new polynomial from a basis and coefficients, inferring the degree.
+    ///
+    /// # Parameters
+    /// - `basis`: The polynomial basis
+    /// - `coefficients`: The coefficients for the polynomial, possibly borrowed or owned
+    ///
+    /// # Returns
+    /// A new [`Polynomial`] instance with the given basis and coefficients, or an error if the number of coefficients is invalid for the basis.
+    ///
+    /// # Errors
+    /// Returns an error if the number of coefficients does not correspond to a valid degree for the given basis.
+    pub fn from_basis(basis: B, coefficients: impl Into<Cow<'a, [T]>>) -> Result<Self> {
+        let coefficients = coefficients.into();
+        let degree = basis.degree(coefficients.len()).ok_or(
+            crate::error::Error::InvalidNumberOfParameters(coefficients.len()),
+        )?;
+        Ok(unsafe { Self::from_raw(basis, coefficients, degree) })
+    }
+
     /// Returns a reference to the polynomial's basis.
     pub(crate) fn basis(&self) -> &B {
         &self.basis
@@ -137,12 +159,15 @@ where
     /// For example in a monomial expression `y(x) = 2x^2 - 3x + 1`;
     /// coefficients = [1.0, -3.0, 2.0]
     ///
-    /// > # Technical Details
-    /// >
-    /// > Formally, for each coefficient *j*, and the jth basis function *B_j(x)*, the relationship is:
-    /// > ```math
-    /// > y(x) = Σ (c_j * B_j(x))
-    /// > ```
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Formally, for each coefficient *j*, and the jth basis function *`B_j(x)`*, the relationship is:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
     #[must_use]
     pub fn coefficients(&self) -> &[T] {
         &self.coefficients
@@ -155,12 +180,15 @@ where
     /// For example in a monomial expression `y(x) = 2x^2 - 3x + 1`;
     /// coefficients = [1.0, -3.0, 2.0]
     ///
-    /// > # Technical Details
-    /// >
-    /// > Formally, for each coefficient *j*, and the jth basis function *B_j(x)*, the relationship is:
-    /// > ```math
-    /// > y(x) = Σ (c_j * B_j(x))
-    /// > ```
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Formally, for each coefficient *j*, and the jth basis function *`B_j(x)`*, the relationship is:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
     #[must_use]
     pub fn coefficients_mut(&mut self) -> &mut [T] {
         self.coefficients.to_mut()
@@ -178,18 +206,21 @@ where
 
     /// Evaluates the polynomial at a given x-value.
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *`c_j`* and basis function *`B_j(x)`*, this function returns:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     /// - `x`: The point at which to evaluate the polynomial.
     ///
     /// # Returns
     /// The computed y-value using the polynomial basis and coefficients.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *c_j* and basis function *B_j(x)*, this function returns:
-    /// > ```math
-    /// > y(x) = Σ (c_j * B_j(x))
-    /// > ```
     ///
     /// # Example
     /// ```
@@ -207,20 +238,23 @@ where
         y
     }
 
-    /// Evaluates the polynomial at multiple x-values (monomial basis).
+    /// Evaluates the polynomial at multiple x-values.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *`c_j`* and basis function *`B_j(x)`*, this function returns:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
     ///
     /// # Parameters
     /// - `x`: An iterator of x-values at which to evaluate the polynomial.
     ///
     /// # Returns
     /// A `Vec` of `(x, y)` pairs corresponding to each input value.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *c_j* and basis function *B_j(x)*, this function returns:
-    /// > ```math
-    /// > y(x) = Σ (c_j * B_j(x))
-    /// > ```
     ///
     /// # Example
     /// ```
@@ -235,19 +269,22 @@ where
 
     /// Evaluates the polynomial over a range of x-values with a fixed step.
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *`c_j`* and basis function *`B_j(x)`*, this function returns:
+    /// ```math
+    /// y(x) = Σ (c_j * B_j(x))
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     /// - `range`: The start and end of the x-values to evaluate.
     /// - `step`: The increment between successive x-values.
     ///
     /// # Returns
     /// A `Vec` of `(x, y)` pairs for each sampled point.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Given [`Basis::k`] coefficients and basis functions, and for each pair of coefficients *c_j* and basis function *B_j(x)*, this function returns:
-    /// > ```math
-    /// > y(x) = Σ (c_j * B_j(x))
-    /// > ```
     ///
     /// # Example
     /// ```
@@ -302,16 +339,16 @@ where
     /// let deriv = test.derivative().unwrap();
     /// println!("Derivative: {:?}", deriv.coefficients());
     /// ```
-    pub fn derivative<B2>(&self) -> Result<Polynomial<'static, B2, T>>
+    pub fn derivative(&self) -> Result<Polynomial<'static, B, T>>
     where
-        B2: Basis<T> + PolynomialDisplay<T>,
-        B: DifferentialBasis<T, B2>,
+        B: DifferentialBasis<T>,
     {
         let new_degree = if self.degree == 0 { 0 } else { self.degree - 1 };
 
-        let (basis, derivative_coeffs) = self.basis.derivative(&self.coefficients)?;
-        let derivative =
-            unsafe { Polynomial::from_raw(basis, derivative_coeffs.into(), new_degree) };
+        let derivative_coeffs = self.basis.derivative(&self.coefficients)?;
+        let derivative = unsafe {
+            Polynomial::from_raw(self.basis.clone(), derivative_coeffs.into(), new_degree)
+        };
 
         Ok(derivative)
     }
@@ -319,6 +356,15 @@ where
     /// Finds the critical points (where the derivative is zero) of a polynomial in this basis.
     ///
     /// This corresponds to the polynomial's local minima and maxima (The `x` values where curvature changes).
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
+    ///
+    /// This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
+    /// </div>
     ///
     /// # Returns
     /// A vector of `x` values where the critical points occur.
@@ -328,12 +374,6 @@ where
     ///
     /// # Errors
     /// Returns an error if the critical points cannot be found.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
-    /// >
-    /// > This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
     ///
     /// # Example
     /// ```rust
@@ -374,22 +414,33 @@ where
     /// let integral = test.integral(Some(1.0)).unwrap();
     /// println!("Integral: {:?}", integral.coefficients());
     /// ```
-    pub fn integral<B2>(&self, constant: Option<T>) -> Result<Polynomial<'static, B2, T>>
+    pub fn integral(&self, constant: Option<T>) -> Result<Polynomial<'static, B, T>>
     where
-        B2: Basis<T> + PolynomialDisplay<T>,
-        B: IntegralBasis<T, B2>,
+        B: IntegralBasis<T>,
     {
         let constant = constant.unwrap_or(T::zero());
         let new_degree = self.degree + 1;
 
-        let (basis, integral_coeffs) = self.basis.integral(&self.coefficients, constant)?;
-        let integral = unsafe { Polynomial::from_raw(basis, integral_coeffs.into(), new_degree) };
+        let integral_coeffs = self.basis.integral(&self.coefficients, constant)?;
+        let integral =
+            unsafe { Polynomial::from_raw(self.basis.clone(), integral_coeffs.into(), new_degree) };
 
         Ok(integral)
     }
 
     /// Computes the definite integral (area under the curve) of the fitted polynomial
     /// between `x_min` and `x_max`.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The area under the curve is computed using the definite integral of the polynomial
+    /// between the specified bounds:
+    /// ```math
+    /// Area = ∫[x_min to x_max] f(x) dx = F(x_max) - F(x_min)
+    /// ```
+    /// </div>
     ///
     /// # Parameters
     /// - `x_min`: Lower bound of integration.
@@ -406,14 +457,6 @@ where
     /// # Errors
     /// If the basis cannot compute the integral coefficients, an error is returned.
     ///
-    /// > # Technical Details
-    /// >
-    /// > The area under the curve is computed using the definite integral of the polynomial
-    /// > between the specified bounds:
-    /// > ```math
-    /// > Area = ∫[x_min to x_max] f(x) dx = F(x_max) - F(x_min)
-    /// > ```
-    ///
     /// # Example
     /// ```rust
     /// polyfit::function!(poly(x) = 4 x^3 + 2);
@@ -426,6 +469,51 @@ where
     {
         let integral = self.integral(constant)?;
         Ok(integral.y(x_max) - integral.y(x_min))
+    }
+
+    /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign).
+    ///
+    /// # Errors
+    /// Returns an error if the derivative cannot be computed.
+    ///
+    /// # Example
+    /// ```rust
+    /// polyfit::function!(poly(x) = 4 x^3 + 2);
+    /// let area = poly.area_under_curve(0.0, 3.0, None).unwrap();
+    /// let violations = poly.monotonicity_violations(0.0..=3.0).unwrap();
+    /// ```
+    pub fn monotonicity_violations(&self, x_range: RangeInclusive<T>) -> Result<Vec<T>>
+    where
+        B: DifferentialBasis<T>,
+    {
+        let dx = self.derivative()?;
+        let critical_points = self.basis.critical_points(dx.coefficients())?;
+
+        if critical_points.is_empty() {
+            // No critical points -> derivative does not change sign
+            return Ok(vec![]);
+        }
+
+        let mut violated_at = vec![];
+
+        let mut prev_sign = dx.y(*x_range.start()).f_signum();
+        for &x in &critical_points {
+            let y = dx.y(x);
+            if Value::abs(y) > T::epsilon() {
+                let sign = y.f_signum();
+                if sign != prev_sign {
+                    violated_at.push(x);
+                }
+                prev_sign = sign;
+            }
+        }
+
+        let sign = dx.y(*x_range.end()).f_signum();
+        if sign != prev_sign {
+            violated_at.push(*x_range.end());
+        }
+
+        Ok(violated_at)
     }
 
     /// Returns a human-readable string of the polynomial equation.

@@ -60,7 +60,7 @@ pub trait Basis<T: Value>: Sized + Clone + Debug {
     /// Create a new basis from the given data
     ///
     /// Initializes any needed metadata for normalization
-    fn new(data: &[(T, T)]) -> Self;
+    fn from_data(data: &[(T, T)]) -> Self;
 
     /// Returns the number of basis functions needed for a polynomial of a given degree.
     ///
@@ -79,6 +79,24 @@ pub trait Basis<T: Value>: Sized + Clone + Debug {
     /// The number of basis functions required to represent a polynomial of the given degree.
     fn k(&self, degree: usize) -> usize {
         degree + 1
+    }
+
+    /// Returns the polynomial degree corresponding to a given number of basis functions.
+    ///
+    /// Returns `None` if the number of functions does not correspond to a valid degree.
+    ///
+    /// # Parameters
+    /// - `k`: The number of basis functions.
+    ///
+    /// # Returns
+    /// - `Some(degree)`: The polynomial degree if `k` is valid.
+    /// - `None`: If `k` does not correspond to a valid degree.
+    fn degree(&self, k: usize) -> Option<usize> {
+        if k > 0 {
+            Some(k - 1)
+        } else {
+            None
+        }
     }
 
     /// Populates a row of a Vandermonde matrix with this basis evaluated at `x`.
@@ -152,7 +170,7 @@ pub trait IntoMonomialBasis<T: Value>: Basis<T> {
 /// # Type Parameters
 /// - `T`: Numeric type for coefficients.
 /// - `B2`: Basis type returned by the derivative (defaults to `Self`).
-pub trait DifferentialBasis<T: Value, B2: Basis<T> = Self>: Basis<T> {
+pub trait DifferentialBasis<T: Value>: Basis<T> {
     /// Computes the derivative of a polynomial in this basis.
     ///
     /// # Parameters
@@ -163,8 +181,8 @@ pub trait DifferentialBasis<T: Value, B2: Basis<T> = Self>: Basis<T> {
     /// or coefficients (e.g., invalid length), or for casting errors
     ///
     /// # Returns
-    /// - `(B2, Vec<T>)`: The derivative's basis and its coefficients.
-    fn derivative(&self, coefficients: &[T]) -> Result<(B2, Vec<T>)>;
+    /// - The derivative's coefficients.
+    fn derivative(&self, coefficients: &[T]) -> Result<Vec<T>>;
 
     /// Finds the critical points (where the derivative is zero) of a polynomial in this basis.
     ///
@@ -181,7 +199,7 @@ pub trait DifferentialBasis<T: Value, B2: Basis<T> = Self>: Basis<T> {
 /// # Type Parameters
 /// - `T`: Numeric type for coefficients.
 /// - `B2`: Basis type returned by the integral (defaults to `Self`).
-pub trait IntegralBasis<T: Value, B2: Basis<T> = Self>: Basis<T> {
+pub trait IntegralBasis<T: Value>: Basis<T> {
     /// Computes the integral of a polynomial in this basis.
     ///
     /// # Parameters
@@ -193,6 +211,6 @@ pub trait IntegralBasis<T: Value, B2: Basis<T> = Self>: Basis<T> {
     /// or coefficients (e.g., invalid length), or for casting errors
     ///
     /// # Returns
-    /// - `(B2, Vec<T>)`: The integral's basis and its coefficients.
-    fn integral(&self, coefficients: &[T], constant: T) -> Result<(B2, Vec<T>)>;
+    /// - The integral's coefficients.
+    fn integral(&self, coefficients: &[T], constant: T) -> Result<Vec<T>>;
 }

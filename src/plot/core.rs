@@ -32,6 +32,7 @@ pub type PlotRoot<'root> = DrawingArea<BitMapBackend<'root>, Shift>;
 /// Debug plot for curves and fits
 pub struct Plot<'root> {
     chart: ChartContext<'root, BitMapBackend<'root>, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
+    y_range: Range<f64>,
     palettes: Palettes,
 }
 impl<'root> Plot<'root> {
@@ -51,9 +52,13 @@ impl<'root> Plot<'root> {
             .margin(5)
             .x_label_area_size(30)
             .y_label_area_size(50)
-            .build_cartesian_2d(x_range, y_range)?;
+            .build_cartesian_2d(x_range, y_range.clone())?;
 
-        Ok(Plot { chart, palettes })
+        Ok(Plot {
+            chart,
+            y_range,
+            palettes,
+        })
     }
 
     /// Create a plot from a function
@@ -101,14 +106,19 @@ impl<'root> Plot<'root> {
         let x_range = fit.x_range();
         let y_range = fit.y_range();
 
-        println!("{:?} {:?}", x_range, y_range);
-
         //
         // T(Range) -> f64(Range)
         let x_range: Range<f64> = cast(*x_range.start())?..cast(*x_range.end())?;
         let y_range: Range<f64> = cast(*y_range.start())?..cast(*y_range.end())?;
 
         Self::new(root, title, x_range, y_range)?.with_fit(fit, confidence)
+    }
+
+    /// Clip the y-values of a sample to the plot's y-range
+    pub fn clip_y(&self, sample: &mut [(f64, f64)]) {
+        for c in sample {
+            c.1 = c.1.clamp(self.y_range.start, self.y_range.end);
+        }
     }
 
     /// Add a plotting element to the plot
@@ -162,7 +172,7 @@ impl<'root> Plot<'root> {
 
         //
         // Residuals
-        let residuals = fit
+        let mut residuals = fit
             .residuals()
             .iter()
             .zip(&solution)
@@ -172,6 +182,7 @@ impl<'root> Plot<'root> {
             })
             .collect::<Option<Vec<_>>>()
             .ok_or(PlottingError::Cast)?;
+        self.clip_y(&mut residuals);
 
         let equation = fit.equation();
         self.with_line(&data, &format!("Source Data ({equation})"), 1, palette.data)?
@@ -213,9 +224,12 @@ impl<'root> Plot<'root> {
         width: u32,
         color: impl Into<ShapeStyle>,
     ) -> Result<Self, PlottingError<'root>> {
+        let mut data = data.to_vec();
+        self.clip_y(&mut data);
+
         let style = color.into().stroke_width(width);
         self.chart
-            .draw_series(LineSeries::new(data.iter().copied(), style))?
+            .draw_series(LineSeries::new(data, style))?
             .label(label)
             .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], style));
 
@@ -234,10 +248,16 @@ impl<'root> Plot<'root> {
     ) -> Result<Self, PlottingError<'root>> {
         let style = color.into().stroke_width(1);
 
+        let mut data = data.to_vec();
+        self.clip_y(&mut data);
+
+        let mut bands = bands.to_vec();
+        self.clip_y(&mut bands);
+
         let series = data
-            .iter()
-            .zip(bands.iter())
-            .map(|(&(x, y), &(low, high))| ErrorBar::new_vertical(x, low, y, high, style, 1));
+            .into_iter()
+            .zip(bands)
+            .map(|((x, y), (low, high))| ErrorBar::new_vertical(x, low, y, high, style, 1));
         self.chart.draw_series(series)?;
 
         Ok(self)

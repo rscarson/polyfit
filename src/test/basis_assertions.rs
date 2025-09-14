@@ -1,10 +1,10 @@
 /// Macro for testing the construction of a polynomial basis.
 ///
-/// This macro wraps [`fn_test_basis_build`] and verifies that a basis correctly
+/// This verifies that a basis correctly
 /// populates a Vandermonde-style row and respects the `start_index` offset.
 ///
 /// # Parameters
-/// - `$basis`: The basis instance to test (must implement [`Basis<T>`]).
+/// - `$basis`: The basis instance to test (must implement [`crate::basis::Basis`]).
 /// - `$x`: The x-value at which to evaluate the basis.
 /// - `$matrix_values`: Slice of expected basis function values at `x`.
 ///
@@ -51,7 +51,7 @@ macro_rules! test_basis_build {
 /// Macro for asserting that a polynomial basis evaluates to expected values.
 ///
 /// # Parameters
-/// - `$basis`: The basis instance to test (must implement [`Basis<T>`]).
+/// - `$basis`: The basis instance to test (must implement [`crate::basis::Basis`]).
 /// - `$x`: The point at which to evaluate the basis functions.
 /// - `$expected`: Slice of expected values corresponding to each basis function.
 ///
@@ -61,7 +61,7 @@ macro_rules! test_basis_build {
 /// # Example
 /// ```rust
 /// # use polyfit::{basis::{Basis, MonomialBasis}, test_basis_functions};
-/// let basis = MonomialBasis::new(&[(0.0, 0.0), (1.0, 1.0)]);
+/// let basis = MonomialBasis::default();
 /// let expected = vec![1.0, 0.5, 0.25]; // expected basis function values at x=0.5
 /// test_basis_functions!(basis, 0.5, &expected);
 /// ```
@@ -95,7 +95,7 @@ macro_rules! test_basis_functions {
 /// ```no_run
 /// # use polyfit::{basis::{Basis, MonomialBasis}, value::CoordExt, test_basis_orthogonal};
 /// let xs: Vec<(f64, f64)> = vec![(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)];
-/// let basis = MonomialBasis::new(&xs);
+/// let basis = MonomialBasis::default();
 /// test_basis_orthogonal!(basis, &xs.x());
 /// ```
 #[macro_export]
@@ -157,7 +157,7 @@ macro_rules! test_basis_orthogonal {
 /// Panics if the normalized start or end values deviate from the expected range by more than `T::epsilon()`.
 #[macro_export]
 macro_rules! test_basis_normalizes {
-    ($basis:expr, $src_range:expr, $dst_range:expr) => {
+    ($basis:expr, $src_range:expr, $dst_range:expr) => {{
         fn test_basis_normalizes<B: $crate::basis::Basis<T>, T: $crate::value::Value>(
             basis: &B,
             src_range: ::std::ops::Range<T>,
@@ -171,5 +171,5 @@ macro_rules! test_basis_normalizes {
         }
 
         test_basis_normalizes(&$basis, $src_range, $dst_range);
-    };
+    }};
 }

@@ -27,7 +27,7 @@ use crate::{
 /// - For higher degrees, consider more numerically stable bases
 ///   (e.g., Chebyshev).
 #[derive(Debug, Clone)]
-pub struct MonomialBasis<T>(pub std::marker::PhantomData<T>);
+pub struct MonomialBasis<T: Value = f64>(pub std::marker::PhantomData<T>);
 impl<T: Value> MonomialBasis<T> {
     /// Creates a new monomial basis.
     #[must_use]
@@ -36,7 +36,7 @@ impl<T: Value> MonomialBasis<T> {
     }
 }
 impl<T: Value> Basis<T> for MonomialBasis<T> {
-    fn new(_: &[(T, T)]) -> Self {
+    fn from_data(_: &[(T, T)]) -> Self {
         Self::default()
     }
 
@@ -66,9 +66,9 @@ impl<T: Value> IntoMonomialBasis<T> for MonomialBasis<T> {
     }
 }
 impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
-    fn derivative(&self, coefficients: &[T]) -> Result<(Self, Vec<T>)> {
+    fn derivative(&self, coefficients: &[T]) -> Result<Vec<T>> {
         if coefficients.len() <= 1 {
-            return Ok((Self::default(), vec![T::zero()]));
+            return Ok(vec![T::zero()]);
         }
 
         let mut coefficients = coefficients[1..].to_vec();
@@ -77,7 +77,7 @@ impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
             *c *= degree;
         }
 
-        Ok((self.clone(), coefficients))
+        Ok(coefficients)
     }
 
     fn critical_points(&self, dx_coefs: &[T]) -> Result<Vec<T>> {
@@ -116,7 +116,7 @@ impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
     }
 }
 impl<T: Value> IntegralBasis<T> for MonomialBasis<T> {
-    fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self, Vec<T>)> {
+    fn integral(&self, coefficients: &[T], constant: T) -> Result<Vec<T>> {
         let mut coefficients = coefficients.to_vec();
         for (i, c) in coefficients.iter_mut().enumerate() {
             let degree = T::try_cast(i)? + T::one();
@@ -124,7 +124,7 @@ impl<T: Value> IntegralBasis<T> for MonomialBasis<T> {
         }
 
         coefficients.insert(0, constant);
-        Ok((self.clone(), coefficients))
+        Ok(coefficients)
     }
 }
 impl<T: Value> display::PolynomialDisplay<T> for MonomialBasis<T> {
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_monomial() {
-        let basis = MonomialBasis::<f64>::new(&[]);
+        let basis = MonomialBasis::<f64>::default();
 
         // Basic evaluation tests
         test_basis_build!(basis, 2.0, &[1.0, 2.0, 4.0, 8.0]);
@@ -163,12 +163,12 @@ mod tests {
         assert_eq!(basis.k(0), 1);
 
         // Derivative and integral
-        let (_basis, derivative) = basis
+        let derivative = basis
             .derivative(&[1.0, 2.0, 3.0, 4.0])
             .expect("Derivative failed");
         assert_eq!(derivative, &[2.0, 6.0, 12.0], "Derivative was incorrect");
 
-        let (_basis, integral) = basis
+        let integral = basis
             .integral(&[1.0, 2.0, 3.0, 4.0], 5.0)
             .expect("Integral failed");
         assert_eq!(
@@ -179,18 +179,18 @@ mod tests {
 
         // Edge cases
         // Degree 0 polynomial
-        let (_basis, derivative0) = basis
+        let derivative0 = basis
             .derivative(&[42.0])
             .expect("Derivative failed for degree 0");
         assert_eq!(derivative0, &[0.0]);
 
-        let (_basis, integral0) = basis
+        let integral0 = basis
             .integral(&[42.0], 7.0)
             .expect("Integral failed for degree 0");
         assert_eq!(integral0, &[7.0, 42.0]);
 
         // Empty coefficients (should still work)
-        let (_basis, integral_empty) = basis
+        let integral_empty = basis
             .integral(&[], 3.0)
             .expect("Integral failed for empty coefficients");
         assert_eq!(integral_empty, &[3.0]);

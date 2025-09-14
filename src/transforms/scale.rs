@@ -10,21 +10,18 @@ pub enum ScaleTransform<T: Value> {
     ///
     /// ![Shift example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/shift_example.png)
     ///
-    /// # Parameters
+    /// <div class="warning">
     ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x + shift
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
     /// - `shift`: The value to add to each element. Positive shifts move data up,
     ///   negative shifts move it down.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = x + shift
-    /// > ```
-    /// >
-    /// > - Mean: μ_y = μ_x + shift  
-    /// > - Variance: σ²_y = σ²_x
     Shift(T),
 
     /// Multiplies every element of a dataset by a fixed factor.
@@ -33,24 +30,20 @@ pub enum ScaleTransform<T: Value> {
     ///
     /// ![Scale example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/linear_example.png)
     ///
-    /// # Parameters
+    /// <div class="warning">
     ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x * factor
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
     /// - `factor`: The multiplier applied to each element.  
     ///   - `factor > 1` → enlarges values  
     ///   - `factor = 1` → leaves values unchanged  
     ///   - `factor < 0` → flips the sign
-    ///
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = x * factor
-    /// > ```
-    /// >
-    /// > - Mean: μ_y = μ_x * factor  
-    /// > - Variance: σ²_y = σ²_x * factor²
     Linear(T),
 
     /// Applies a quadratic scaling to each element of a dataset.
@@ -60,20 +53,17 @@ pub enum ScaleTransform<T: Value> {
     ///
     /// ![Quadratic example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/quadratic_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * x^2
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
-    ///
     /// - `factor`: Multiplier applied after squaring each element.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = factor * x^2
-    /// > ```
-    /// >
-    /// > - Mean and variance are transformed non-linearly:
-    /// >   Larger absolute values grow faster than smaller ones.
     Quadratic(T),
 
     /// Applies a cubic scaling to each element of a dataset.
@@ -83,21 +73,17 @@ pub enum ScaleTransform<T: Value> {
     ///
     /// ![Cubic example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/cubic_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * x^3
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
-    ///
     /// - `factor`: Multiplier applied after cubing each element.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = factor * x^3
-    /// > ```
-    /// >
-    /// > - Mean and variance are transformed non-linearly:
-    /// >
-    /// >   Extreme values are amplified more than smaller ones.
     Cubic(T),
 }
 impl<T: Value> Transform<T> for ScaleTransform<T> {
@@ -135,21 +121,18 @@ pub trait ApplyScale<T: Value> {
     ///
     /// ![Shift example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/shift_example.png)
     ///
-    /// # Parameters
+    /// <div class="warning">
     ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x + shift
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
     /// - `shift`: The value to add to each element. Positive shifts move data up,
     ///   negative shifts move it down.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = x + shift
-    /// > ```
-    /// >
-    /// > - Mean: μ_y = μ_x + shift  
-    /// > - Variance: σ²_y = σ²_x
     ///
     /// # Example
     ///
@@ -166,24 +149,20 @@ pub trait ApplyScale<T: Value> {
     ///
     /// ![Scale example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/linear_example.png)
     ///
-    /// # Parameters
+    /// <div class="warning">
     ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x * factor
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
     /// - `factor`: The multiplier applied to each element.  
     ///   - `factor > 1` → enlarges values  
     ///   - `factor = 1` → leaves values unchanged  
     ///   - `factor < 0` → flips the sign
-    ///
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = x * factor
-    /// > ```
-    /// >
-    /// > - Mean: μ_y = μ_x * factor  
-    /// > - Variance: σ²_y = σ²_x * factor²
     ///
     /// # Example
     ///
@@ -201,20 +180,17 @@ pub trait ApplyScale<T: Value> {
     ///
     /// ![Quadratic example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/quadratic_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * x^2
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
-    ///
     /// - `factor`: Multiplier applied after squaring each element.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = factor * x^2
-    /// > ```
-    /// >
-    /// > - Mean and variance are transformed non-linearly:
-    /// >   Larger absolute values grow faster than smaller ones.
     ///
     /// # Example
     /// ```
@@ -231,21 +207,17 @@ pub trait ApplyScale<T: Value> {
     ///
     /// ![Cubic example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/cubic_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * x^3
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
-    ///
     /// - `factor`: Multiplier applied after cubing each element.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```ignore
-    /// > y = factor * x^3
-    /// > ```
-    /// >
-    /// > - Mean and variance are transformed non-linearly:
-    /// >
-    /// >   Extreme values are amplified more than smaller ones.
     ///
     /// # Example
     ///
@@ -266,23 +238,12 @@ pub trait ApplyScale<T: Value> {
     /// - `polynomial`: Reference to a `Polynomial` object, which defines the coefficients
     ///   and basis to use for the transformation.
     ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```ignore
-    /// > y = P(x)
-    /// > ```
-    /// >
-    /// > where `P` is the provided polynomial. Both mean and variance of the dataset
-    /// > may change non-linearly depending on the polynomial’s degree and coefficients.
-    ///
     /// # Example
     ///
     /// ```rust
     /// # use polyfit::function;
     /// # use polyfit::transforms::ApplyScale;
-    /// function!(y(x) = 2 x^2 - 3x + 4);
+    /// function!(y(x) = 2 x^2 - 3 x + 4);
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_polynomial_scale(&y);
     /// ```
     #[must_use]
@@ -322,5 +283,41 @@ impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
         }
 
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{function, transforms::ApplyScale};
+
+    #[test]
+    fn test_shift_scale() {
+        let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_shift_scale(2.0);
+        assert_eq!(data, vec![(1.0, 4.0), (2.0, 5.0)]);
+    }
+
+    #[test]
+    fn test_linear_scale() {
+        let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_linear_scale(2.0);
+        assert_eq!(data, vec![(1.0, 4.0), (2.0, 6.0)]);
+    }
+
+    #[test]
+    fn test_quadratic_scale() {
+        let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_quadratic_scale(2.0);
+        assert_eq!(data, vec![(1.0, 8.0), (2.0, 18.0)]);
+    }
+
+    #[test]
+    fn test_cubic_scale() {
+        let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_cubic_scale(2.0);
+        assert_eq!(data, vec![(1.0, 16.0), (2.0, 54.0)]);
+    }
+
+    #[test]
+    fn test_polynomial_scale() {
+        function!(y(x) = 2 x^2 - 3 x + 4);
+        let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_polynomial_scale(&y);
+        assert_eq!(data, vec![(1.0, 6.0), (2.0, 13.0)]);
     }
 }

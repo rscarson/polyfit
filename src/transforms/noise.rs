@@ -16,6 +16,21 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// ![Correlated Gaussian example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/gaussian_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// - Each value is drawn from a normal distribution `N(0, strength²)`.  
+    /// - Correlation is introduced by mixing the new sample with the previous one:  
+    ///
+    /// ```math
+    /// xₙ = ρ * xₙ₋₁ + √(1 − ρ²) * εₙ
+    /// where
+    ///   εₙ ~ N(0, strength²), ρ = correlation factor
+    ///   xₙ₋₁ = previous noisy value
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `rho`: Correlation factor between consecutive samples.  
@@ -26,20 +41,6 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > - Each value is drawn from a normal distribution `N(0, strength²)`.  
-    /// > - Correlation is introduced by mixing the new sample with the previous one:  
-    /// >
-    /// > ```ignore
-    /// > xₙ = ρ * xₙ₋₁ + √(1 − ρ²) * εₙ
-    /// > ```
-    /// >
-    /// > where `εₙ` is an independent Gaussian sample.  
-    /// >
-    /// > - Mean = `0`  
-    /// > - Variance = `strength²`
     CorrelatedGaussian {
         /// Correlation factor between consecutive samples.  
         /// - Values near `0` → mostly independent noise.  
@@ -62,6 +63,21 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// ![Impulse example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/impulse_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Impulse noise can be modeled as a mixture distribution:  
+    ///
+    /// ```math
+    /// X = { original_value with probability (1 − p)
+    ///     { impulse_distribution with probability p
+    /// where
+    ///   p = probability of an impulse
+    ///   impulse_distribution = values drawn according to (alpha, beta) within [min, max]
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `probability`: The chance that any given value is replaced with an impulse.  
@@ -80,24 +96,12 @@ pub enum NoiseTransform<T: Value> {
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
     ///
-    /// > # Technical Details
-    /// >
-    /// > Impulse noise can be modeled as a mixture distribution:  
-    /// >
-    /// > ```ignore
-    /// > X = { original_value with probability (1 − p)
-    /// >     { impulse_distribution with probability p
-    /// > ```
-    /// >
-    /// > - `p` = `probability`  
-    /// > - `impulse_distribution` = values drawn according to `(alpha, beta)` within `[min, max]`.
-    /// >
-    /// > Typical cases:  
-    /// > - With `alpha = beta = 1`, impulses are uniformly distributed in `[min, max]`.  
-    /// > - With other values, impulses can be skewed toward one side or clustered around the center.  
-    /// >
-    /// > This makes impulse noise more flexible than simple salt-and-pepper noise, which
-    /// > only flips values to hard extremes.
+    /// Typical cases:  
+    /// - With `alpha = beta = 1`, impulses are uniformly distributed in `[min, max]`.  
+    /// - With other values, impulses can be skewed toward one side or clustered around the center.  
+    ///
+    /// This makes impulse noise more flexible than simple salt-and-pepper noise, which
+    /// only flips values to hard extremes.
     Impulse {
         /// The chance that any given value is replaced with an impulse.  
         /// - `0.0` → no impulses, original signal unchanged.  
@@ -131,6 +135,17 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// ![Uniform example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/uniform_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x + εₙ
+    /// where
+    ///   εₙ ~ U(−strength, +strength), x = uncorrupted value
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `strength`: Controls the maximum deviation from the original value.
@@ -138,14 +153,6 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > The uniform distribution over `[a, b]` has:  
-    /// > - Mean = `(a + b) / 2`  
-    /// > - Variance = `(b − a)^2 / 12`  
-    /// >
-    /// > In this case: `a = −strength`, `b = +strength`.
     Uniform {
         /// Controls the maximum deviation from the original value.
         /// Noise is sampled from the interval `[-strength, +strength]`
@@ -158,11 +165,24 @@ pub enum NoiseTransform<T: Value> {
 
     /// Adds Poisson noise to a signal or dataset.
     ///
+    /// The Poisson distribution describes the probability of observing `k` events
+    /// in a fixed interval given a rate `λ`:
+    ///
     /// Poisson noise is a type of random variation commonly used to simulate
     /// real-world counting processes, like photon arrivals in sensors or packet
     /// arrivals in a network.
     ///
     /// ![Poisson example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/poisson_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x + εₙ
+    /// where
+    ///   εₙ ~ Poisson(λ), x = uncorrupted value
+    /// ```
     ///
     /// # Parameters
     ///
@@ -172,15 +192,7 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > The Poisson distribution describes the probability of observing `k` events
-    /// > in a fixed interval given a rate `λ`:
-    /// >
-    /// > ```math
-    /// > P(k; λ) = (λ^k * e^(−λ)) / k!
-    /// > ```
+    /// </div>
     Poisson {
         /// Controls the intensity of the noise.
         /// - Small `lambda` → sparse, spiky noise with frequent zeros.
@@ -278,7 +290,6 @@ where
                     for v in data {
                         if flip.sample(&mut rng) {
                             *v = if dist.sample(&mut rng) { *max } else { *min };
-                            println!("S&P MODE: y() = {}", *v,);
                         }
                     }
                 } else {
@@ -337,25 +348,25 @@ where
     ///
     /// ![Correlated Gaussian example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/gaussian_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// - Each value is drawn from a normal distribution `N(0, strength²)`.  
+    ///
+    /// ```math
+    /// xₙ = x + εₙ
+    /// where
+    ///   εₙ ~ N(0, strength²), x = uncorrupted value
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.  
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > - Each value is drawn from a normal distribution `N(0, strength²)`.  
-    /// >
-    /// > ```ignore
-    /// > xₙ = xₙ₋₁ + εₙ
-    /// > ```
-    /// >
-    /// > where `εₙ` is an independent Gaussian sample.  
-    /// >
-    /// > - Mean = `0`  
-    /// > - Variance = `strength²`
     ///
     /// # Example
     /// ```rust
@@ -377,6 +388,21 @@ where
     ///
     /// ![Correlated Gaussian example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/gaussian_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// - Each value is drawn from a normal distribution `N(0, strength²)`.  
+    /// - Correlation is introduced by mixing the new sample with the previous one:  
+    ///
+    /// ```math
+    /// xₙ = ρ * xₙ₋₁ + √(1 − ρ²) * εₙ
+    /// where
+    ///   εₙ ~ N(0, strength²), ρ = correlation factor
+    ///   xₙ₋₁ = previous noisy value
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `rho`: Correlation factor between consecutive samples.  
@@ -387,20 +413,6 @@ where
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > - Each value is drawn from a normal distribution `N(0, strength²)`.  
-    /// > - Correlation is introduced by mixing the new sample with the previous one:  
-    /// >
-    /// > ```ignore
-    /// > xₙ = ρ * xₙ₋₁ + √(1 − ρ²) * εₙ
-    /// > ```
-    /// >
-    /// > where `εₙ` is an independent Gaussian sample.  
-    /// >
-    /// > - Mean = `0`  
-    /// > - Variance = `strength²`
     ///
     /// # Example
     /// ```rust
@@ -419,6 +431,17 @@ where
     ///
     /// ![Uniform example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/uniform_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x + εₙ
+    /// where
+    ///   εₙ ~ U(−strength, +strength), x = uncorrupted value
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `strength`: Controls the maximum deviation from the original value.
@@ -426,14 +449,6 @@ where
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > The uniform distribution over `[a, b]` has:  
-    /// > - Mean = `(a + b) / 2`  
-    /// > - Variance = `(b − a)^2 / 12`  
-    /// >
-    /// > In this case: `a = −strength`, `b = +strength`.
     ///
     /// # Example
     /// ```rust
@@ -452,6 +467,17 @@ where
     ///
     /// ![Poisson example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/poisson_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x + εₙ
+    /// where
+    ///   εₙ ~ Poisson(λ), x = uncorrupted value
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `lambda`: Controls the intensity of the noise.  
@@ -460,15 +486,6 @@ where
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > The Poisson distribution describes the probability of observing `k` events
-    /// > in a fixed interval given a rate `λ`:
-    /// >
-    /// > ```math
-    /// > P(k; λ) = (λ^k * e^(−λ)) / k!
-    /// > ```
     ///
     /// # Example
     /// ```rust
@@ -486,6 +503,21 @@ where
     ///
     /// ![Impulse example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/impulse_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Impulse noise can be modeled as a mixture distribution:  
+    ///
+    /// ```math
+    /// X = { original_value with probability (1 − p)
+    ///     { impulse_distribution with probability p
+    /// where
+    ///   p = probability of an impulse
+    ///   impulse_distribution = values drawn according to (alpha ~=0 , beta ~= 0) within [min, max]
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `probability`: The chance that any given value is replaced with an impulse.  
@@ -497,25 +529,6 @@ where
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Impulse noise can be modeled as a mixture distribution:  
-    /// >
-    /// > ```ignore
-    /// > X = { original_value with probability (1 − p)
-    /// >     { impulse_distribution with probability p
-    /// > ```
-    /// >
-    /// > - `p` = `probability`  
-    /// > - `impulse_distribution` = values drawn according to `(alpha, beta)` within `[min, max]`.
-    /// >
-    /// > Typical cases:  
-    /// > - With `alpha = beta = 1`, impulses are uniformly distributed in `[min, max]`.  
-    /// > - With other values, impulses can be skewed toward one side or clustered around the center.  
-    /// >
-    /// > This makes impulse noise more flexible than simple salt-and-pepper noise, which
-    /// > only flips values to hard extremes.
     ///
     /// # Example
     /// ```rust
@@ -534,6 +547,21 @@ where
     ///
     /// ![Impulse example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/impulse_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Impulse noise can be modeled as a mixture distribution:  
+    ///
+    /// ```math
+    /// X = { original_value with probability (1 − p)
+    ///     { impulse_distribution with probability p
+    /// where
+    ///   p = probability of an impulse
+    ///   impulse_distribution = values drawn according to (alpha, beta) within [min, max]
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `probability`: The chance that any given value is replaced with an impulse.  
@@ -551,25 +579,6 @@ where
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Impulse noise can be modeled as a mixture distribution:  
-    /// >
-    /// > ```ignore
-    /// > X = { original_value with probability (1 − p)
-    /// >     { impulse_distribution with probability p
-    /// > ```
-    /// >
-    /// > - `p` = `probability`  
-    /// > - `impulse_distribution` = values drawn according to `(alpha, beta)` within `[min, max]`.
-    /// >
-    /// > Typical cases:  
-    /// > - With `alpha = beta = 1`, impulses are uniformly distributed in `[min, max]`.  
-    /// > - With other values, impulses can be skewed toward one side or clustered around the center.  
-    /// >
-    /// > This makes impulse noise more flexible than simple salt-and-pepper noise, which
-    /// > only flips values to hard extremes.
     ///
     /// # Example
     /// ```rust
@@ -663,5 +672,106 @@ where
         }
         .apply(self.iter_mut().map(|(_, y)| y));
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    //
+    // These should all test the mean and stddev of the noise added
+    // to ensure it matches the expected distribution.
+
+    #[test]
+    fn test_correlated_gaussian() {
+        let data = vec![(1.0, 2.0); 1000];
+        let noisy_data = data.clone().apply_correlated_noise(0.1, 0.9, Some(42));
+
+        let mut diffs = Vec::new();
+        for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
+            diffs.push(y2 - y1);
+        }
+
+        let mean: f64 = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let std_dev: f64 =
+            (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
+
+        assert!(mean.abs() < 0.1);
+        assert!((std_dev - 0.1).abs() < 0.05);
+    }
+
+    #[test]
+    fn test_uniform() {
+        let data = vec![(1.0, 2.0); 1000];
+        let noisy_data = data.clone().apply_uniform_noise(0.1, Some(42));
+
+        let mut diffs = Vec::new();
+        for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
+            diffs.push(y2 - y1);
+        }
+
+        let mean: f64 = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let std_dev: f64 =
+            (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
+
+        assert!(mean.abs() < 0.1);
+        assert!((std_dev - (0.1 / (3.0f64).sqrt())).abs() < 0.05);
+    }
+
+    #[test]
+    fn test_poisson() {
+        let data = vec![(1.0, 2.0); 1000];
+        let noisy_data = data.clone().apply_poisson_noise(2.0, Some(42));
+
+        let mut diffs = Vec::new();
+        for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
+            diffs.push(y2 - y1);
+        }
+
+        let mean: f64 = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let std_dev: f64 =
+            (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
+
+        assert!((mean - 2.0).abs() < 0.5);
+        assert!((std_dev - (2.0f64).sqrt()).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_salt_pepper() {
+        let data = vec![(1.0, 2.0); 1000];
+        let noisy_data = data
+            .clone()
+            .apply_salt_pepper_noise(0.1, 0.0, 5.0, Some(42));
+
+        let mut impulse_count = 0;
+        for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
+            if (y2 - y1).abs() > f64::EPSILON {
+                impulse_count += 1;
+                assert!(*y2 == 0.0 || (*y2 - 5.0).abs() < f64::EPSILON);
+            }
+        }
+
+        let impulse_ratio = f64::from(impulse_count) / data.len() as f64;
+        assert!((impulse_ratio - 0.1).abs() < 0.05);
+    }
+
+    #[test]
+    fn test_impulse() {
+        let data = vec![(1.0, 2.0); 1000];
+        let noisy_data = data
+            .clone()
+            .apply_impulse_noise(0.1, 0.0, 5.0, 2.0, 5.0, Some(42));
+
+        let mut impulse_count = 0;
+        for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
+            if (y2 - y1).abs() > f64::EPSILON {
+                impulse_count += 1;
+                assert!(*y2 >= 0.0 && *y2 <= 5.0);
+            }
+        }
+
+        let impulse_ratio = f64::from(impulse_count) / data.len() as f64;
+        assert!((impulse_ratio - 0.1).abs() < 0.05);
     }
 }

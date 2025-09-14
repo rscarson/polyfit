@@ -119,3 +119,29 @@ impl<'a, T: Value> From<&&'a Vec<(T, T)>>
         PlottingElement::Data(data)
     }
 }
+
+impl<'a, B, T: Value> From<&&&'a CurveFit<B, T>> for PlottingElement<'a, B, T>
+where
+    B: Basis<T>,
+    B: PolynomialDisplay<T>,
+{
+    fn from(fit: &&&'a CurveFit<B, T>) -> Self {
+        PlottingElement::Fit(*fit)
+    }
+}
+impl<'a, B, T: Value> From<&&&'a Polynomial<'a, B, T>> for PlottingElement<'a, B, T>
+where
+    B: Basis<T>,
+    B: PolynomialDisplay<T>,
+{
+    fn from(canonical: &&&'a Polynomial<B, T>) -> Self {
+        PlottingElement::Canonical(*canonical)
+    }
+}
+impl<'a, T: Value> From<&&&'a Vec<(T, T)>>
+    for PlottingElement<'a, crate::basis::MonomialBasis<T>, T>
+{
+    fn from(data: &&&'a Vec<(T, T)>) -> Self {
+        PlottingElement::Data(data)
+    }
+}

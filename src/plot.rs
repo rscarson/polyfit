@@ -1,11 +1,11 @@
 //! Debug utilities for plotting fits and curves
 //!
-//! Mainly used through the [`plot!`] macro.
+//! Mainly used through the [`crate::plot!`] macro.
 //! - The asserts built-in will use this on failure if the `plotting` feature is active!
 //!
 //! You can also use the [`Plot`] struct directly for more control (I also expose [`plotters`] directly)
 //!
-//! The [`plot_filename!`] macro can be used to generate a unique filename for each plot.
+//! The [`crate::plot_filename!`] macro can be used to generate a unique filename for each plot.
 //! - This is how the asserts get a filename on failure
 pub use plotters;
 
@@ -23,14 +23,14 @@ use palette::Palettes;
 /// At the moment, converts all input types to `f64` for plotting purposes.
 ///
 /// # Syntax
-/// ```ignore
+/// ```text
 /// plot!(
-///     fit,                     // Required: a `CurveFit` or `PlottingElement`
-///     functions = [element1, element2, … ]   // Optional: one or more additional `CurveFit` or polynomials
-///     , title = "My Plot"      // Optional: custom title (default: "Graph Output")
-///     , x_range = (start, end) // Optional: x-axis range (default: from function's x_range)
-///     , confidence = Confidence::P95 // Optional: confidence level (default: P95)
-///     , size = (width, height) // Optional: image size in pixels (default: (640, 480))
+///     fit                                    // Required: a `CurveFit` or `PlottingElement`
+///     , functions = [element1, element2, … ] // Optional: one or more additional `CurveFit` or polynomials
+///     , title = "My Plot"                    // Optional: custom title (default: "Graph Output")
+///     , x_range = (start, end)               // Optional: x-axis range (default: from function's x_range)
+///     , confidence = Confidence::P95         // Optional: confidence level (default: P95)
+///     , size = (width, height)               // Optional: image size in pixels (default: (640, 480))
 /// );
 /// ```
 ///
@@ -61,24 +61,26 @@ macro_rules! plot {
         $function:expr
         $(, functions = [ $($element:expr),+ ] )?
         $(, title = $title:expr)?
+        $(, prefix = $prefix:expr)?
         $(, x_range = $x_range:expr)?
         $(, y_range = $y_range:expr)?
         $(, confidence = $confidence:expr)?
         $(, size = ($width:expr, $height:expr))?
-    ) => { #[allow(unused)] {
+    ) => {{
         use $crate::value::CoordExt;
 
         //
         // Prep arguments
-        let mut size = (640, 480); $( size = ($width, $height); )?
-        let mut confidence = $crate::statistics::Confidence::P95; $( confidence = $confidence; )?
-        let mut title = "Graph Output".to_string(); $( title = $title.to_string(); )?
-        let function = $crate::plot::PlottingElement::from($function);
-        let mut x_range = function.x_range(); $( x_range = Some($x_range); )?
+        #[allow(unused_mut, unused_assignments)] let mut size = (640, 480); $( size = ($width, $height); )?
+        #[allow(unused_mut, unused_assignments)] let mut confidence = $crate::statistics::Confidence::P95; $( confidence = $confidence; )?
+        #[allow(unused_mut, unused_assignments)] let mut title = "Graph Output".to_string(); $( title = $title.to_string(); )?
+        let function = $crate::plot::PlottingElement::from(&$function);
+        #[allow(unused_mut, unused_assignments)] let mut x_range = function.x_range(); $( x_range = Some($x_range); )?
 
         //
         // Prep the backend
-        let path = $crate::plot_filename!();
+        #[allow(unused_mut, unused_assignments)] let mut prefix = None; $( prefix = Some($prefix.to_string()); )?
+        let path = $crate::plot_filename!(prefix);
         let backend = $crate::plot::plotters::backend::BitMapBackend::new(&path, size);
         let root = $crate::plot::plotters::prelude::IntoDrawingArea::into_drawing_area(backend);
         root.fill(&$crate::plot::plotters::prelude::WHITE).expect("Failed to fill drawing area");
@@ -87,7 +89,7 @@ macro_rules! plot {
         let range = $crate::value::ValueRange::new_unit(x_range.start, x_range.end);
         let data = function.solve(range);
         let x = data.x();
-        let mut y_range = data.y_range().expect("Range was empty!"); $( y_range = $y_range; )?
+        #[allow(unused_mut, unused_assignments)] let mut y_range = data.y_range().expect("Range was empty!"); $( y_range = $y_range; )?
 
         //
         // Build plot
@@ -97,7 +99,7 @@ macro_rules! plot {
         plot = plot.with_element(&function, confidence, &x).expect("Failed to add main element to plot");
         $(
             $(
-                let e = $crate::plot::PlottingElement::from($element);
+                let e = $crate::plot::PlottingElement::from(&$element);
                 plot = plot.with_element(&e, confidence, &x).expect("Failed to add element to plot");
             )*
         )?
@@ -112,7 +114,13 @@ macro_rules! plot {
 /// Creates the necessary directories if they don't exist.
 #[macro_export]
 macro_rules! plot_filename {
-    () => {{
+    ($prefix:expr) => {{
+        let prefix: Option<String> = $prefix;
+        let prefix = match prefix {
+            Some(p) if !p.is_empty() => format!("{p}_"),
+            _ => String::new(),
+        };
+
         let file = file!().replace(['/', '\\'], "_");
         let line = line!();
         let datetime = ::std::time::SystemTime::now()
@@ -124,7 +132,8 @@ macro_rules! plot_filename {
         let plots_dir = ::std::path::Path::new(&target_dir).join("plot_output");
         let _ = std::fs::create_dir_all(&plots_dir);
 
-        let filename = format!("{file}_line_{line}_{datetime}.png");
+        let filename = format!("{prefix}{file}_line_{line}_{datetime}.png");
+
         plots_dir.join(filename)
     }};
 }

@@ -13,20 +13,21 @@ pub enum NormalizationTransform<T: Value> {
     ///
     /// ![Domain example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/domain_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = (x - x_min) / (x_max - x_min) * (max - min) + min
+    /// where
+    ///   x_min and x_max are the minimum and maximum of the original dataset.
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `min`: Minimum value of the target range.
     /// - `max`: Maximum value of the target range.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = (x - x_min) / (x_max - x_min) * (max - min) + min
-    /// > ```
-    /// >
-    /// > where `x_min` and `x_max` are the minimum and maximum of the original dataset.
     Domain {
         /// Minimum value of the target range
         min: T,
@@ -42,18 +43,23 @@ pub enum NormalizationTransform<T: Value> {
     ///
     /// ![Clip example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/clip_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Element-wise operation:
+    ///
+    /// ```math
+    /// xₙ = min(max(x, min), max)
+    /// where
+    ///   min and max are the specified bounds.
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `min`: Lower bound of the allowed range.
     /// - `max`: Upper bound of the allowed range.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = min(max(x, min), max)
-    /// > ```
     Clip {
         /// Lower bound of the allowed range
         min: T,
@@ -70,14 +76,14 @@ pub enum NormalizationTransform<T: Value> {
     ///
     /// ![Mean subtraction example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/mean_subtraction_example.png)
     ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > μ = mean(x)
-    /// > y = x - μ
-    /// > ```
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x - mean(x)
+    /// ```
+    /// </div>
     MeanSubtraction,
 
     /// Normalizes the dataset to zero mean and unit variance.
@@ -88,15 +94,19 @@ pub enum NormalizationTransform<T: Value> {
     ///
     /// ![Z-Score example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/zscore_example.png)
     ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > μ = mean(x)
-    /// > σ = std(x)
-    /// > y = (x - μ) / σ
-    /// > ```
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Element-wise operation:
+    ///
+    /// ```math
+    /// xₙ = (x - mean(x)) / std(x)
+    /// where
+    ///   mean(x) is the average of the dataset
+    ///   std(x) is the standard deviation of the dataset
+    /// ```
+    /// </div>
     ZScore,
 }
 
@@ -144,20 +154,21 @@ pub trait ApplyNormalization<T: Value> {
     ///
     /// ![Domain example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/domain_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = (x - x_min) / (x_max - x_min) * (max - min) + min
+    /// where
+    ///   x_min and x_max are the minimum and maximum of the original dataset.
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `min`: Minimum value of the target range.
     /// - `max`: Maximum value of the target range.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = (x - x_min) / (x_max - x_min) * (max - min) + min
-    /// > ```
-    /// >
-    /// > where `x_min` and `x_max` are the minimum and maximum of the original dataset.
     ///
     /// # Example
     ///
@@ -175,18 +186,23 @@ pub trait ApplyNormalization<T: Value> {
     ///
     /// ![Clip example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/clip_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Element-wise operation:
+    ///
+    /// ```math
+    /// xₙ = min(max(x, min), max)
+    /// where
+    ///   min and max are the specified bounds.
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `min`: Lower bound of the allowed range.
     /// - `max`: Upper bound of the allowed range.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > y = min(max(x, min), max)
-    /// > ```
     ///
     /// # Example
     ///
@@ -205,14 +221,14 @@ pub trait ApplyNormalization<T: Value> {
     ///
     /// ![Mean subtraction example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/mean_subtraction_example.png)
     ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > μ = mean(x)
-    /// > y = x - μ
-    /// > ```
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = x - mean(x)
+    /// ```
+    /// </div>
     ///
     /// # Example
     ///
@@ -231,15 +247,19 @@ pub trait ApplyNormalization<T: Value> {
     ///
     /// ![Z-Score example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/zscore_example.png)
     ///
-    /// > # Technical Details
-    /// >
-    /// > Element-wise operation:
-    /// >
-    /// > ```math
-    /// > μ = mean(x)
-    /// > σ = std(x)
-    /// > y = (x - μ) / σ
-    /// > ```
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Element-wise operation:
+    ///
+    /// ```math
+    /// xₙ = (x - mean(x)) / std(x)
+    /// where
+    ///   mean(x) is the average of the dataset
+    ///   std(x) is the standard deviation of the dataset
+    /// ```
+    /// </div>
     ///
     /// # Example
     ///
@@ -281,22 +301,23 @@ pub enum SmoothingTransform<T: Value> {
     ///
     /// ![Moving average example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/moving_average_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = (1/k) Σⱼ xⱼ
+    /// where
+    ///   k = window_size
+    /// ```
+    /// - Near the boundaries, the window is truncated.
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `window_size`: Number of neighboring points (including the current point)
     ///   used to compute the average. Larger values increase smoothing but blur
     ///   sharp features.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > For each point `xᵢ`, the smoothed value is:
-    /// >
-    /// > ```ignore
-    /// > yᵢ = (1/k) Σⱼ yⱼ
-    /// > ```
-    /// >
-    /// > where the sum is taken over the `k = window_size` neighboring elements.
-    /// > Near the boundaries, the window is truncated.
     MovingAverage {
         /// Number of neighboring points (including the current point) used to compute the average.
         /// Larger values increase smoothing but blur sharp features.
@@ -309,28 +330,28 @@ pub enum SmoothingTransform<T: Value> {
     /// where weights follow a Gaussian (normal) distribution centered on
     /// the element. This smooths noise while preserving overall shape.
     ///
+    /// Normalization ensures the weights sum to 1.
+    ///
     /// ![Gaussian smoothing example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/gaussian_smoothing_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// wⱼ = exp( - ( (xᵢ - xⱼ)² ) / (2 σ²) )
+    /// xₙ = ( Σⱼ wⱼ · xⱼ ) / ( Σⱼ wⱼ )
+    /// where
+    ///   xⱼ are points within ±3σ of xᵢ
+    ///   wⱼ are Gaussian weights based on distance from xᵢ
+    ///   σ is the sigma parameter
+    /// ```
+    /// </div>
     ///
     /// # Parameters
     ///
     /// - `sigma`: Standard deviation of the Gaussian kernel.
     ///   Larger values apply stronger smoothing over a wider neighborhood.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > For each point `xᵢ`, the smoothed value is:
-    /// >
-    /// > ```ignore
-    /// > yᵢ = ( Σⱼ wⱼ · yⱼ ) / ( Σⱼ wⱼ )
-    /// > ```
-    /// >
-    /// > with weights
-    /// >
-    /// > ```ignore
-    /// > wⱼ = exp( - ( (xᵢ - xⱼ)² ) / (2 σ²) )
-    /// > ```
-    /// >
-    /// > Normalization ensures the weights sum to 1.
     Gaussian {
         /// Standard deviation of the Gaussian kernel.
         /// Larger values apply stronger smoothing over a wider neighborhood.
@@ -429,22 +450,23 @@ pub trait ApplySmoothing<T: Value> {
     ///
     /// ![Moving average example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/moving_average_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = (1/k) Σⱼ xⱼ
+    /// where
+    ///   k = window_size
+    /// ```
+    /// - Near the boundaries, the window is truncated.
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `window_size`: Number of neighboring points (including the current point)
     ///   used to compute the average. Larger values increase smoothing but blur
     ///   sharp features.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > For each point `xᵢ`, the smoothed value is:
-    /// >
-    /// > ```ignore
-    /// > yᵢ = (1/k) Σⱼ yⱼ
-    /// > ```
-    /// >
-    /// > where the sum is taken over the `k = window_size` neighboring elements.
-    /// > Near the boundaries, the window is truncated.
     ///
     /// # Example
     ///
@@ -463,26 +485,24 @@ pub trait ApplySmoothing<T: Value> {
     ///
     /// ![Gaussian smoothing example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/gaussian_smoothing_example.png)
     ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// wⱼ = exp( - ( (xᵢ - xⱼ)² ) / (2 σ²) )
+    /// xₙ = ( Σⱼ wⱼ · xⱼ ) / ( Σⱼ wⱼ )
+    /// where
+    ///   xⱼ are points within ±3σ of xᵢ
+    ///   wⱼ are Gaussian weights based on distance from xᵢ
+    ///   σ is the sigma parameter
+    /// ```
+    /// </div>
+    ///
     /// # Parameters
     ///
     /// - `sigma`: Standard deviation of the Gaussian kernel.
     ///   Larger values apply stronger smoothing over a wider neighborhood.
-    ///
-    /// > # Technical Details
-    /// >
-    /// > For each point `xᵢ`, the smoothed value is:
-    /// >
-    /// > ```ignore
-    /// > yᵢ = ( Σⱼ wⱼ · yⱼ ) / ( Σⱼ wⱼ )
-    /// > ```
-    /// >
-    /// > with weights
-    /// >
-    /// > ```ignore
-    /// > wⱼ = exp( - ( (xᵢ - xⱼ)² ) / (2 σ²) )
-    /// > ```
-    /// >
-    /// > Normalization ensures the weights sum to 1.
     ///
     /// # Example
     ///
@@ -502,5 +522,76 @@ impl<T: Value> ApplySmoothing<T> for Vec<(T, T)> {
     fn apply_gaussian_smoothing(mut self, sigma: T) -> Self {
         SmoothingTransform::Gaussian { sigma }.apply(self.iter_mut().map(|(_, y)| y));
         self
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unreadable_literal)]
+mod tests {
+    use crate::transforms::{ApplyNormalization, ApplySmoothing};
+
+    #[test]
+    fn test_domain_normalization() {
+        let data = vec![(1.0, 2.0), (2.0, 3.0), (3.0, 4.0)];
+        let normalized = data.clone().apply_domain_normalization(0.0, 1.0);
+        let expected = vec![(1.0, 0.0), (2.0, 0.5), (3.0, 1.0)];
+        assert_eq!(normalized, expected);
+    }
+
+    #[test]
+    fn test_clipping() {
+        let data = vec![(1.0, -1.0), (2.0, 2.5), (3.0, 5.0)];
+        let clipped = data.clone().apply_clipping(0.0, 3.0);
+        let expected = vec![(1.0, 0.0), (2.0, 2.5), (3.0, 3.0)];
+        assert_eq!(clipped, expected);
+    }
+
+    #[test]
+    fn test_mean_subtraction() {
+        let data = vec![(1.0, 2.0), (2.0, 4.0), (3.0, 6.0)];
+        let mean_subtracted = data.clone().apply_mean_subtraction();
+        let expected = vec![(1.0, -2.0), (2.0, 0.0), (3.0, 2.0)];
+        assert_eq!(mean_subtracted, expected);
+    }
+
+    #[test]
+    fn test_z_score_normalization() {
+        let data = vec![(1.0, 2.0), (2.0, 4.0), (3.0, 6.0)];
+        let z_scored = data.clone().apply_z_score_normalization();
+        let expected = [
+            (1.0f64, -1.224744871391589f64),
+            (2.0f64, 0.0f64),
+            (3.0f64, 1.224744871391589f64),
+        ];
+        for (a, b) in z_scored.iter().zip(expected.iter()) {
+            assert!((a.1 - b.1).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_moving_average_smoothing() {
+        let data = vec![(1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (4.0, 4.0), (5.0, 5.0)];
+        let smoothed = data.clone().apply_moving_average_smoothing(3);
+        let expected: Vec<(f64, f64)> =
+            vec![(1.0, 1.5), (2.0, 2.0), (3.0, 3.0), (4.0, 4.0), (5.0, 4.5)];
+        for (a, b) in smoothed.iter().zip(expected.iter()) {
+            assert!((a.1 - b.1).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_gaussian_smoothing() {
+        let data = vec![(1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (4.0, 4.0), (5.0, 5.0)];
+        let smoothed = data.clone().apply_gaussian_smoothing(1.0);
+        let expected: Vec<(f64, f64)> = vec![
+            (1.0, 1.3633465391466744),
+            (2.0, 2.062871678972902),
+            (3.0, 2.977834759123781),
+            (4.0, 3.644935167038806),
+            (5.0, 3.1342791599844624),
+        ];
+        for (a, b) in smoothed.iter().zip(expected.iter()) {
+            assert!((a.1 - b.1).abs() < 0.01);
+        }
     }
 }

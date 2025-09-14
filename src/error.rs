@@ -13,6 +13,10 @@ pub enum Error {
     #[error("No data available for fitting")]
     NoData,
 
+    /// The specified basis cannot have the given number of coefficients.
+    #[error("Specified basis cannot have exactly {0} coefficients")]
+    InvalidNumberOfParameters(usize),
+
     /// Cannot compute polynomial fit because the design matrix is singular
     ///
     /// Usually, degree is too high, or there is not enough data.

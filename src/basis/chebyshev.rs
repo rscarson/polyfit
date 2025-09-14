@@ -1,10 +1,8 @@
-use std::fmt::Debug;
-
 use nalgebra::MatrixViewMut;
 
 use crate::{
     basis::{Basis, IntoMonomialBasis},
-    display::{self, default_fixed_range, Sign, DEFAULT_PRECISION},
+    display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
     value::{IntClampedCast, Value},
@@ -30,10 +28,41 @@ use crate::{
 /// - Provides near-optimal polynomial approximations with lower error.
 /// - Useful for fitting problems where monomials become unstable.
 #[derive(Debug, Clone)]
-pub struct ChebyshevBasis<T: Value> {
+pub struct ChebyshevBasis<T: Value = f64> {
     normalizer: DomainNormalizer<T>,
 }
 impl<T: Value> ChebyshevBasis<T> {
+    /// Creates a new Chebyshev basis that normalizes inputs from the given range to [-1, 1].
+    pub fn new(x_min: T, x_max: T) -> Self {
+        let normalizer = DomainNormalizer::new((x_min, x_max), (-T::one(), T::one()));
+        Self { normalizer }
+    }
+
+    /// Creates a new Chebyshev polynomial with the given coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which the Chebyshev basis is defined.
+    /// - `coefficients`: The coefficients for the Chebyshev basis functions.
+    ///
+    /// # Returns
+    /// A polynomial defined in the Chebyshev basis.
+    ///
+    /// # Errors
+    /// Returns an error if the polynomial cannot be created with the given basis and coefficients.
+    ///
+    /// # Example
+    /// ```rust
+    /// use polyfit::basis::ChebyshevBasis;
+    /// let chebyshev_poly = ChebyshevBasis::new_polynomial((-1.0, 1.0), &[1.0, 0.0, -0.5]).unwrap();
+    /// ```
+    pub fn new_polynomial(
+        x_range: (T, T),
+        coefficients: &[T],
+    ) -> Result<crate::Polynomial<'_, Self, T>> {
+        let basis = Self::new(x_range.0, x_range.1);
+        crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
+
     // Simple binomial coefficient using Pascal triangle
     fn binomial(n: usize, k: usize) -> Result<T> {
         if k > n {
@@ -49,7 +78,7 @@ impl<T: Value> ChebyshevBasis<T> {
     }
 }
 impl<T: Value> Basis<T> for ChebyshevBasis<T> {
-    fn new(data: &[(T, T)]) -> Self {
+    fn from_data(data: &[(T, T)]) -> Self {
         let normalizer =
             DomainNormalizer::from_data(data.iter().map(|(x, _)| *x), (-T::one(), T::one()));
         Self { normalizer }
@@ -166,6 +195,7 @@ impl<T: Value> IntoMonomialBasis<T> for ChebyshevBasis<T> {
         Ok(())
     }
 }
+
 impl<T: Value> display::PolynomialDisplay<T> for ChebyshevBasis<T> {
     fn format_term(&self, degree: i32, coef: T) -> Option<display::Term> {
         let sign = Sign::from_coef(coef);
@@ -186,15 +216,10 @@ impl<T: Value> display::PolynomialDisplay<T> for ChebyshevBasis<T> {
     }
 
     fn format_scaling_formula(&self) -> Option<String> {
-        let fixed_range = default_fixed_range::<T>();
-        let (x_min, x_max) = self.normalizer.src_range();
-        let min = display::unicode::float(x_min, fixed_range.clone(), DEFAULT_PRECISION);
-        let max = display::unicode::float(x_max, fixed_range, DEFAULT_PRECISION);
-
         let x = display::unicode::subscript("s");
         let x = format!("x{x}");
 
-        Some(format!("{x} = 2(x - a) / (b - a) - 1, a={min}, b={max}"))
+        Some(format!("{x} = {}", self.normalizer))
     }
 }
 

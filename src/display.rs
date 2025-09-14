@@ -14,7 +14,7 @@
 //!
 //! # Helpers
 //! - [`format_coefficient`]: Formats a numeric coefficient, skipping zeros.
-//! - [`exponentiate`]: Converts a number to a Unicode superscript for exponents.
+//! - [`format_variable`]: Adds optional super/sub script components to a variable, skipping it for degree 0.
 use crate::value::{IntClampedCast, Value};
 
 pub mod unicode;
@@ -38,9 +38,9 @@ pub fn default_fixed_range<T: Value>() -> Option<std::ops::Range<T>> {
 /// while a default implementation assembles them into a full equation.
 ///
 /// # Provided behavior
-/// - [`format_term`] is required: defines how to render a single term
+/// - [`PolynomialDisplay::format_term`] is required: defines how to render a single term
 ///   (e.g., `3x²`, `-x`, or `7`).
-/// - [`format_polynomial`] is provided: writes the full polynomial as
+/// - [`PolynomialDisplay::format_polynomial`] is provided: writes the full polynomial as
 ///   `"y = ..."` into any [`std::fmt::Write`] buffer.
 pub trait PolynomialDisplay<T: Value> {
     /// Formats a single polynomial term for display.
@@ -56,7 +56,7 @@ pub trait PolynomialDisplay<T: Value> {
     ///
     /// # Helpers
     /// There are a few functions provided to assist in formatting. See the `display` module:
-    /// [`exponentiate`], [`format_coefficient`], and [`DEFAULT_PRECISION`].
+    /// [`format_variable`], [`format_coefficient`], and [`DEFAULT_PRECISION`].
     ///
     /// # Example
     /// A Chebyshev implementation might render terms as `coef·Tₙ(x)`:
@@ -93,7 +93,7 @@ pub trait PolynomialDisplay<T: Value> {
     /// Writes the full polynomial expression into the provided buffer.
     ///
     /// This method assembles a human-readable polynomial string, using
-    /// [`format_term`] for each nonzero coefficient. The output is prefixed
+    /// [`PolynomialDisplay::format_term`] for each nonzero coefficient. The output is prefixed
     /// with `"y = "` and terms are separated by spaces, with proper signs
     /// inserted.
     ///
@@ -209,7 +209,7 @@ impl Sign {
 /// A `Term` combines the **sign** and the **formatted body** of a polynomial
 /// component (e.g., `"2x²"`, `"-3.14"`, `"x"`). Terms are typically produced
 /// by [`PolynomialDisplay::format_term`] and assembled into a full polynomial
-/// string by [`format_polynomial`].
+/// string by [`PolynomialDisplay::format_polynomial`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Term {
     /// The sign of the term (positive or negative).
@@ -217,7 +217,7 @@ pub struct Term {
 
     /// The body of the term (e.g., `"2x²"`, `"3.14"`, `"x"`).
     ///
-    /// Helper functions [`format_coefficient`] and [`exponentiate`] can be
+    /// Helper functions [`format_coefficient`] and [`format_variable`] can be
     /// used to construct this string consistently.
     pub body: String,
 }
