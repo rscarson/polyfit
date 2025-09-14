@@ -174,10 +174,10 @@ impl<'root> Plot<'root> {
         // Residuals
         let mut residuals = fit
             .residuals()
-            .iter()
+            .y_iter()
             .zip(&solution)
             .map(|(r, s)| {
-                let r = cast(*r).ok()?;
+                let r = cast(r).ok()?;
                 Some((s.0, r))
             })
             .collect::<Option<Vec<_>>>()

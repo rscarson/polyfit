@@ -230,6 +230,7 @@ macro_rules! basis_select {
     }};
 
     ($data:expr, $degree_bound:expr, $method:expr, options = [ $( $basis:path ),+ $(,)? ]) => {{
+        use $crate::value::CoordExt;
         struct FitProps {
             rating: f64,
             plot_fn: Box<dyn Fn()>,
@@ -250,7 +251,7 @@ macro_rules! basis_select {
                 let name = stringify!($basis);
                 let equation = fit.equation();
 
-                let residuals = fit.residuals();
+                let residuals = fit.residuals().y();
                 let r2 = fit.r_squared(fit.data());
                 let p_value = $crate::statistics::residual_normality(&residuals);
                 let rating = 0.75 * r2 + 0.25 * p_value;

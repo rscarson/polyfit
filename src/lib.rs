@@ -91,16 +91,10 @@
 //! ```rust
 //! # use polyfit::{MonomialFit, transforms::ApplyNoise, statistics::{DegreeBound, ScoringMethod}, assert_r_squared, assert_residuals_normal};
 //!
-//! //
-//! // Behold some definitely real data
-//! let data = &[
-//!     (0.0, -5.0), (1.0, 0.0), (2.0, 3.0), (3.0, 10.0), (4.0, 19.0), (5.0, 30.0),
-//!     (6.0, 43.0), (7.0, 58.0), (8.0, 75.0), (9.0, 94.0), (10.0, 115.0),
-//!     (11.0, 138.0), (12.0, 163.0), (13.0, 190.0), (14.0, 219.0), (15.0, 250.0),
-//!     (16.0, 283.0), (17.0, 318.0), (18.0, 355.0), (19.0, 394.0), (20.0, 435.0),
-//!     (21.0, 478.0), (22.0, 523.0), (23.0, 570.0), (24.0, 619.0), (25.0, 670.0),
-//!     (26.0, 723.0), (27.0, 778.0), (28.0, 835.0), (29.0, 894.0), (30.0, 955.0),
-//! ];
+//!    //
+//!    // Load data from a file
+//!    let data = include_str!("../examples/sample_data.json");
+//!    let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
 //!
 //! //
 //! // Now we can create a curve fit to this data
@@ -109,7 +103,7 @@
 //! // `MonomialBasis` is the simplest polynomial basis, and the one most people are familiar with, it looks like `1x^2 + 2x + 3`
 //! // It is one of several bases available, each with their own strengths and weaknesses. `basis_select!` can help you choose the best one for your data
 //! let fit = MonomialFit::new_auto(
-//!     data,                            // The data to fit to
+//!     &data,                            // The data to fit to
 //!     DegreeBound::Relaxed,            // How picky we are about the degree of the polynomial (See [`statistics::DegreeBound`])
 //!     ScoringMethod::AIC               // The method used to score the fit quality (See [`statistics::ScoringMethod`])
 //! ).expect("Failed to create fit");

@@ -21,3 +21,16 @@ fn main() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[allow(dead_code)]
+#[cfg(feature = "transforms")]
+fn gen_sample_data() {
+    use polyfit::function;
+    use polyfit::transforms::ApplyNoise;
+    function!(y(x) = 5.3 x^4 - 2.1 x^3 + 0.5 x^2 + 3.0 x + 1.0);
+    let data = y.solve_range(0.0..100.0, 1.0).apply_normal_noise(0.1, None);
+
+    // data to json
+    let json = serde_json::to_string(&data).unwrap();
+    std::fs::write("examples/sample_data.json", json).unwrap();
+}

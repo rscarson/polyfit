@@ -131,9 +131,12 @@ macro_rules! assert_residuals_normal {
     ($fit:expr, $tolerance:literal) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
+            use $crate::value::CoordExt;
+
             let ref fit = $fit;
             let tolerance = $tolerance;
             let residuals = fit.residuals();
+            let residuals: Vec<_> = residuals.y();
             let p_value = $crate::statistics::residual_normality(&residuals);
 
             if p_value < tolerance {
@@ -179,11 +182,13 @@ macro_rules! assert_residual_spread {
     ($fit:expr, $max:expr) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
+            use $crate::value::CoordExt;
+
             let ref fit = $fit;
             let tolerance = $max;
 
             let residuals = fit.residuals();
-            let spread = $crate::statistics::spread(&residuals);
+            let spread = $crate::statistics::spread(residuals.y_iter());
             if spread > tolerance {
                 // Create a failure plot
                 #[cfg(feature = "plotting")]

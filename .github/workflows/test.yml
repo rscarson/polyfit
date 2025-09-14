@@ -19,17 +19,17 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Run tests with no features
-    - name: Run barebones tests
-      run: cargo test --no-default-features --lib
+    # build with no features
+    - name: build no features
+      run: cargo build --no-default-features
 
-    # Run tests with just plotting feature
-    - name: Run plotting tests
-      run: cargo test --features "plotting" --lib
+    # build with just plotting feature
+    - name: build plotting tests
+      run: cargo build --features "plotting"
 
-    # Run tests with just transforms feature
-    - name: Run transforms tests
-      run: cargo test --features "transforms" --lib
+    # build tests with just transforms feature
+    - name: build transforms tests
+      run: cargo build --features "transforms"
 
     # Run tests with all features
     - name: Run complete tests

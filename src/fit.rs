@@ -704,10 +704,11 @@ where
     /// # Returns
     /// A vector of residuals, where each element corresponds to a data point.
     ///
-    pub fn residuals(&self) -> Vec<T> {
+    pub fn residuals(&self) -> Vec<(T, T)> {
         let y = self.data.y_iter();
-        let y_fit = self.solution().into_iter().map(|(_, y)| y);
-        y.zip(y_fit).map(|(y, y_fit)| y - y_fit).collect()
+        y.zip(self.solution())
+            .map(|(y, (x, y_fit))| (x, y - y_fit))
+            .collect()
     }
 
     /// Computes the residual variance of the model's predictions.

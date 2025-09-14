@@ -386,18 +386,20 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
 /// # Examples
 /// ```rust
 /// let values = vec![2.0, 5.0, 1.0, 9.0];
-/// let r = polyfit::statistics::spread(&values);
+/// let r = polyfit::statistics::spread(values.iter().copied());
 /// assert_eq!(r, 8.0); // 9 - 1
 /// ```
-pub fn spread<T: Value>(data: &[T]) -> T {
-    let min = data
-        .iter()
-        .copied()
-        .fold(T::infinity(), <T as nalgebra::RealField>::min);
-    let max = data
-        .iter()
-        .copied()
-        .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
+pub fn spread<T: Value>(data: impl Iterator<Item = T>) -> T {
+    let mut min = T::infinity();
+    let mut max = T::neg_infinity();
+    for value in data {
+        if value < min {
+            min = value;
+        }
+        if value > max {
+            max = value;
+        }
+    }
     max - min
 }
 
