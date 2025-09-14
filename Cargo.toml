@@ -21,7 +21,7 @@ transforms = ["rand", "rand_distr"]
 plotting = ["plotters"]
 
 [dependencies]
-plotters = {version = "0.3", optional = true, features = ["bitmap_backend", "bitmap_encoder", "all_series", "all_elements", "full_palette", "colormaps"]}
+plotters = {version = "0.3", optional = true}
 rand = {version = "0.9", optional = true}
 rand_distr = {version = "0.5", optional = true}
 

@@ -19,6 +19,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install fontconfig
+      run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig1-dev
+
     # Check if the README is up to date
     # We will do this before all the time-consuming tests
     - name: Check if the README is up to date.
