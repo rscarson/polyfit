@@ -1,4 +1,5 @@
-//! # Polyfit;  Because you don't need to be able to build a powerdrill to use one safely
+//! # Polyfit
+//! #### Because you don't need to be able to build a powerdrill to use one safely
 //!
 //! [![Crates.io](https://img.shields.io/crates/v/polyfit.svg)](https://crates.io/crates/polyfit/)
 //! [![Build Status](https://github.com/caliangroup/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/caliangroup/polyfit/actions?query=branch%3Amaster)
@@ -62,7 +63,7 @@
 //!
 //! If the `plotting` feature is enabled, any failed assertion will generate a plot showing you exactly what went wrong.
 //!
-//! See [`test`] for more details on all included tests
+//! See [`mod@test`] for more details on all included tests
 //!
 //! ### Plotting
 //! If the `plotting` feature is enabled, you can use the [`plot!`] macro to generate plots of your fits and polynomials.
@@ -71,7 +72,7 @@
 //! - If enabled, failed assertions in the testing library will automatically generate plots showing what went wrong
 //! - ![Example plot](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/example_fail.png)
 //!
-//! See [`plot`] for more details
+//! See [`mod@plot`] for more details
 //!
 //! ### Transforms
 //! If the `transforms` feature is enabled, you can use the tools in the [`transforms`] module to manipulate your data.

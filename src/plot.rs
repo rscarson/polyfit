@@ -69,6 +69,8 @@ macro_rules! plot {
     ) => {{
         use $crate::value::CoordExt;
 
+        let mut svg_buffer = String::new();
+
         //
         // Prep arguments
         #[allow(unused_mut, unused_assignments)] let mut size = (640, 480); $( size = ($width, $height); )?
@@ -79,9 +81,7 @@ macro_rules! plot {
 
         //
         // Prep the backend
-        #[allow(unused_mut, unused_assignments)] let mut prefix = None; $( prefix = Some($prefix.to_string()); )?
-        let path = $crate::plot_filename!(prefix);
-        let backend = $crate::plot::plotters::backend::BitMapBackend::new(&path, size);
+        let backend = $crate::plot::plotters::backend::SVGBackend::with_string(&mut svg_buffer, size);
         let root = $crate::plot::plotters::prelude::IntoDrawingArea::into_drawing_area(backend);
         root.fill(&$crate::plot::plotters::prelude::WHITE).expect("Failed to fill drawing area");
 
@@ -104,7 +104,18 @@ macro_rules! plot {
             )*
         )?
 
+        //
+        // Render
         plot.build().expect("Failed to build plot");
+        drop(root);
+
+        //
+        // Write to file
+        #[allow(unused_mut, unused_assignments)] let mut prefix = None; $( prefix = Some($prefix.to_string()); )?
+        let path = $crate::plot_filename!(prefix);
+        $crate::plot::Plot::build_png(&svg_buffer, &path).expect("Failed to write PNG");
+
+
         println!("Wrote plot to {}", path.display());
     }};
 }

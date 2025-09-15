@@ -1,32 +1,36 @@
 [package]
 name = "polyfit"
 authors = ["@rscarson", "Calian Ltd."]
-description = "I learned linear algebra so you don't have to"
+description = "Because you don't need to be able to build a powerdrill to use one safely"
 edition = "2021"
-license = "MIT OR Apache-2.0"
-version = "0.1.0"
+license = "MIT"
+version = "1.0.0"
 repository = "https://github.com/rscarson/polyfit"
 
 keywords = ["polynomial", "fitting", "regression", "chebyshev", "monomial", "numerical", "approximation"]
 categories = ["algorithms", "data-structures", "mathematics", "science", "visualization"]
-readme = "readme.md"
+readme = "README.md"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["transforms"]
+default = ["transforms", "plotting"]
 transforms = ["rand", "rand_distr"]
 plotting = ["plotters"]
 
 [dependencies]
-plotters = {version = "0.3", optional = true}
-rand = {version = "0.9", optional = true}
-rand_distr = {version = "0.5", optional = true}
-
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 nalgebra = "0.33"
 num-traits = "0.2"
 thiserror = "1.0"
+
+# Plotting
+plotters = {version = "0.3", optional = true, default-features = false, features = ["svg_backend", "all_series", "all_elements", "full_palette", "colormaps"]}
+resvg = "0.45.1"
+
+# Transforms
+rand = {version = "0.9", optional = true}
+rand_distr = {version = "0.5", optional = true}

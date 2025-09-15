@@ -1,9 +1,10 @@
-use std::ops::Range;
+use std::{ops::Range, path::Path};
 
 use plotters::{
     coord::{types::RangedCoordf64, Shift},
     prelude::*,
 };
+use resvg::usvg;
 
 use crate::{
     basis::Basis,
@@ -19,19 +20,27 @@ use crate::{
 pub enum PlottingError<'root> {
     /// Error drawing the plot
     #[error("Error drawing plot: {0}")]
-    Draw(#[from] DrawingAreaErrorKind<<plotters::prelude::BitMapBackend<'root> as plotters::prelude::DrawingBackend>::ErrorType>),
+    Draw(#[from] DrawingAreaErrorKind<<SVGBackend<'root> as DrawingBackend>::ErrorType>),
 
     /// Error casting a value
     #[error("A value could not be represented as f64")]
     Cast,
+
+    /// Error parsing SVG
+    #[error("Rendering error: {0}")]
+    SvgParse(#[from] usvg::Error),
+
+    /// Error encoding PNG
+    #[error("PNG encoding error: {0}")]
+    PngEncode(String),
 }
 
 /// Type alias for the root drawing area.
-pub type PlotRoot<'root> = DrawingArea<BitMapBackend<'root>, Shift>;
+pub type PlotRoot<'root> = DrawingArea<SVGBackend<'root>, Shift>;
 
 /// Debug plot for curves and fits
 pub struct Plot<'root> {
-    chart: ChartContext<'root, BitMapBackend<'root>, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
+    chart: ChartContext<'root, SVGBackend<'root>, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
     y_range: Range<f64>,
     palettes: Palettes,
 }
@@ -282,6 +291,28 @@ impl<'root> Plot<'root> {
             .position(SeriesLabelPosition::UpperLeft)
             .draw()?;
 
+        self.chart.plotting_area().present()?;
+        Ok(())
+    }
+
+    /// Build a PNG file from the SVG data
+    ///
+    /// # Errors
+    /// Returns an error if the PNG cannot be created.
+    pub fn build_png(svg: &str, target: &Path) -> Result<(), PlottingError<'root>> {
+        let mut opt = usvg::Options::default();
+        opt.fontdb_mut().load_system_fonts();
+
+        let rtree = usvg::Tree::from_str(svg, &opt)?;
+        let pixmap_size = rtree.size().to_int_size();
+
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
+            .ok_or(PlottingError::Cast)?;
+        resvg::render(&rtree, usvg::Transform::default(), &mut pixmap.as_mut());
+
+        pixmap
+            .save_png(target)
+            .map_err(|e| PlottingError::PngEncode(e.to_string()))?;
         Ok(())
     }
 }
