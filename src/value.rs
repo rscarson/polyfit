@@ -176,7 +176,7 @@ impl<T: Value> Iterator for SteppedValues<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let value = *self.range.start() + self.index * self.step;
-        if value < *self.range.end() {
+        if value <= *self.range.end() {
             self.index += T::one();
             Some(value)
         } else {

@@ -102,10 +102,10 @@
 //! ```rust
 //! # use polyfit::{MonomialFit, transforms::ApplyNoise, statistics::{DegreeBound, ScoringMethod}, assert_r_squared, assert_residuals_normal};
 //!
-//!    //
-//!    // Load data from a file
-//!    let data = include_str!("../examples/sample_data.json");
-//!    let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
+//! //
+//! // Load data from a file
+//! let data = include_str!("../examples/sample_data.json");
+//! let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
 //!
 //! //
 //! // Now we can create a curve fit to this data
