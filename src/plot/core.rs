@@ -10,7 +10,7 @@ use crate::{
     basis::Basis,
     display::PolynomialDisplay,
     plot::{Palettes, PlottingElement},
-    statistics::Confidence,
+    statistics::{Confidence, Tolerance},
     value::{CoordExt, Value},
     CurveFit, Polynomial,
 };
@@ -111,6 +111,7 @@ impl<'root> Plot<'root> {
         title: &str,
         fit: &CurveFit<B, T>,
         confidence: Confidence,
+        noise_tolerance: Option<Tolerance<T>>,
     ) -> Result<Self, PlottingError<'root>> {
         let x_range = fit.x_range();
         let y_range = fit.y_range();
@@ -120,7 +121,7 @@ impl<'root> Plot<'root> {
         let x_range: Range<f64> = cast(*x_range.start())?..cast(*x_range.end())?;
         let y_range: Range<f64> = cast(*y_range.start())?..cast(*y_range.end())?;
 
-        Self::new(root, title, x_range, y_range)?.with_fit(fit, confidence)
+        Self::new(root, title, x_range, y_range)?.with_fit(fit, confidence, noise_tolerance)
     }
 
     /// Clip the y-values of a sample to the plot's y-range
@@ -138,10 +139,11 @@ impl<'root> Plot<'root> {
         mut self,
         element: &PlottingElement<B, T>,
         confidence: Confidence,
+        noise_tolerance: Option<Tolerance<T>>,
         x: &[T],
     ) -> Result<Self, PlottingError<'root>> {
         match element {
-            PlottingElement::Fit(fit) => self.with_fit(fit, confidence),
+            PlottingElement::Fit(fit) => self.with_fit(fit, confidence, noise_tolerance),
             PlottingElement::Canonical(canonical) => self.with_canonical(canonical, x),
             PlottingElement::Data(data) => {
                 let palette = self.palettes.next();
@@ -159,6 +161,7 @@ impl<'root> Plot<'root> {
         mut self,
         fit: &CurveFit<B, T>,
         confidence: Confidence,
+        tolerance: Option<Tolerance<T>>,
     ) -> Result<Self, PlottingError<'root>> {
         let palette = self.palettes.next();
         let data = fit.data().as_f64().map_err(|_| PlottingError::Cast)?;
@@ -168,7 +171,7 @@ impl<'root> Plot<'root> {
         // Confidence bands
         let covariance = fit.covariance().map_err(|_| PlottingError::Cast)?;
         let confidence = covariance
-            .solution_confidence(confidence)
+            .solution_confidence(confidence, tolerance)
             .map_err(|_| PlottingError::Cast)?;
         let bands = confidence
             .into_iter()

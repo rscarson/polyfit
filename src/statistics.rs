@@ -60,7 +60,7 @@
 //! let score = ScoringMethod::AIC.calculate(y.into_iter(), y_fit.into_iter(), 3.0);
 //! println!("AIC score = {score}");
 //! ```
-use crate::value::Value;
+use crate::value::{IntClampedCast, Value};
 
 /// Computes the residual variance of a model's predictions.
 ///
@@ -934,6 +934,7 @@ impl DegreeBound {
     /// Computes the maximum polynomial degree to use for fitting based on the selected [`DegreeBound`]
     /// and the number of observations `n`.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn max_degree(self, n: usize) -> usize {
         let theoretical_max = n.saturating_sub(1);
         match self {
@@ -949,7 +950,6 @@ impl DegreeBound {
                     .powf(1.0 / (2.0 * f64::from(est_smoothness) + 1.0))
                     .floor();
 
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let smooth_lim = smooth_lim as usize;
 
                 let obs_lim = (n / max_n_per_k).saturating_sub(1);
@@ -1090,6 +1090,18 @@ impl std::fmt::Display for Confidence {
     }
 }
 
+/// Specifies a tolerance level for numerical comparisons.
+///
+/// Can be either an absolute unit value, or a percentage of the variance or standard deviation (depending on context).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Tolerance<T: Value> {
+    /// An absolute tolerance value.
+    Absolute(T),
+
+    /// A relative tolerance value (percentage).
+    Relative(T),
+}
+
 // A confidence band for a fitted model.
 ///
 /// Represents a predicted range for model outputs at a given confidence level.
@@ -1107,20 +1119,29 @@ impl std::fmt::Display for Confidence {
 /// - `upper`: Upper bound of the confidence band.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ConfidenceBand<T: Value> {
-    /// Confidence level for this band (e.g., 95%).
-    pub level: Confidence,
-
-    /// Central predicted value.
-    pub value: T,
-
-    /// Lower bound of the confidence interval.
-    pub lower: T,
-
-    /// Upper bound of the confidence interval.
-    pub upper: T,
+    pub(crate) level: Confidence,
+    pub(crate) tolerance: Option<Tolerance<T>>,
+    pub(crate) value: T,
+    pub(crate) lower: T,
+    pub(crate) upper: T,
 }
 
 impl<T: Value> ConfidenceBand<T> {
+    /// Returns the tolerance used to compute the confidence band, if any.
+    pub fn tolerance(&self) -> Option<Tolerance<T>> {
+        self.tolerance
+    }
+
+    /// Returns the confidence level of the band.
+    pub fn confidence(&self) -> Confidence {
+        self.level
+    }
+
+    /// Returns the central predicted value of the model.
+    pub fn value(&self) -> T {
+        self.value
+    }
+
     /// Returns the lower bound of the confidence band.
     pub fn min(&self) -> T {
         self.lower
@@ -1151,6 +1172,9 @@ impl<T: Value> std::fmt::Display for ConfidenceBand<T> {
 }
 
 /// Normalizes values from one range to another.
+///
+/// Destination range use infinity to indicate unbounded ranges.
+/// - `(f64::NEG_INFINITY, f64::INFINITY)` means no normalization.
 #[derive(Debug, Clone, Copy)]
 pub struct DomainNormalizer<T: Value> {
     src_range: (T, T),
@@ -1194,6 +1218,23 @@ impl<T: Value> DomainNormalizer<T> {
     pub fn normalize(&self, x: T) -> T {
         let (src_min, src_max) = self.src_range;
         let (dst_min, dst_max) = self.dst_range;
+
+        if dst_min == T::neg_infinity() && dst_max == T::infinity() {
+            return x;
+        }
+
+        if dst_min == T::neg_infinity() {
+            // We have a maximum only
+            // Adjust x by - src_max, then add dst_max
+            return x - src_max + dst_max;
+        }
+
+        if dst_max == T::infinity() {
+            // We have a minimum only
+            // Adjust x by - src_min, then add dst_min
+            return x - src_min + dst_min;
+        }
+
         let value = dst_min + (x - src_min) * (dst_max - dst_min) / (src_max - src_min);
         nalgebra::RealField::clamp(value, dst_min, dst_max)
     }
@@ -1202,14 +1243,81 @@ impl<T: Value> DomainNormalizer<T> {
     pub fn denormalize(&self, x: T) -> T {
         let (src_min, src_max) = self.src_range;
         let (dst_min, dst_max) = self.dst_range;
+
+        if dst_min == T::neg_infinity() && dst_max == T::infinity() {
+            return x;
+        }
+
+        if dst_min == T::neg_infinity() {
+            // We have a maximum only
+            // Adjust x by - dst_max, then add src_max
+            return x - dst_max + src_max;
+        }
+
+        if dst_max == T::infinity() {
+            // We have a minimum only
+            // Adjust x by - dst_min, then add src_min
+            return x - dst_min + src_min;
+        }
+
         let value = src_min + (x - dst_min) * (src_max - src_min) / (dst_max - dst_min);
         nalgebra::RealField::clamp(value, src_min, src_max)
+    }
+
+    /// Denormalizes a slice of polynomial coefficients from the destination range back to the source range.
+    ///
+    /// The coefficients are assumed to be in ascending order (constant term first).
+    #[must_use]
+    pub fn denormalize_coefs(&self, coefs: &[T]) -> Vec<T> {
+        let (x_min, x_max) = self.src_range();
+        let (d_min, d_max) = self.dst_range();
+        let (alpha, beta) = if d_min == T::neg_infinity() && d_max == T::infinity() {
+            (T::one(), T::zero()) // no change
+        } else if d_min == T::neg_infinity() {
+            // We have a maximum only
+            // Adjust x by - src_max, then add dst_max
+            let beta = d_max - x_max;
+            (T::one(), beta)
+        } else if d_max == T::infinity() {
+            // We have a minimum only... shift only
+            let beta = d_min - x_min;
+            (T::one(), beta)
+        } else {
+            let alpha = (d_max - d_min) / (x_max - x_min);
+            let beta = d_min - alpha * x_min;
+            (alpha, beta)
+        };
+
+        let mut unnorm = vec![T::zero(); coefs.len()];
+        for (i, &c) in coefs.iter().enumerate() {
+            for j in 0..=i {
+                let binom = T::factorial(i) / (T::factorial(j) * T::factorial(i - j));
+                unnorm[j] += c
+                    * binom
+                    * Value::powi(alpha, j.clamped_cast())
+                    * Value::powi(beta, (i - j).clamped_cast());
+            }
+        }
+        unnorm
     }
 }
 impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (src_min, src_max) = self.src_range;
         let (dst_min, dst_max) = self.dst_range;
+
+        let dst_min = if dst_min == T::neg_infinity() {
+            "-∞".to_string()
+        } else {
+            dst_min.to_string()
+        };
+
+        let dst_max = if dst_max == T::infinity() {
+            "∞".to_string()
+        } else {
+            dst_max.to_string()
+        };
+
         write!(f, "T[ {src_min}..{src_max} -> {dst_min}..{dst_max} ]")
     }
 }

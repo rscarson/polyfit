@@ -1,6 +1,7 @@
 <!-- cargo-rdme start -->
 
-# Polyfit;  Because you don't need to be able to build a powerdrill to use one safely
+# Polyfit
+#### Because you don't need to be able to build a powerdrill to use one safely
 
 [![Crates.io](https://img.shields.io/crates/v/polyfit.svg)](https://crates.io/crates/polyfit/)
 [![Build Status](https://github.com/caliangroup/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/caliangroup/polyfit/actions?query=branch%3Amaster)
@@ -43,15 +44,25 @@ The crate includes a variety of polynomial bases to choose from, each with their
 - Monomial - Simple and intuitive, but can be numerically unstable for high degrees or wide x-ranges
 - Chebyshev - More numerically stable than monomials, and can provide better fits for certain types of data
 - Legendre - Orthogonal polynomials that can provide good fits for certain types of data
-- Hermite - Useful for data that is normally distributed
+- Hermite (Physicists' and Probabilists') - Useful for data that is normally distributed
 - Laguerre - Useful for data that is exponentially distributed
-- Exponential - Useful for data that grows or decays exponentially
 - Fourier - Useful for periodic data
 
 I also include [`basis_select!`], a macro that will help you choose the best basis for your data.
 - It does an automatic fit for each basis I support, and scores them using the method of your choice.
 - It will show and plot out the best 3
 - Use it a few times will real data and see which basis seems to consistently come out on top for your use-case
+
+This table gives hints at which basis to choose based on the characteristics of your data:
+
+| Basis Name | Handles Curves Well | Repeating Patterns | Extremes / Outliers | Growth/Decay | Best Data Shape / Domain |
+| ---------- | ------------------- | ------------------ | ------------------- | ------------ | ------------------------ |
+| Monomial   | Poor                | No                 | No                  | Poor         | Any simple trend         |
+| Chebyshev  | Good                | No                 | No                  | Poor         | Smooth curves, bounded   |
+| Legendre   | Fair                | No                 | No                  | Poor         | Smooth curves, bounded   |
+| Hermite    | Good                | No                 | Yes                 | Yes          | Bell-shaped, any range   |
+| Laguerre   | Good                | No                 | Yes                 | Yes          | Decaying, positive-only  |
+| Fourier    | Fair                | Yes                | No                  | Poor         | Periodic signals         |
 
 ### Calculus Support
 All built-in bases support differentiation and integration, including built-in methods for definite integrals, and finding critical points.
@@ -64,7 +75,7 @@ There are a variety of assertions available, from simple r² checks to ensuring 
 
 If the `plotting` feature is enabled, any failed assertion will generate a plot showing you exactly what went wrong.
 
-See [`test`] for more details on all included tests
+See [`mod@test`] for more details on all included tests
 
 ### Plotting
 If the `plotting` feature is enabled, you can use the [`plot!`] macro to generate plots of your fits and polynomials.
@@ -73,7 +84,7 @@ If the `plotting` feature is enabled, you can use the [`plot!`] macro to generat
 - If enabled, failed assertions in the testing library will automatically generate plots showing what went wrong
 - ![Example plot](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/example_fail.png)
 
-See [`plot`] for more details
+See [`mod@plot`] for more details
 
 ### Transforms
 If the `transforms` feature is enabled, you can use the tools in the [`transforms`] module to manipulate your data.
@@ -167,7 +178,11 @@ let good_prediction = fit.y(50.0); // This is within the range of the data, so i
 // They can be used to calculate confidence intervals for predictions
 // They can also be used to find outliers in your data
 let covariance = fit.covariance().expect("Failed to calculate covariance");
-let confidence_band = covariance.confidence_band(50.0, Confidence::P95).unwrap(); // 95% confidence band
+let confidence_band = covariance.confidence_band(
+    50.0,                          // Confidence band for x=50
+    Confidence::P95,               // Find the range where we expect 95% of points to fall within
+    Some(Tolerance::Relative(0.1)) // Tolerate some extra noise in the data (10% of standard deviation of the data, in this case)
+).unwrap(); // 95% confidence band
 println!("I am 95% confident that the true value at x=50.0 is between {} and {}", confidence_band.min(), confidence_band.max());
 ```
 
@@ -200,7 +215,9 @@ let fit = MonomialFit::new_auto(
 // Now we can find the outliers!
 // These are the points that fall outside the 95% confidence interval
 // This means that they are outside the range where we expect 95% of the data to fall
-let outliers = fit.covariance().unwrap().outliers(Confidence::P95);
+// The `Some(0.1)` means we tolerate some noise in the data, so we don't flag points that are just a little bit off
+// The noise tolerance is a fraction of the standard deviation of the data (10% in this case)
+let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Relative(0.1))).unwrap();
 ```
 
 <!-- cargo-rdme end -->

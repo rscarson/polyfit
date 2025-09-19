@@ -5,7 +5,7 @@ use crate::{
     display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
-    value::{IntClampedCast, Value},
+    value::Value,
 };
 
 /// Normalized Chebyshev basis for polynomial curves.
@@ -61,20 +61,6 @@ impl<T: Value> ChebyshevBasis<T> {
     ) -> Result<crate::Polynomial<'_, Self, T>> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
-    }
-
-    // Simple binomial coefficient using Pascal triangle
-    fn binomial(n: usize, k: usize) -> Result<T> {
-        if k > n {
-            return Ok(T::zero());
-        }
-
-        let mut res: u64 = 1;
-        for i in 0..k {
-            res = res * (n - i) as u64 / (i + 1) as u64;
-        }
-
-        T::try_cast(res)
     }
 }
 impl<T: Value> Basis<T> for ChebyshevBasis<T> {
@@ -169,26 +155,7 @@ impl<T: Value> IntoMonomialBasis<T> for ChebyshevBasis<T> {
 
         //
         // Phase 2 - Un-normalize over x
-        //
-        let (x_min, x_max) = self.normalizer.src_range();
-        let alpha = T::two() / (x_max - x_min);
-        let beta = -(x_max + x_min) / (x_max - x_min);
-
-        let mut monomial = vec![T::zero(); n + 1];
-        for j in 0..=n {
-            let aj = monomial_prime[j];
-            if aj == T::zero() {
-                continue;
-            }
-
-            for m in 0..=j {
-                let binom = Self::binomial(j, m)?;
-                monomial[m] += aj
-                    * binom
-                    * Value::powi(alpha, m.clamped_cast())
-                    * Value::powi(beta, (j - m).clamped_cast());
-            }
-        }
+        let monomial = self.normalizer.denormalize_coefs(&monomial_prime);
 
         // Phase 3 - Write back to coefficients
         coefficients.copy_from_slice(&monomial);
@@ -230,7 +197,7 @@ mod tests {
 
     use crate::{
         assert_fits, function,
-        statistics::{DegreeBound, ScoringMethod},
+        statistics::{DegreeBound, ScoringMethod, Tolerance},
         test_basis_build, test_basis_functions, test_basis_normalizes, test_basis_orthogonal,
         transforms::ApplyNoise,
         ChebyshevFit,
@@ -243,19 +210,20 @@ mod tests {
         function!(test(x) = 8.0 + 7.0 x^1 + 6.0 x^2 + 5.0 x^3 + 4.0 x^4 + 3.0 x^5 + 2.0 x^6);
         let data = test
             .solve_range(0.0..1000.0, 10.0)
-            .apply_normal_noise(0.1, None);
+            .apply_normal_noise(Tolerance::Relative(0.1), None);
         let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         let basis = fit.basis().clone();
 
-        // Chebyshev is orthogonal over:
-        // x_k = cos((2k+1)/(2n) * π) for k = 0..n-1
-        let mut points = Vec::with_capacity(fit.degree());
-        let n = fit.degree() as f64;
-        for i in 0..fit.degree() {
-            let x = ((2.0 * i as f64 + 1.0) / (2.0 * n) * PI).cos();
-            points.push(x);
-        }
-        test_basis_orthogonal!(basis, &points);
+        // Orthogonality test points
+        let (gauss_xs, gauss_ws) = gauss_chebyshev_nodes_weights(100);
+        test_basis_orthogonal!(
+            basis,
+            norm_fn = norm_fn,
+            values = gauss_xs,
+            weights = gauss_ws,
+            n_funcs = 7,
+            eps = 1e-12
+        );
 
         // Basic evaluations at x = 0.5
         let x_norm = basis.normalize_x(0.5);
@@ -283,5 +251,31 @@ mod tests {
         // Now we convert the fit to monomial and compare the solutions
         let monomial_fit = fit.as_monomial().expect("Failed to convert to monomial");
         assert_fits!(&monomial_fit, &fit, 1.0);
+    }
+
+    //
+    // orthogonal points and weights for Gauss-Chebyshev quadrature
+    //
+
+    fn norm_fn(n: usize) -> f64 {
+        if n == 0 {
+            PI
+        } else {
+            PI / 2.0
+        }
+    }
+
+    fn gauss_chebyshev_nodes_weights(n: usize) -> (Vec<f64>, Vec<f64>) {
+        assert!(n > 0);
+        let mut xs = Vec::with_capacity(n);
+        let mut ws = Vec::with_capacity(n);
+
+        for k in 1..=n {
+            let x = ((2 * k - 1) as f64 * std::f64::consts::PI / (2.0 * n as f64)).cos();
+            xs.push(x);
+            ws.push(std::f64::consts::PI / n as f64);
+        }
+
+        (xs, ws)
     }
 }

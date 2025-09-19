@@ -1,8 +1,12 @@
 /// Asserts that the fitted curve is a good representation of the canonical curve.
+/// Compares the fit's r² value against a threshold to ensure it closely follows the expected curve.
+///
+/// Useful if you know the underlying function but want to validate the fitting process.
 ///
 /// If the test fails, a plot showing both curves will be generated in `<target/test_output>`
 ///
-/// The plot will also include the original source data, as well as 99% confidence error bars for the fit
+/// The plot will also include the original source data, as well as 99% confidence error bars for the fit.
+/// See [`crate::CurveFit::r_squared`] for more details.
 ///
 /// Threshold for r² match can be specified, or defaults to 0.9.
 ///
@@ -12,10 +16,9 @@
 /// ![Failure Plot](https://github.com/rscarson/polyfit/blob/main/.github/assets/example_fail.png)
 ///
 /// ```rust
-/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, transforms::ApplyNoise, assert_fits};
-///
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_fits};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(0.1, None);
+/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 /// assert_fits!(&test, &fit, 0.9);
@@ -23,8 +26,8 @@
 #[macro_export]
 macro_rules! assert_fits {
     ($canonical:expr, $fit:expr, $r2:literal) => {{
-        let fit = $fit;
-        let poly = $canonical;
+        let fit = &$fit;
+        let poly = &$canonical;
         let threshold = $r2;
 
         let r2 = fit.r_squared_against(poly);
@@ -39,7 +42,7 @@ macro_rules! assert_fits {
             );
 
             // And finally, assert to end the test
-            assert!(r2 < threshold, "R² = {r2} is below {threshold}");
+            panic!("R² = {r2} is below {threshold}");
         }
     }};
 
@@ -49,6 +52,11 @@ macro_rules! assert_fits {
 }
 
 /// Macro for asserting that a fitted curve meets a minimum R² threshold in tests.
+/// This is a measure of how well the curve explains how wiggly the data is.
+///
+/// General case of [`crate::assert_fits`] that does not require a known function.
+///
+/// See [`crate::CurveFit::r_squared`] for more details.
 ///
 /// # Forms
 /// - `assert_r_squared!(fit, 0.95)`
@@ -66,10 +74,9 @@ macro_rules! assert_fits {
 ///
 /// # Example
 /// ```rust
-/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, transforms::ApplyNoise, assert_r_squared};
-///
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_r_squared};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(0.1, None);
+/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 /// assert_r_squared!(fit, 0.95);
@@ -89,7 +96,7 @@ macro_rules! assert_r_squared {
                 $crate::plot!(fit, title = &format!("Polynomial Fit (R² = {r2:.4})"));
 
                 // And finally, assert to end the test
-                assert!(r2 >= threshold, "R² = {r2} is below {threshold}");
+                panic!("R² = {r2} is below {threshold}");
             }
         }
     };
@@ -99,7 +106,12 @@ macro_rules! assert_r_squared {
     };
 }
 
-/// Asserts that the residuals of a curve fit are approximately normally distributed using D'Agostino's K-squared test.
+/// Asserts that the residuals (the differences between the observed and predicted values) of a fit are normally distributed.
+///
+/// Think of it like making sure the errors are random, not based on some undiscovered pattern.
+///
+/// See [`crate::statistics::residual_normality`] for more details.
+/// - Results will be between 0.0 and 1.0, with values closer to 1.0 indicating a better fit.
 ///
 /// # Parameters
 /// - `$fit`: A reference to the `CurveFit` object whose residuals will be tested.
@@ -107,16 +119,15 @@ macro_rules! assert_r_squared {
 ///
 /// # Behavior
 /// - Computes mean, standard deviation, skewness, and excess kurtosis of residuals.
-/// - If skewness or kurtosis exceeds `$tolerance`, the macro will:
+/// - If p-value < `$tolerance`, the macro will:
 ///   1. Optionally generate a failure plot (if the `plotting` feature is enabled).
 ///   2. Panic with a clear error message indicating skew/kurtosis values.
 ///
 /// # Example
 /// ```rust
-/// use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod}, function, transforms::ApplyNoise, assert_residuals_normal};
-///
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_residuals_normal};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(0.1, None);
+/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 ///
@@ -145,8 +156,7 @@ macro_rules! assert_residuals_normal {
                 $crate::plot!(fit, title = &format!("Residuals not normally distributed"));
 
                 let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals);
-                assert!(
-                    p_value >= tolerance,
+                panic!(
                     "Residuals not normal - p={p_value:.2} - skew={skewness:.4}, kurt={kurtosis:.4}, tol={tolerance}"
                 );
             }
@@ -158,7 +168,7 @@ macro_rules! assert_residuals_normal {
     };
 }
 
-/// Asserts that the spread (max - min) of the residuals of a fit is within a specified tolerance.
+/// Asserts that the spread of the residuals (the differences between the observed and predicted values) of a fit is below a certain threshold.
 ///
 /// This ensures that no residual is too large, i.e., the fit is sufficiently close to the data.
 /// Unlike `assert_residuals_normal`, this checks **magnitude**, not distribution shape.
@@ -200,7 +210,11 @@ macro_rules! assert_residual_spread {
     };
 }
 
-/// Asserts that a polynomial fit is monotone over its x-range.
+/// Asserts that the residuals (the differences between the observed and predicted values) of a fit are normally distributed.
+/// Think of it like making sure the errors are random, not based on some undiscovered pattern.
+///
+/// See [`crate::statistics::residual_normality`] for more details.
+/// - Results will be between 0.0 and 1.0, with values closer to 1.0 indicating a better fit.
 ///
 /// # Parameters
 /// - `$fit`: `CurveFit` object to test.
@@ -236,10 +250,7 @@ macro_rules! assert_monotone {
 /// Asserts that evaluating a polynomial at a given `x` matches the expected `y` value
 /// within floating-point epsilon tolerance.
 ///
-/// This macro expands into a small helper function that:
-/// - Evaluates the polynomial at `x` using [`crate::Polynomial::y`].
-/// - Compares the result against the expected value.
-/// - Panics if the difference exceeds `::epsilon()` for the type `T`.
+/// Useful for spot-checking specific predictions of the model.
 ///
 /// # Arguments
 ///
@@ -264,7 +275,7 @@ macro_rules! assert_monotone {
 #[macro_export]
 macro_rules! assert_y {
     ($function:expr, $x:expr, $expected:expr) => {{
-        let function = $function;
+        let function = &$function;
         let function: &$crate::Polynomial<_, _> = function.as_ref();
         let x = $x;
         let expected = $expected;
@@ -273,11 +284,11 @@ macro_rules! assert_y {
     }};
 }
 
-/// Asserts that two numeric values are approximately equal within machine epsilon.
+/// Asserts that two floating-point values are approximately equal within a small tolerance (epsilon).
 ///
-/// This is a strict comparison using `::epsilon()` for the type `T`.
-/// Use this when you want to ensure results are numerically identical up to
-/// floating-point precision limits.
+/// This is useful for comparing computed values where exact equality is not expected due to rounding errors.
+/// - Uses the machine epsilon for the floating-point type as the tolerance.
+/// - `assert_eq!` equivalent for floats.
 ///
 /// # Parameters
 /// - `$a`: First value.
@@ -302,21 +313,18 @@ macro_rules! assert_close {
             );
         }
 
-        #[allow(unused_assignments, unused_mut)]
-        let mut msg = String::new();
-        $(
-            msg = format!($msg, $($($args)?)?);
-        )?
+        #[allow(unused_mut, unused_assignments)] let mut msg = "Values not close".to_string();
+        $( msg = format!($msg, $($($args)?)?); )?
 
         assert_close($a, $b, &msg);
     }};
 }
 
-/// Asserts that all elements of two slices/vectors are approximately equal.
+/// Asserts that two slices of floating-point values are approximately equal element-wise within a small tolerance (epsilon).
 ///
-/// Compares element-by-element using [`assert_close!`] (within machine epsilon).
-/// Useful for validating numerical algorithms where floating-point round-off
-/// errors are expected but values should agree up to precision.
+/// This is useful for comparing arrays of computed values where exact equality is not expected due to rounding errors.
+/// - Uses the machine epsilon for the floating-point type as the tolerance.
+/// - Element-wise [`crate::assert_close`].
 ///
 /// # Parameters
 /// - `$src`: Source slice (implements `iter()`).
@@ -357,7 +365,7 @@ macro_rules! assert_all_close {
 mod tests {
     use crate::{
         function,
-        statistics::{DegreeBound, ScoringMethod},
+        statistics::{DegreeBound, ScoringMethod, Tolerance},
         transforms::ApplyNoise,
         MonomialFit,
     };
@@ -386,7 +394,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..1000.0, 1.0)
-            .apply_normal_noise(0.01, None);
+            .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_fits!(&poly, &fit, 0.99);
     }
@@ -396,7 +404,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..1000.0, 1.0)
-            .apply_normal_noise(0.01, None);
+            .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_r_squared!(&fit, 0.98);
     }
@@ -406,7 +414,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..1000.0, 1.0)
-            .apply_normal_noise(0.01, None);
+            .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_residuals_normal!(&fit);
     }
@@ -416,7 +424,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..1000.0, 1.0)
-            .apply_normal_noise(0.01, None);
+            .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_residual_spread!(&fit, 80000.0);
     }

@@ -86,61 +86,65 @@ macro_rules! test_basis_functions {
 ///
 /// # Parameters
 /// - `$basis`: The basis instance to test.
-/// - `$xs`: Slice of x values to evaluate the basis over.
+/// - `norm_fn`: A function or closure that takes a basis function index and returns its expected norm (integral of the square).
+/// - `values`: Slice of x values at which to evaluate the basis functions.
+/// - `weights`: Slice of weights corresponding to each x value for weighted quadrature.
+/// - `n_funcs`: Number of basis functions to test.
+/// - `eps`: Tolerance for orthogonality checks.
 ///
 /// # Panics
 /// Panics if any pair of basis functions are not orthogonal within the given tolerance.
 ///
-/// # Example
-/// ```no_run
-/// # use polyfit::{basis::{Basis, MonomialBasis}, value::CoordExt, test_basis_orthogonal};
-/// let xs: Vec<(f64, f64)> = vec![(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)];
-/// let basis = MonomialBasis::default();
-/// test_basis_orthogonal!(basis, &xs.x());
-/// ```
+/// See the implementation on Chebyshev or Legendre polynomials for examples.
 #[macro_export]
 macro_rules! test_basis_orthogonal {
-    ($basis:expr, $xs:expr) => {{
-        fn test_basis_orthogonal<B: $crate::basis::Basis<T>, T: $crate::value::Value>(
-            basis: &B,
-            xs: &[T],
-        ) {
-            let k = basis.k(xs.len() - 1);
-            let max_val = xs
-                .iter()
-                .map(|&x| {
-                    (0..k)
-                        .map(|i| $crate::value::Value::abs(basis.solve_function(i, x)))
-                        .fold(T::zero(), |a, b| nalgebra::RealField::max(a, b))
-                })
-                .fold(T::zero(), |a, b| nalgebra::RealField::max(a, b));
+    (
+        $basis:expr, norm_fn = $norm_fn:expr,
+        values = $xs:expr, weights = $weights:expr,
+        n_funcs = $n_funcs:expr, eps = $tol:expr
+    ) => {{
+        fn test_orthogonality<T>(basis: impl Fn(usize, T) -> T, norm: impl Fn(usize) -> T, n_funcs: usize, xs: &[T], weights: &[T], tol: T)
+        where
+            T: $crate::value::Value,
+        {
+            assert_eq!(xs.len(), weights.len());
+            assert!(weights.len() >= n_funcs, "need >= n_funcs quadrature nodes");
 
-            let tol = T::epsilon() * T::try_cast(xs.len() * 10).unwrap_or(T::one()) * max_val;
-
-            for i in 0..k {
-                for j in i..k {
-                    let mut sum = T::zero();
-                    for &x in xs {
-                        let val_i = basis.solve_function(i, x);
-                        let val_j = basis.solve_function(j, x);
-                        sum += val_i * val_j;
+            for i in 0..n_funcs {
+                for j in i..n_funcs {
+                    // weighted quadrature: sum_i w_i * phi_i(x_i) * phi_j(x_i)
+                    let mut sum: T = T::zero();
+                    for (&x, &w) in xs.iter().zip(weights.iter()) {
+                        sum += basis(i, x) * basis(j, x) * w;
                     }
 
                     if i == j {
+                        // exact integral: ∫_{-1..1} P_n^2 = 2/(2n+1)
+                        let expected = norm(i);
+                        let err = $crate::value::Value::abs(sum - expected);
                         assert!(
-                            $crate::value::Value::abs(sum) > tol,
-                            "Basis function {i} has near-zero norm",
+                            err <= tol,
+                            "Function {i} norm mismatch: got {sum:?} expected {expected:?} err={err:?} > {tol:?}"
                         );
                     } else {
+                        let abs_sum = $crate::value::Value::abs(sum);
                         assert!(
-                            $crate::value::Value::abs(sum) <= tol,
-                            "Basis functions {i} and {j} are not orthogonal: inner product = {sum}"
+                            abs_sum <= tol,
+                            "Functions {i} and {j} not orthogonal: inner product = {sum:?} > {tol:?}"
                         );
                     }
                 }
             }
         }
-        test_basis_orthogonal(&$basis, $xs);
+
+        test_orthogonality(
+            |j, x| $basis.solve_function(j, x),
+            $norm_fn,
+            $n_funcs,
+            &$xs,
+            &$weights,
+            $tol,
+        );
     }};
 }
 

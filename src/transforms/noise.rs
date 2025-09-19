@@ -1,7 +1,11 @@
 use rand::SeedableRng;
 use rand_distr::{Bernoulli, Beta, Distribution, Normal, Poisson, Uniform};
 
-use crate::{statistics::DomainNormalizer, transforms::Transform, value::Value};
+use crate::{
+    statistics::{DomainNormalizer, Tolerance},
+    transforms::Transform,
+    value::Value,
+};
 
 /// Types of noise based transforms for data
 pub enum NoiseTransform<T: Value> {
@@ -48,7 +52,7 @@ pub enum NoiseTransform<T: Value> {
         rho: T,
 
         /// Standard deviation (spread) of the Gaussian distribution.
-        strength: T,
+        strength: Tolerance<T>,
 
         /// `seed` *(optional)*: Fixes the RNG seed for reproducibility.
         /// If not provided, a system RNG will be used each run.
@@ -235,29 +239,34 @@ where
             NoiseTransform::CorrelatedGaussian { rho, strength, .. } => {
                 let data = data.collect::<Vec<_>>();
 
-                let mut mean = T::zero();
-                let mut n = T::zero();
-                for v in &data {
-                    mean += **v;
-                    n += T::one();
-                }
-                mean /= n;
+                let rho = num_traits::Float::clamp(*rho, -T::one(), T::one());
 
-                let mut std_dev = T::zero();
-                for v in &data {
-                    std_dev += Value::powi(**v - mean, 2);
-                }
-                std_dev = num_traits::Float::sqrt(std_dev / n);
+                let mut noise_std = match strength {
+                    Tolerance::Absolute(tol) => *tol,
+                    Tolerance::Relative(rel) => {
+                        let mut mean = T::zero();
+                        let mut n = T::zero();
+                        for v in &data {
+                            mean += **v;
+                            n += T::one();
+                        }
+                        mean /= n;
 
-                let mut noise_std = std_dev * *strength;
+                        let mut std_dev = T::zero();
+                        for v in &data {
+                            std_dev += Value::powi(**v - mean, 2);
+                        }
+                        std_dev = num_traits::Float::sqrt(std_dev / n);
 
-                if noise_std == T::zero() {
-                    noise_std = *strength;
-                }
+                        std_dev * *rel
+                    }
+                };
 
                 if !num_traits::Float::is_finite(noise_std) {
                     noise_std = T::zero();
                 }
+
+                noise_std = num_traits::Float::max(noise_std, <T as num_traits::Float>::epsilon());
 
                 let gaussian = Normal::new(T::zero(), noise_std)
                     .map_err(|e| e.to_string())
@@ -266,8 +275,8 @@ where
                 let mut state = gaussian.sample(&mut rng); // start from a plain Gaussian
                 for v in data {
                     let drive =
-                        gaussian.sample(&mut rng) * num_traits::Float::sqrt(T::one() - *rho * *rho);
-                    state = *rho * state + drive;
+                        gaussian.sample(&mut rng) * num_traits::Float::sqrt(T::one() - rho * rho);
+                    state = rho * state + drive;
                     *v += state;
                 }
             }
@@ -352,12 +361,20 @@ where
     ///
     /// **Technical Details**
     ///
-    /// - Each value is drawn from a normal distribution `N(0, strength²)`.  
+    /// For relative strength, the standard deviation of the series is computed as a fraction of the standard deviation of the original data:
+    /// ```math
+    /// std_dev_data = sqrt( (1/N) * Σ (xᵢ - mean)² )
+    /// strength = rel * std_dev_data
+    /// ```
+    ///
+    /// - For absolute strength, the standard deviation is simply the provided value.
+    ///
+    /// - Each value is drawn from a normal distribution `N(0, strength)`.  
     ///
     /// ```math
     /// xₙ = x + εₙ
     /// where
-    ///   εₙ ~ N(0, strength²), x = uncorrupted value
+    ///   εₙ ~ N(0, strength), x = uncorrupted value
     /// ```
     /// </div>
     ///
@@ -371,11 +388,12 @@ where
     /// # Example
     /// ```rust
     /// # use polyfit::transforms::ApplyNoise;
+    /// # use polyfit::statistics::Tolerance;
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_normal_noise(0.1, None);
+    /// let noisy_data = data.apply_normal_noise(Tolerance::Relative(0.1), None);
     /// ```
     #[must_use]
-    fn apply_normal_noise(self, strength: T, seed: Option<u64>) -> Self;
+    fn apply_normal_noise(self, strength: Tolerance<T>, seed: Option<u64>) -> Self;
 
     /// Adds Gaussian noise to a signal or dataset.
     ///
@@ -392,13 +410,21 @@ where
     ///
     /// **Technical Details**
     ///
-    /// - Each value is drawn from a normal distribution `N(0, strength²)`.  
+    /// For relative strength, the standard deviation of the series is computed as a fraction of the standard deviation of the original data:
+    /// ```math
+    /// std_dev_data = sqrt( (1/N) * Σ (xᵢ - mean)² )
+    /// strength = rel * std_dev_data
+    /// ```
+    ///
+    /// - For absolute strength, the standard deviation is simply the provided value.
+    ///
+    /// - Each value is drawn from a normal distribution `N(0, strength)`.  
     /// - Correlation is introduced by mixing the new sample with the previous one:  
     ///
     /// ```math
     /// xₙ = ρ * xₙ₋₁ + √(1 − ρ²) * εₙ
     /// where
-    ///   εₙ ~ N(0, strength²), ρ = correlation factor
+    ///   εₙ ~ N(0, strength), ρ = correlation factor
     ///   xₙ₋₁ = previous noisy value
     /// ```
     /// </div>
@@ -417,11 +443,12 @@ where
     /// # Example
     /// ```rust
     /// # use polyfit::transforms::ApplyNoise;
+    /// # use polyfit::statistics::Tolerance;
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_correlated_noise(0.1, 0.5, None);
+    /// let noisy_data = data.apply_correlated_noise(Tolerance::Relative(0.1), 0.5, None);
     /// ```
     #[must_use]
-    fn apply_correlated_noise(self, strength: T, rho: T, seed: Option<u64>) -> Self;
+    fn apply_correlated_noise(self, strength: Tolerance<T>, rho: T, seed: Option<u64>) -> Self;
 
     /// Adds uniform noise to a signal or dataset.
     ///
@@ -605,9 +632,7 @@ where
     rand_distr::Exp1: rand_distr::Distribution<T>,
     rand_distr::Open01: rand_distr::Distribution<T>,
 {
-    fn apply_normal_noise(mut self, strength: T, seed: Option<u64>) -> Self {
-        let strength = num_traits::Float::max(strength, <T as num_traits::Float>::epsilon());
-
+    fn apply_normal_noise(mut self, strength: Tolerance<T>, seed: Option<u64>) -> Self {
         NoiseTransform::CorrelatedGaussian {
             rho: T::zero(),
             strength,
@@ -617,10 +642,7 @@ where
         self
     }
 
-    fn apply_correlated_noise(mut self, strength: T, rho: T, seed: Option<u64>) -> Self {
-        let strength = num_traits::Float::max(strength, <T as num_traits::Float>::epsilon());
-        let rho = num_traits::Float::clamp(rho, -T::one(), T::one());
-
+    fn apply_correlated_noise(mut self, strength: Tolerance<T>, rho: T, seed: Option<u64>) -> Self {
         NoiseTransform::CorrelatedGaussian {
             rho,
             strength,
@@ -686,7 +708,9 @@ mod tests {
     #[test]
     fn test_correlated_gaussian() {
         let data = vec![(1.0, 2.0); 1000];
-        let noisy_data = data.clone().apply_correlated_noise(0.1, 0.9, Some(42));
+        let noisy_data =
+            data.clone()
+                .apply_correlated_noise(Tolerance::Absolute(0.1), 0.9, Some(42));
 
         let mut diffs = Vec::new();
         for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {

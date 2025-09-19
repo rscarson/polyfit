@@ -31,7 +31,7 @@
 //! let two = f64::two();
 //! let squared = two.powi(2);
 //! ```
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 
 use crate::error::Error;
 
@@ -96,6 +96,29 @@ pub trait Value:
             _ => Self::one(),
         }
     }
+
+    /// Computes the factorial of a non-negative integer `n`.
+    #[must_use]
+    fn factorial(n: usize) -> Self {
+        if n == 0 || n == 1 {
+            Self::one()
+        } else {
+            let mut result = Self::one();
+            for i in 2..=n {
+                let i = Self::try_cast(i).unwrap_or(Self::infinity());
+                result *= i;
+            }
+            result
+        }
+    }
+
+    /// Converts a `usize` to the target numeric type.
+    ///
+    /// Results in `infinity` if the value is out of range.
+    #[must_use]
+    fn from_positive_int(n: usize) -> Self {
+        Self::try_cast(n).unwrap_or(Self::infinity())
+    }
 }
 
 impl<T> Value for T where
@@ -107,35 +130,55 @@ impl<T> Value for T where
 {
 }
 
-/// A stepped iterator over a range of floating-point numbers
-pub struct ValueRange<T: Value> {
-    start: T,
-    end: T,
+/// Iterator over a range of floating-point values with a specified step.
+///
+/// This iterator yields values starting from `start` up to and including `end`,
+/// incrementing by `step` on each iteration.
+pub struct SteppedValues<T: Value> {
+    range: RangeInclusive<T>,
     step: T,
+    index: T,
 }
-impl<T: Value> ValueRange<T> {
-    /// Creates a new `ValueRange`
-    pub fn new(start: T, end: T, step: T) -> Self {
-        Self { start, end, step }
-    }
-
-    /// Creates a new `ValueRange` iterating step=1
-    pub fn new_unit(start: T, end: T) -> Self {
+impl<T: Value> SteppedValues<T> {
+    /// Creates a new iterator over stepped values in a range
+    ///
+    /// Will yield values starting from `range.start` up to and including `range.end`
+    pub fn new(range: RangeInclusive<T>, step: T) -> Self {
         Self {
-            start,
-            end,
-            step: T::one(),
+            range,
+            step,
+            index: T::zero(),
         }
     }
+
+    /// Creates a new iterator over stepped values in a range with a step of 1.0
+    ///
+    /// Will yield values starting from `range.start` up to and including `range.end`
+    pub fn new_unit(range: RangeInclusive<T>) -> Self {
+        Self::new(range, T::one())
+    }
+
+    /// Returns the number of steps remaining in the iterator
+    pub fn len(&self) -> usize {
+        let value = *self.range.start() + self.index * self.step;
+        let remaining = *self.range.end() - value;
+        let steps = remaining / self.step;
+        steps.as_usize().unwrap_or(0)
+    }
+
+    /// Returns true if the iterator is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
-impl<T: Value> Iterator for ValueRange<T> {
+impl<T: Value> Iterator for SteppedValues<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.start < self.end {
-            let current = self.start;
-            self.start += self.step;
-            Some(current)
+        let value = *self.range.start() + self.index * self.step;
+        if value < *self.range.end() {
+            self.index += T::one();
+            Some(value)
         } else {
             None
         }
@@ -239,7 +282,9 @@ impl<T: Value> CoordExt<T> for &[(T, T)] {
 }
 
 /// Trait for infallible integer casting with clamping.
-pub trait IntClampedCast: num_traits::PrimInt {
+pub trait IntClampedCast:
+    num_traits::Num + num_traits::NumCast + num_traits::Bounded + Copy + PartialOrd + Ord
+{
     /// Clamps a value to the range of the target type and casts it.
     fn clamped_cast<T: num_traits::PrimInt>(self) -> T {
         //
@@ -270,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_value_range() {
-        let range = ValueRange::new(0.0, 1.0, 0.1);
+        let range = SteppedValues::new(0.0..=1.0, 0.1);
         let values: Vec<_> = range.collect();
         assert_eq!(values.len(), 11);
     }

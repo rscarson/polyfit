@@ -6,10 +6,34 @@ use crate::{
     basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis},
     display::PolynomialDisplay,
     error::{Error, Result},
-    statistics::{self, Confidence, ConfidenceBand, DegreeBound, ScoringMethod},
-    value::{CoordExt, Value, ValueRange},
+    statistics::{self, Confidence, ConfidenceBand, DegreeBound, ScoringMethod, Tolerance},
+    value::{CoordExt, SteppedValues, Value},
     MonomialPolynomial, Polynomial,
 };
+
+/// Laguerre series curve
+///
+/// Uses Laguerre polynomials, which are orthogonal polynomials defined on the interval \[0, ∞\].
+/// These polynomials are particularly useful in quantum mechanics and numerical analysis.
+pub type LaguerreFit<T = f64> = CurveFit<crate::basis::LaguerreBasis<T>, T>;
+
+/// Physicists' Hermite series curve
+///
+/// Uses Physicists' Hermite polynomials, which are orthogonal polynomials defined on the interval \[-∞, ∞\].
+/// These polynomials are particularly useful in probability, combinatorics, and physics, especially in quantum mechanics.
+pub type PhysicistsHermiteFit<T = f64> = CurveFit<crate::basis::PhysicistsHermiteBasis<T>, T>;
+
+/// Probabilists' Hermite series curve
+///
+/// Uses Probabilists' Hermite polynomials, which are orthogonal polynomials defined on the interval \[-∞, ∞\].
+/// These polynomials are particularly useful in probability theory and statistics, especially in the context of Gaussian distributions.
+pub type ProbabilistsHermiteFit<T = f64> = CurveFit<crate::basis::ProbabilistsHermiteBasis<T>, T>;
+
+/// Legendre series curve
+///
+/// Uses Legendre polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
+/// These polynomials are particularly useful for minimizing oscillation in polynomial interpolation.
+pub type LegendreFit<T = f64> = CurveFit<crate::basis::LegendreBasis<T>, T>;
 
 /// Fourier series curve
 ///
@@ -126,17 +150,41 @@ where
 
     /// Computes the confidence band for an x value.
     ///
-    /// Returns (lower-bound, upper-bound)
+    /// Returns a confidence band representing the uncertainty in the predicted y value
+    ///
+    /// # Parameters
+    /// - `x`: The x value to compute the confidence band for.
+    /// - `confidence_level`: Desired confidence level (e.g., P95).
+    /// - `noise_tolerance`: Optional additional variance to add to the prediction variance,
+    ///   (e.g., to account for measurement noise).
     ///
     /// This estimates the uncertainty in the predicted y value at a specific x
     /// location, providing a range within which the true value is likely to fall.
     ///
     /// # Errors
     /// Returns an error if the confidence level cannot be cast to the required type.
-    pub fn confidence_band(&self, x: T, confidence_level: Confidence) -> Result<ConfidenceBand<T>> {
-        let y_var = self.prediction_variance(x);
-        let y_se = y_var.sqrt();
+    pub fn confidence_band(
+        &self,
+        x: T,
+        confidence_level: Confidence,
+        noise_tolerance: Option<Tolerance<T>>,
+    ) -> Result<ConfidenceBand<T>> {
+        let mut y_var = self.prediction_variance(x);
         let value = self.fit.y(x)?;
+
+        match noise_tolerance {
+            Some(Tolerance::Absolute(tol)) => {
+                y_var += tol;
+            }
+            Some(Tolerance::Relative(rel)) => {
+                let (data_sdev, _) = statistics::stddev_and_mean(self.fit.data().y_iter());
+                let noise_tolerance = data_sdev * rel;
+                y_var += noise_tolerance * noise_tolerance;
+            }
+            None => {}
+        }
+
+        let y_se = y_var.sqrt();
 
         let z = confidence_level.try_cast::<T>()?;
         let lower = value - z * y_se;
@@ -146,6 +194,7 @@ where
             lower,
             upper,
             level: confidence_level,
+            tolerance: noise_tolerance,
         })
     }
 
@@ -156,6 +205,7 @@ where
     ///
     /// # Parameters
     /// - `confidence_level`: Desired confidence level (e.g., P95).
+    /// - `noise_tolerance`: Optional additional variance to add to the prediction variance,
     ///
     /// # Returns
     /// - `Ok(Vec<ConfidenceBand<T>>)` containing one confidence band per data point.
@@ -166,9 +216,10 @@ where
     pub fn solution_confidence(
         &self,
         confidence_level: Confidence,
+        noise_tolerance: Option<Tolerance<T>>,
     ) -> Result<Vec<ConfidenceBand<T>>> {
         let x = self.fit.data().iter().map(|(x, _)| *x);
-        x.map(|x| self.confidence_band(x, confidence_level))
+        x.map(|x| self.confidence_band(x, confidence_level, noise_tolerance))
             .collect()
     }
 
@@ -176,6 +227,9 @@ where
     ///
     /// An outlier is defined as a data point where the actual `y` value falls outside
     /// the computed confidence band for its corresponding `x`.
+    ///
+    /// The confidence level determines the width of the confidence band. Higher confidence levels have wider bands,
+    /// making it less likely for points to be classified as outliers.
     ///
     /// # Parameters
     /// - `confidence_level`: Confidence level used to determine the bounds (e.g., P95).
@@ -186,8 +240,12 @@ where
     ///
     /// # Errors
     /// Returns an error if the confidence level cannot be cast to the required type.
-    pub fn outliers(&self, confidence_level: Confidence) -> Result<Vec<(T, T, ConfidenceBand<T>)>> {
-        let bands = self.solution_confidence(confidence_level)?;
+    pub fn outliers(
+        &self,
+        confidence_level: Confidence,
+        noise_tolerance: Option<Tolerance<T>>,
+    ) -> Result<Vec<(T, T, ConfidenceBand<T>)>> {
+        let bands = self.solution_confidence(confidence_level, noise_tolerance)?;
         let mut outliers = Vec::new();
 
         for ((x, y), band) in self.fit.data().iter().zip(bands) {
@@ -551,8 +609,8 @@ where
     /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
     /// let cov = model.covariance().unwrap();
     /// let se = cov.coefficient_standard_errors();
-    /// let band = cov.confidence_band(1.0, Confidence::P95).unwrap();
-    /// println!("Predicted CI at x=1: {} - {}", band.lower, band.upper);
+    /// let band = cov.confidence_band(1.0, Confidence::P95, None).unwrap();
+    /// println!("Predicted CI at x=1: {} - {}", band.min(), band.max());
     /// ```
     pub fn covariance(&self) -> Result<CurveFitCovariance<'_, B, T>> {
         CurveFitCovariance::new(self)
@@ -1034,7 +1092,7 @@ where
     /// }
     /// ```
     pub fn solve_range(&self, range: Range<T>, step: T) -> Result<Vec<(T, T)>> {
-        self.solve(ValueRange::new(range.start, range.end, step))
+        self.solve(SteppedValues::new(range.start..=range.end, step))
     }
 
     /// Returns a pure polynomial representation of the curve fit.
@@ -1272,7 +1330,7 @@ mod tests {
         let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
         let fit = MonomialFit::new(data, 2).unwrap();
         let cov = fit.covariance().unwrap();
-        let band = cov.confidence_band(1.0, Confidence::P95).unwrap();
+        let band = cov.confidence_band(1.0, Confidence::P95, None).unwrap();
         assert!(band.lower <= band.upper);
         assert!(band.value >= band.lower && band.value <= band.upper);
     }
@@ -1289,7 +1347,7 @@ mod tests {
         function!(mono(x) = 1.0 + 2.0 x^1); // strictly increasing
         let data = mono
             .solve_range(0.0..1000.0, 1.0)
-            .apply_normal_noise(0.3, None);
+            .apply_normal_noise(Tolerance::Relative(0.3), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert!(fit.r_squared(&data) < 1.0);
         assert!(fit.model_score(ScoringMethod::AIC).is_finite());

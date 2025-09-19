@@ -40,6 +40,16 @@ pub use chebyshev::ChebyshevBasis;
 mod fourier;
 pub use fourier::FourierBasis;
 
+mod legendre;
+pub use legendre::LegendreBasis;
+
+mod hermite;
+pub use hermite::PhysicistsHermiteBasis;
+pub use hermite::ProbabilistsHermiteBasis;
+
+mod laguerre;
+pub use laguerre::LaguerreBasis;
+
 /// A trait representing a polynomial basis.
 ///
 /// Assumes a Vandermonde structure for the basis functions.
@@ -182,7 +192,7 @@ pub trait DifferentialBasis<T: Value>: Basis<T> {
     ///
     /// # Returns
     /// - The derivative's coefficients.
-    fn derivative(&self, coefficients: &[T]) -> Result<Vec<T>>;
+    fn derivative(&self, coefficients: &[T]) -> Result<(Self, Vec<T>)>;
 
     /// Finds the critical points (where the derivative is zero) of a polynomial in this basis.
     ///
@@ -191,7 +201,7 @@ pub trait DifferentialBasis<T: Value>: Basis<T> {
     ///
     /// # Errors
     /// Returns an error if the critical points cannot be found.
-    fn critical_points(&self, coefficients: &[T]) -> Result<Vec<T>>;
+    fn critical_points(&self, dx_coefs: &[T]) -> Result<Vec<T>>;
 }
 
 /// Trait for bases that support integration of polynomials.
@@ -212,5 +222,5 @@ pub trait IntegralBasis<T: Value>: Basis<T> {
     ///
     /// # Returns
     /// - The integral's coefficients.
-    fn integral(&self, coefficients: &[T], constant: T) -> Result<Vec<T>>;
+    fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self, Vec<T>)>;
 }

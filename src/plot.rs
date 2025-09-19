@@ -65,6 +65,7 @@ macro_rules! plot {
         $(, x_range = $x_range:expr)?
         $(, y_range = $y_range:expr)?
         $(, confidence = $confidence:expr)?
+        $(, noise_tolerance = $noise_tolerance:expr)?
         $(, size = ($width:expr, $height:expr))?
     ) => {{
         use $crate::value::CoordExt;
@@ -75,6 +76,7 @@ macro_rules! plot {
         // Prep arguments
         #[allow(unused_mut, unused_assignments)] let mut size = (640, 480); $( size = ($width, $height); )?
         #[allow(unused_mut, unused_assignments)] let mut confidence = $crate::statistics::Confidence::P95; $( confidence = $confidence; )?
+        #[allow(unused_mut, unused_assignments)] let mut noise_tolerance: Option<$crate::statistics::Tolerance<_>> = None; $( noise_tolerance = Some($noise_tolerance); )?
         #[allow(unused_mut, unused_assignments)] let mut title = "Graph Output".to_string(); $( title = $title.to_string(); )?
         let function = $crate::plot::PlottingElement::from(&$function);
         #[allow(unused_mut, unused_assignments)] let mut x_range = function.x_range(); $( x_range = Some($x_range); )?
@@ -86,7 +88,7 @@ macro_rules! plot {
         root.fill(&$crate::plot::plotters::prelude::WHITE).expect("Failed to fill drawing area");
 
         let x_range = x_range.expect("x_range must be provided either via a CurveFit or the `x_range` argument");
-        let range = $crate::value::ValueRange::new_unit(x_range.start, x_range.end);
+        let range = $crate::value::SteppedValues::new_unit(x_range.start..=x_range.end);
         let data = function.solve(range);
         let x = data.x();
         #[allow(unused_mut, unused_assignments)] let mut y_range = data.y_range().expect("Range was empty!"); $( y_range = $y_range; )?
@@ -96,11 +98,11 @@ macro_rules! plot {
         //
 
         let mut plot = $crate::plot::Plot::new(&root, &title, x_range, y_range).expect("Failed to create plot");
-        plot = plot.with_element(&function, confidence, &x).expect("Failed to add main element to plot");
+        plot = plot.with_element(&function, confidence, noise_tolerance, &x).expect("Failed to add main element to plot");
         $(
             $(
                 let e = $crate::plot::PlottingElement::from(&$element);
-                plot = plot.with_element(&e, confidence, &x).expect("Failed to add element to plot");
+                plot = plot.with_element(&e, confidence, noise_tolerance, &x).expect("Failed to add element to plot");
             )*
         )?
 

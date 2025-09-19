@@ -39,7 +39,7 @@ pub struct PlotPalette {
 impl PlotPalette {
     pub const fn new(fit: RGBColor, canonical: RGBColor, data: RGBColor) -> Self {
         let fit_error = RGBAColor(fit.0, fit.1, fit.2, 0.3);
-        let fit_residual = RGBAColor(fit.0, fit.1, fit.2, 0.6);
+        let fit_residual = RGBAColor(fit.0, fit.1, fit.2, 0.4);
 
         Self {
             fit,

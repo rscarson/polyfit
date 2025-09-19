@@ -4,11 +4,11 @@ use std::{
 };
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis},
+    basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis, MonomialBasis},
     display::PolynomialDisplay,
     error::Result,
     statistics,
-    value::{CoordExt, Value, ValueRange},
+    value::{CoordExt, SteppedValues, Value},
 };
 
 /// A monomial polynomial of the form `y = a_n * x^n + ... + a_1 * x + a_0`.
@@ -294,7 +294,7 @@ where
     /// // points = [(0.0, 1.0), (1.0, 6.0), (2.0, 17.0)]
     /// ```
     pub fn solve_range(&self, range: Range<T>, step: T) -> Vec<(T, T)> {
-        self.solve(ValueRange::new(range.start, range.end, step))
+        self.solve(SteppedValues::new(range.start..=range.end, step))
     }
 
     /// Calculates the R-squared value for the model compared to provided data.
@@ -345,10 +345,8 @@ where
     {
         let new_degree = if self.degree == 0 { 0 } else { self.degree - 1 };
 
-        let derivative_coeffs = self.basis.derivative(&self.coefficients)?;
-        let derivative = unsafe {
-            Polynomial::from_raw(self.basis.clone(), derivative_coeffs.into(), new_degree)
-        };
+        let (db, dc) = self.basis.derivative(&self.coefficients)?;
+        let derivative = unsafe { Polynomial::from_raw(db, dc.into(), new_degree) };
 
         Ok(derivative)
     }
@@ -421,9 +419,8 @@ where
         let constant = constant.unwrap_or(T::zero());
         let new_degree = self.degree + 1;
 
-        let integral_coeffs = self.basis.integral(&self.coefficients, constant)?;
-        let integral =
-            unsafe { Polynomial::from_raw(self.basis.clone(), integral_coeffs.into(), new_degree) };
+        let (ib, ic) = self.basis.integral(&self.coefficients, constant)?;
+        let integral = unsafe { Polynomial::from_raw(ib, ic.into(), new_degree) };
 
         Ok(integral)
     }
@@ -514,6 +511,35 @@ where
         }
 
         Ok(violated_at)
+    }
+
+    /// Converts the polynomial into a monomial polynomial.
+    ///
+    /// This produces a [`MonomialPolynomial`] representation of the curve,
+    /// which uses the standard monomial basis `1, x, x^2, …`.
+    ///
+    /// # Returns
+    /// A monomial polynomial with owned coefficients.
+    ///
+    /// # Errors
+    /// Returns an error if the current basis cannot be converted to monomial form.
+    /// This requires that the basis implements [`IntoMonomialBasis`].
+    ///
+    /// # Example
+    /// ```
+    /// # use polyfit::{ChebyshevFit, CurveFit, MonomialPolynomial};
+    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
+    /// let fit = ChebyshevFit::new(data, 2).unwrap();
+    /// let mono_poly = fit.as_polynomial().as_monomial().unwrap();
+    /// let y = mono_poly.y(1.5);
+    /// ```
+    pub fn as_monomial(&self) -> Result<MonomialPolynomial<'static, T>>
+    where
+        B: IntoMonomialBasis<T>,
+    {
+        let mut coefficients = self.coefficients().to_vec();
+        self.basis().as_monomial(&mut coefficients)?;
+        Ok(MonomialPolynomial::owned(coefficients))
     }
 
     /// Returns a human-readable string of the polynomial equation.
