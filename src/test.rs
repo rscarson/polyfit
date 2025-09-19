@@ -9,7 +9,7 @@
 //! DSL for generating monomial polynomials. Great for generating synthetic data sets!
 //! ```rust
 //! polyfit::function!(const f(x) = 5 x^4 - 4 x^3 + 2.5);
-//! let data = f.solve_range(0.0..100.0, 1.0);
+//! let data = f.solve_range(0.0..=100.0, 1.0);
 //! ```
 //!
 //! ### [`crate::basis_select!`]
@@ -21,7 +21,7 @@
 //! # use polyfit::{function, basis_select};
 //! function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
 //! let data = test
-//!     .solve_range(0.0..100.0, 1.0)
+//!     .solve_range(0.0..=100.0, 1.0)
 //!     .apply_normal_noise(Tolerance::Relative(0.1), None);
 //! basis_select!(&data, DegreeBound::Relaxed, ScoringMethod::AIC);
 //! ```
@@ -199,7 +199,7 @@ macro_rules! function {
 /// # use polyfit::{function, basis_select};
 /// function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
 /// let data = test
-///     .solve_range(0.0..100.0, 1.0)
+///     .solve_range(0.0..=100.0, 1.0)
 ///     .apply_normal_noise(Tolerance::Relative(0.1), None);
 /// basis_select!(&data, DegreeBound::Relaxed, ScoringMethod::AIC);
 /// ```
@@ -379,7 +379,7 @@ fn test() {
 
     function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
     let data = test
-        .solve_range(0.0..1000.0, 1.0)
+        .solve_range(0.0..=1000.0, 1.0)
         .apply_normal_noise(Tolerance::Relative(0.3), None);
     basis_select!(&data, DegreeBound::Relaxed, ScoringMethod::AIC);
 }

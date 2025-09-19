@@ -408,7 +408,7 @@ mod tests {
     fn test_fourier_basis() {
         // Recover polynomial
         let poly = get_poly();
-        let data = poly.solve_range(0.0..100.0, 1.0);
+        let data = poly.solve_range(0.0..=100.0, 1.0);
         let fit = FourierFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_fits!(&poly, &fit);
 

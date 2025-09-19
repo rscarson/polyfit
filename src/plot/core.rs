@@ -49,13 +49,19 @@ impl<'root> Plot<'root> {
     ///
     /// # Errors
     /// Returns an error if the plot cannot be created.
-    pub fn new(
+    pub fn new<T: Value>(
         root: &PlotRoot<'root>,
         title: &str,
-        x_range: Range<f64>,
-        y_range: Range<f64>,
+        x_range: Range<T>,
+        y_range: Range<T>,
     ) -> Result<Self, PlottingError<'root>> {
         let palettes = Palettes::default();
+
+        //
+        // T(Range) -> f64(Range)
+        let x_range: Range<f64> = cast(x_range.start)?..cast(x_range.end)?;
+        let y_range: Range<f64> = cast(y_range.start)?..cast(y_range.end)?;
+
         let chart = ChartBuilder::on(root)
             .caption(title, ("sans-serif", 24).into_font())
             .margin(5)
@@ -80,7 +86,7 @@ impl<'root> Plot<'root> {
         function: &Polynomial<B, T>,
         x_range: Range<T>,
     ) -> Result<Self, PlottingError<'root>> {
-        let solution = function.solve_range(x_range.clone(), T::one());
+        let solution = function.solve_range(x_range.start..=x_range.end, T::one());
         let x = solution.x();
         let y = solution.y();
 

@@ -145,7 +145,7 @@
 //! // `function!` is a macro that makes it easy to define polynomials for testing
 //! // `apply_poisson_noise` is part of the `transforms` module, which provides a set of tools for manipulating data
 //! polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-//! let synthetic_data = f.solve_range(0.0..100.0, 1.0).apply_poisson_noise(0.1, None);
+//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
 //!
 //! //
 //! // Now we can create a curve fit to this data
@@ -196,7 +196,7 @@
 //! //
 //! // I still don't have any real data, so I'm going to make some up! Again!
 //! polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-//! let synthetic_data = f.solve_range(0.0..100.0, 1.0).apply_poisson_noise(0.1, None);
+//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
 //!
 //! //
 //! // Let's add some outliers

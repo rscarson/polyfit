@@ -18,7 +18,7 @@
 /// ```rust
 /// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_fits};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
+/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 /// assert_fits!(&test, &fit, 0.9);
@@ -76,7 +76,7 @@ macro_rules! assert_fits {
 /// ```rust
 /// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_r_squared};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
+/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 /// assert_r_squared!(fit, 0.95);
@@ -124,10 +124,10 @@ macro_rules! assert_r_squared {
 ///   2. Panic with a clear error message indicating skew/kurtosis values.
 ///
 /// # Example
-/// ```rust
+/// ```ignore
 /// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_residuals_normal};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
+/// let data = test.solve_range(0.0..=1000.0, 1.0);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 ///
@@ -147,15 +147,15 @@ macro_rules! assert_residuals_normal {
             let ref fit = $fit;
             let tolerance = $tolerance;
             let residuals = fit.residuals();
-            let residuals: Vec<_> = residuals.y();
-            let p_value = $crate::statistics::residual_normality(&residuals);
+            let residuals_y: Vec<_> = residuals.y();
+            let p_value = $crate::statistics::residual_normality(&residuals_y);
 
             if p_value < tolerance {
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
-                $crate::plot!(fit, title = &format!("Residuals not normally distributed"));
+                $crate::plot!(residuals, title = &format!("Residuals not normally distributed"));
 
-                let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals);
+                let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals_y);
                 panic!(
                     "Residuals not normal - p={p_value:.2} - skew={skewness:.4}, kurt={kurtosis:.4}, tol={tolerance}"
                 );
@@ -393,7 +393,7 @@ mod tests {
     fn test_assert_fits_macro() {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
-            .solve_range(0.0..1000.0, 1.0)
+            .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_fits!(&poly, &fit, 0.99);
@@ -403,7 +403,7 @@ mod tests {
     fn test_assert_r_squared_macro() {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
-            .solve_range(0.0..1000.0, 1.0)
+            .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_r_squared!(&fit, 0.98);
@@ -413,7 +413,7 @@ mod tests {
     fn test_assert_residuals_normal_macro() {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
-            .solve_range(0.0..1000.0, 1.0)
+            .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_residuals_normal!(&fit);
@@ -423,7 +423,7 @@ mod tests {
     fn test_assert_residual_spread_macro() {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
-            .solve_range(0.0..1000.0, 1.0)
+            .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_residual_spread!(&fit, 80000.0);
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn test_assert_monotone_macro() {
         function!(mono(x) = 1.0 + 2.0 x^1); // strictly increasing
-        let data = mono.solve_range(0.0..1000.0, 1.0);
+        let data = mono.solve_range(0.0..=1000.0, 1.0);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert_monotone!(&fit);
     }

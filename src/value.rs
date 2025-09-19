@@ -13,16 +13,16 @@
 //!
 //! # Iterators
 //!
-//! - [`ValueRange`]: A floating-point range iterator with a specified step,
+//! - [`SteppedValues`]: A floating-point range iterator with a specified step,
 //!   useful for generating evaluation points for polynomials.
 //!
 //! # Example
 //!
 //! ```rust
-//! use polyfit::value::{Value, ValueRange};
+//! use polyfit::value::{Value, SteppedValues};
 //!
 //! // Create a range of f64 values from 0.0 to 1.0 in steps of 0.1
-//! let range = ValueRange::new(0.0, 1.0, 0.1);
+//! let range = SteppedValues::new(0.0..=1.0, 0.1);
 //! for x in range {
 //!     println!("{x}");
 //! }

@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    ops::{Range, RangeInclusive},
-};
+use std::{borrow::Cow, ops::RangeInclusive};
 
 use crate::{
     basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis, MonomialBasis},
@@ -290,11 +287,11 @@ where
     /// ```
     /// # use polyfit::MonomialPolynomial;
     /// let poly = MonomialPolynomial::borrowed(&[1.0, 2.0, 3.0]); // 1 + 2x + 3x^2
-    /// let points = poly.solve_range(0.0..2.0, 1.0);
+    /// let points = poly.solve_range(0.0..=2.0, 1.0);
     /// // points = [(0.0, 1.0), (1.0, 6.0), (2.0, 17.0)]
     /// ```
-    pub fn solve_range(&self, range: Range<T>, step: T) -> Vec<(T, T)> {
-        self.solve(SteppedValues::new(range.start..=range.end, step))
+    pub fn solve_range(&self, range: RangeInclusive<T>, step: T) -> Vec<(T, T)> {
+        self.solve(SteppedValues::new(range, step))
     }
 
     /// Calculates the R-squared value for the model compared to provided data.
@@ -614,8 +611,8 @@ mod tests {
     #[test]
     fn test_solve_range() {
         function!(test(x) = 8.0 + 7.0 x^1 + 6.0 x^2);
-        let points = test.solve_range(0.0..3.0, 1.0).y();
-        assert_all_close!(points, &[8.0, 21.0, 46.0]);
+        let points = test.solve_range(0.0..=3.0, 1.0).y();
+        assert_all_close!(points, &[8.0, 21.0, 46.0, 83.0]);
     }
 
     #[test]

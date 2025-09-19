@@ -230,7 +230,7 @@ mod tests {
     fn test_physicists_hermite() {
         // Polynomial recovery
         let poly = get_poly::<PhysicistsHermiteBasis<f64>>();
-        let data = poly.solve_range(0.0..100.0, 1.0);
+        let data = poly.solve_range(0.0..=100.0, 1.0);
         let fit = PhysicistsHermiteFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC)
             .unwrap();
         assert_fits!(&poly, &fit);
@@ -254,7 +254,7 @@ mod tests {
     fn test_probabilists_hermite() {
         // Polynomial recovery
         let poly = get_poly::<ProbabilistsHermiteBasis<f64>>();
-        let data = poly.solve_range(0.0..100.0, 1.0);
+        let data = poly.solve_range(0.0..=100.0, 1.0);
         let fit = ProbabilistsHermiteFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC)
             .unwrap();
         assert_fits!(&poly, &fit);

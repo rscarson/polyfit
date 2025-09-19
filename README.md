@@ -103,10 +103,10 @@ The simplest use-case is to find a mathematical function to help approximate a s
 
 ```rust
 
-   //
-   // Load data from a file
-   let data = include_str!("../examples/sample_data.json");
-   let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
+//
+// Load data from a file
+let data = include_str!("../examples/sample_data.json");
+let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
 
 //
 // Now we can create a curve fit to this data
@@ -145,7 +145,7 @@ Oh no! I have some data but I need to try and predict some other value!
 // `function!` is a macro that makes it easy to define polynomials for testing
 // `apply_poisson_noise` is part of the `transforms` module, which provides a set of tools for manipulating data
 polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-let synthetic_data = f.solve_range(0.0..100.0, 1.0).apply_poisson_noise(0.1, None);
+let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
 
 //
 // Now we can create a curve fit to this data
@@ -195,7 +195,7 @@ Oh dear! I sure do wish I could find which pieces of data are outliers!
 //
 // I still don't have any real data, so I'm going to make some up! Again!
 polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-let synthetic_data = f.solve_range(0.0..100.0, 1.0).apply_poisson_noise(0.1, None);
+let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
 
 //
 // Let's add some outliers

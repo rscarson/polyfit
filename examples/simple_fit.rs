@@ -40,7 +40,7 @@ fn main() -> Result<(), Error> {
     //
     // If I was using this fit for plotting (that's why I wrote the crate, actually),
     // I can generate points from the fit easily:
-    let _fitted_points = fit.solve_range(0.0..99.0, 1.0)?;
+    let _fitted_points = fit.solve_range(0.0..=99.0, 1.0)?;
 
     //
     // Or I can evaluate the fit at specific points:
@@ -86,7 +86,7 @@ fn gen_sample_data() {
     use polyfit::transforms::ApplyNoise;
     function!(y(x) = 5.3 x^2 + 3.0 x + 1.0);
     let data = y
-        .solve_range(0.0..100.0, 1.0)
+        .solve_range(0.0..=100.0, 1.0)
         .apply_normal_noise(Tolerance::Relative(0.1), None)
         .apply_poisson_noise(0.05, None);
 

@@ -1,4 +1,4 @@
-use std::ops::{Range, RangeInclusive};
+use std::ops::RangeInclusive;
 
 use nalgebra::{DMatrix, DVector, SVD};
 
@@ -1086,13 +1086,13 @@ where
     /// # use polyfit::{ChebyshevFit, CurveFit};
     /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
     /// let fit = ChebyshevFit::new(data, 2).unwrap();
-    /// let points = fit.solve_range(0.0..2.0, 0.5).unwrap();
+    /// let points = fit.solve_range(0.0..=2.0, 0.5).unwrap();
     /// for (x, y) in points {
     ///     println!("x = {}, y = {}", x, y);
     /// }
     /// ```
-    pub fn solve_range(&self, range: Range<T>, step: T) -> Result<Vec<(T, T)>> {
-        self.solve(SteppedValues::new(range.start..=range.end, step))
+    pub fn solve_range(&self, range: RangeInclusive<T>, step: T) -> Result<Vec<(T, T)>> {
+        self.solve(SteppedValues::new(range, step))
     }
 
     /// Returns a pure polynomial representation of the curve fit.
@@ -1346,7 +1346,7 @@ mod tests {
 
         function!(mono(x) = 1.0 + 2.0 x^1); // strictly increasing
         let data = mono
-            .solve_range(0.0..1000.0, 1.0)
+            .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Relative(0.3), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         assert!(fit.r_squared(&data) < 1.0);
@@ -1388,7 +1388,7 @@ mod tests {
         let xs = vec![0.0, 1.0, 2.0];
         let points = fit.solve(xs.clone()).unwrap();
         assert_eq!(points.len(), xs.len());
-        let range_points = fit.solve_range(0.0..2.0, 1.0).unwrap();
-        assert_eq!(range_points.len(), 2);
+        let range_points = fit.solve_range(0.0..=2.0, 1.0).unwrap();
+        assert_eq!(range_points.len(), 3);
     }
 }

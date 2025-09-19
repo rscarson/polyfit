@@ -209,7 +209,7 @@ mod tests {
     fn test_chebyshev() {
         function!(test(x) = 8.0 + 7.0 x^1 + 6.0 x^2 + 5.0 x^3 + 4.0 x^4 + 3.0 x^5 + 2.0 x^6);
         let data = test
-            .solve_range(0.0..1000.0, 10.0)
+            .solve_range(0.0..=1000.0, 10.0)
             .apply_normal_noise(Tolerance::Relative(0.1), None);
         let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
         let basis = fit.basis().clone();
