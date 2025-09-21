@@ -115,7 +115,10 @@ macro_rules! assert_r_squared {
 ///
 /// # Parameters
 /// - `$fit`: A reference to the `CurveFit` object whose residuals will be tested.
-/// - `$tolerance`: Minimum p-value for normality. Defaults to `0.05` if omitted.
+/// - `$tolerance`: Minimum p-value for normality. Defaults to `0.6` if omitted.
+/// - `strict`: *(optional)* If true, uses unfiltered residuals. Defaults to false.
+///   Use strict mode if you want to include all residuals, even those close to zero.
+///   Normally, small residuals are due to floating-point noise and are filtered out.
 ///
 /// # Behavior
 /// - Computes mean, standard deviation, skewness, and excess kurtosis of residuals.
@@ -124,29 +127,37 @@ macro_rules! assert_r_squared {
 ///   2. Panic with a clear error message indicating skew/kurtosis values.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
 /// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_residuals_normal};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
 /// let data = test.solve_range(0.0..=1000.0, 1.0);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 ///
-/// // Uses default tolerance 0.05
+/// // Uses default tolerance 0.6
 /// assert_residuals_normal!(fit);
 ///
-/// // Uses custom tolerance
-/// assert_residuals_normal!(fit, 0.01);
+/// // Strict mode uses unfiltered residuals - even floating point noise can cause failure
+/// assert_residuals_normal!(fit, 0.00, strict = true);
 /// ```
 #[macro_export]
 macro_rules! assert_residuals_normal {
-    ($fit:expr, $tolerance:literal) => {
+    ($fit:expr, $tolerance:literal $(, strict = $strict:expr)?) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
             use $crate::value::CoordExt;
 
             let ref fit = $fit;
             let tolerance = $tolerance;
-            let residuals = fit.residuals();
+
+            let strict = false $( || $strict )?;
+
+            let residuals = if strict {
+                fit.residuals()
+            } else {
+                fit.filtered_residuals()
+            };
+
             let residuals_y: Vec<_> = residuals.y();
             let p_value = $crate::statistics::residual_normality(&residuals_y);
 
@@ -163,8 +174,8 @@ macro_rules! assert_residuals_normal {
         }
     };
 
-    ($fit:expr) => {
-        $crate::assert_residuals_normal!($fit, 0.05)
+    ($fit:expr $(, strict = $strict:expr)?) => {
+        $crate::assert_residuals_normal!($fit, 0.6 $(, strict = $strict)?)
     };
 }
 

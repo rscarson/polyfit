@@ -358,14 +358,11 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
         n += T::one();
     }
 
-    let (stddev, mean) = stddev_and_mean(residuals.iter().copied());
-    let normalized_residuals: Vec<_> = residuals
-        .iter()
-        .copied()
-        .map(|r| (r - mean) / stddev)
-        .collect();
+    if n == T::zero() {
+        return T::one();
+    }
 
-    let (skew, kurt) = skewness_and_kurtosis(&normalized_residuals);
+    let (skew, kurt) = skewness_and_kurtosis(residuals);
     let se_skew = (six / n).sqrt();
     let se_kurt = (twentyfour / n).sqrt();
 

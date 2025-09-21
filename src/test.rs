@@ -66,11 +66,6 @@
 //! Useful if you know the underlying function but want to validate the fitting process.
 //! See [`crate::CurveFit::r_squared`] for more details.
 //!
-//! ### [`crate::assert_coefficients_match`]
-//! Uses a confidence interval to assert that the coefficients of two fitted curves match.
-//! This basically tests that a fit is identical to a known fit or function, within statistical limits.
-//! See [`crate::CurveFit::covariance`] for more details.
-//!
 //! ### [`crate::assert_r_squared`]
 //! General case of [`crate::assert_fits`] that does not require a known function.
 //! Asserts that the fit's r² value relative to the source data is above a certain threshold.

@@ -769,6 +769,53 @@ where
             .collect()
     }
 
+    /// Computes the residuals of the fit, filtering out small residuals likely due to floating point noise.
+    ///
+    /// This form can help minimize the impact of floating point precision and rounding.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// max_val = max(|y_i|, |f(x_i)|, 1)
+    /// epsilon = machine_epsilon * sqrt(n) * max_val
+    /// residual_i = y_i - f(x_i) if |y_i - f(x_i)| >= epsilon else 0
+    /// where
+    ///   y_i = observed value, f(x_i) = predicted value from the polynomial at x_i, n = number of data points
+    /// ```
+    /// </div>
+    ///
+    /// # Returns
+    /// A vector of scaled residuals, where each element corresponds to a data point.
+    pub fn filtered_residuals(&self) -> Vec<(T, T)> {
+        // Get max(|y|, |y_fit|, 1)
+        let max_val = self
+            .data
+            .iter()
+            .chain(self.solution().iter())
+            .map(|(_, y)| y.abs())
+            .fold(T::zero(), nalgebra::RealField::max);
+        let max_val = nalgebra::RealField::max(max_val, T::one());
+
+        // Residual epsilon
+        let root_n = T::from_positive_int(self.data.len()).sqrt();
+        let epsilon = T::epsilon() * root_n * max_val;
+
+        let y = self.data.y_iter();
+        y.zip(self.solution())
+            .filter_map(|(y, (x, y_fit))| {
+                let r = y - y_fit;
+                let r = if nalgebra::ComplexField::abs(r) < epsilon {
+                    None?
+                } else {
+                    r
+                };
+                Some((x, r))
+            })
+            .collect()
+    }
+
     /// Computes the residual variance of the model's predictions.
     ///
     /// See [`statistics::residual_variance`].
