@@ -115,7 +115,7 @@ macro_rules! assert_r_squared {
 ///
 /// # Parameters
 /// - `$fit`: A reference to the `CurveFit` object whose residuals will be tested.
-/// - `$tolerance`: Minimum p-value for normality. Defaults to `0.6` if omitted.
+/// - `$tolerance`: Minimum p-value for normality. Defaults to `0.1` if omitted.
 /// - `strict`: *(optional)* If true, uses unfiltered residuals. Defaults to false.
 ///   Use strict mode if you want to include all residuals, even those close to zero.
 ///   Normally, small residuals are due to floating-point noise and are filtered out.
@@ -134,7 +134,7 @@ macro_rules! assert_r_squared {
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
 ///
-/// // Uses default tolerance 0.6
+/// // Uses default tolerance 0.1
 /// assert_residuals_normal!(fit);
 ///
 /// // Strict mode uses unfiltered residuals - even floating point noise can cause failure
@@ -175,7 +175,7 @@ macro_rules! assert_residuals_normal {
     };
 
     ($fit:expr $(, strict = $strict:expr)?) => {
-        $crate::assert_residuals_normal!($fit, 0.6 $(, strict = $strict)?)
+        $crate::assert_residuals_normal!($fit, 0.1 $(, strict = $strict)?)
     };
 }
 
