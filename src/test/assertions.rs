@@ -427,7 +427,7 @@ mod tests {
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
-        assert_residuals_normal!(&fit);
+        assert_residuals_normal!(&fit, 0.01);
     }
 
     #[test]
