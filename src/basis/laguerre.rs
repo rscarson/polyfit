@@ -23,7 +23,7 @@ use crate::{
 /// - Naturally models decaying or exponential-type behavior.
 /// - Orthogonal under weight `exp(-x)`, making coefficient estimation more stable.
 #[derive(Debug, Clone)]
-pub struct LaguerreBasis<T: Value> {
+pub struct LaguerreBasis<T: Value = f64> {
     normalizer: DomainNormalizer<T>,
 }
 impl<T: Value> LaguerreBasis<T> {
@@ -112,7 +112,13 @@ impl<T: Value> PolynomialDisplay<T> for LaguerreBasis<T> {
         let rank = display::unicode::subscript(&degree.to_string());
         let func = format!("L{rank}(x)");
 
-        let body = format!("{coef}{func}");
+        let glue = if coef.is_empty() || func.is_empty() {
+            ""
+        } else {
+            "·"
+        };
+
+        let body = format!("{coef}{glue}{func}");
         Some(Term { sign, body })
     }
 }
@@ -144,9 +150,7 @@ impl<T: Value> IntoMonomialBasis<T> for LaguerreBasis<T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits,
-        statistics::{DegreeBound, ScoringMethod},
-        LaguerreFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound, LaguerreFit, Polynomial,
     };
 
     use super::*;
@@ -161,7 +165,7 @@ mod tests {
         // Recover polynomial
         let poly = get_poly();
         let data = poly.solve_range(0.0..=100.0, 1.0);
-        let fit = LaguerreFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = LaguerreFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit);
 
         // Monomial conversion

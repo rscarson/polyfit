@@ -9,8 +9,8 @@ use resvg::usvg;
 use crate::{
     basis::Basis,
     display::PolynomialDisplay,
-    plot::{Palettes, PlottingElement},
-    statistics::{Confidence, Tolerance},
+    plot::{palette::ColorSource, PlottingElement},
+    statistics::{Confidence, ConfidenceBand, Tolerance},
     value::{CoordExt, Value},
     CurveFit, Polynomial,
 };
@@ -38,294 +38,337 @@ pub enum PlottingError<'root> {
 /// Type alias for the root drawing area.
 pub type PlotRoot<'root> = DrawingArea<SVGBackend<'root>, Shift>;
 
-/// Debug plot for curves and fits
-pub struct Plot<'root> {
-    chart: ChartContext<'root, SVGBackend<'root>, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
-    y_range: Range<f64>,
-    palettes: Palettes,
-}
-impl<'root> Plot<'root> {
-    /// Create a new plot
+/// Trait for plot backends
+pub trait PlotBackend<T: Value = f64> {
+    /// Error type for the plot backend
+    type Error: std::error::Error;
+
+    /// Root type for the plot backend
+    type Root;
+
+    /// Backing type for the root drawing area
+    /// For example in `SVGBackend` this is just a `&mut String`
+    type RootBacking;
+
+    /// Color type for the plot backend
+    type Color: Clone;
+
+    /// Get the next color in the palette
+    fn next_color(&mut self) -> Self::Color;
+
+    /// Set the alpha (opacity) of a color
+    fn color_with_alpha(color: &Self::Color, alpha: f64) -> Self::Color;
+
+    /// Create a new root drawing area with the given backing and size
+    ///
+    /// # Errors
+    /// Returns an error if the root cannot be created.
+    fn new_root(backing: Self::RootBacking, size: (u32, u32)) -> Result<Self::Root, Self::Error>;
+
+    /// Create a new plot with the given title and ranges on the given root
     ///
     /// # Errors
     /// Returns an error if the plot cannot be created.
-    pub fn new<T: Value>(
-        root: &PlotRoot<'root>,
+    fn new_plot(
+        root: &Self::Root,
         title: &str,
         x_range: Range<T>,
         y_range: Range<T>,
-    ) -> Result<Self, PlottingError<'root>> {
-        let palettes = Palettes::default();
+    ) -> Result<Self, Self::Error>
+    where
+        Self: Sized;
 
-        //
-        // T(Range) -> f64(Range)
-        let x_range: Range<f64> = cast(x_range.start)?..cast(x_range.end)?;
-        let y_range: Range<f64> = cast(y_range.start)?..cast(y_range.end)?;
-
-        let chart = ChartBuilder::on(root)
-            .caption(title, ("sans-serif", 24).into_font())
-            .margin(5)
-            .x_label_area_size(30)
-            .y_label_area_size(50)
-            .build_cartesian_2d(x_range, y_range.clone())?;
-
-        Ok(Plot {
-            chart,
-            y_range,
-            palettes,
-        })
-    }
-
-    /// Create a plot from a function
+    /// Add a line to the plot
     ///
     /// # Errors
-    /// Returns an error if the plot cannot be created.
-    pub fn from_canonical<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
-        root: &PlotRoot<'root>,
-        title: &str,
-        function: &Polynomial<B, T>,
-        x_range: Range<T>,
-    ) -> Result<Self, PlottingError<'root>> {
-        let solution = function.solve_range(x_range.start..=x_range.end, T::one());
-        let x = solution.x();
-        let y = solution.y();
+    /// Returns an error if the plot cannot be modified.
+    fn add_line(
+        &mut self,
+        data: &[(T, T)],
+        label: &str,
+        width: u32,
+        color: Self::Color,
+    ) -> Result<(), Self::Error>;
 
-        let min_y = y
-            .iter()
-            .copied()
-            .fold(T::infinity(), <T as nalgebra::RealField>::min);
-        let max_y = y
-            .iter()
-            .copied()
-            .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
-        let y_range = min_y..max_y;
-
-        //
-        // T(Range) -> f64(Range)
-        let x_range: Range<f64> = cast(x_range.start)?..cast(x_range.end)?;
-        let y_range: Range<f64> = cast(y_range.start)?..cast(y_range.end)?;
-
-        Self::new(root, title, x_range, y_range)?.with_canonical(function, &x)
-    }
-
-    /// Create a plot from a curve fit
+    /// Add a dashed to the plot
     ///
     /// # Errors
-    /// Returns an error if the plot cannot be created.
-    pub fn from_fit<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
-        root: &PlotRoot<'root>,
-        title: &str,
-        fit: &CurveFit<B, T>,
-        confidence: Confidence,
-        noise_tolerance: Option<Tolerance<T>>,
-    ) -> Result<Self, PlottingError<'root>> {
-        let x_range = fit.x_range();
-        let y_range = fit.y_range();
+    /// Returns an error if the plot cannot be modified.
+    fn add_dashed_line(
+        &mut self,
+        data: &[(T, T)],
+        label: &str,
+        width: u32,
+        sizing: (u32, u32),
+        color: Self::Color,
+    ) -> Result<(), Self::Error>;
 
-        //
-        // T(Range) -> f64(Range)
-        let x_range: Range<f64> = cast(*x_range.start())?..cast(*x_range.end())?;
-        let y_range: Range<f64> = cast(*y_range.start())?..cast(*y_range.end())?;
+    /// Add a confidence band to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be modified.
+    fn add_confidence(
+        &mut self,
+        data: &[(T, ConfidenceBand<T>)],
+        color: Self::Color,
+    ) -> Result<(), Self::Error>;
 
-        Self::new(root, title, x_range, y_range)?.with_fit(fit, confidence, noise_tolerance)
-    }
-
-    /// Clip the y-values of a sample to the plot's y-range
-    pub fn clip_y(&self, sample: &mut [(f64, f64)]) {
-        for c in sample {
-            c.1 = c.1.clamp(self.y_range.start, self.y_range.end);
-        }
-    }
+    /// Finalize the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be modified.
+    fn finalize(self) -> Result<(), Self::Error>;
 
     /// Add a plotting element to the plot
     ///
     /// # Errors
     /// Returns an error if the plot cannot be created.
-    pub fn with_element<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
-        mut self,
-        element: &PlottingElement<B, T>,
-        confidence: Confidence,
-        noise_tolerance: Option<Tolerance<T>>,
-        x: &[T],
-    ) -> Result<Self, PlottingError<'root>> {
+    fn add_element(&mut self, element: &PlottingElement<T>) -> Result<(), Self::Error> {
         match element {
-            PlottingElement::Fit(fit) => self.with_fit(fit, confidence, noise_tolerance),
-            PlottingElement::Canonical(canonical) => self.with_canonical(canonical, x),
+            PlottingElement::Fit(data, bands, equation) => {
+                let fit_color = self.next_color();
+                self.add_dashed_line(data, "Source Data", 1, (1, 2), fit_color)?;
+
+                let solution = bands
+                    .iter()
+                    .map(|(x, band)| (*x, band.value()))
+                    .collect::<Vec<_>>();
+                let color = self.next_color();
+                self.add_line(&solution, equation, 1, color.clone())?;
+
+                let confidence_color = Self::color_with_alpha(&color, 0.3);
+                self.add_confidence(bands, confidence_color)
+            }
+
+            PlottingElement::Canonical(data, equation) => {
+                let color = self.next_color();
+                self.add_line(data, equation, 1, color)
+            }
+
             PlottingElement::Data(data) => {
-                let palette = self.palettes.next();
-                let data = data.as_f64().map_err(|_| PlottingError::Cast)?;
-                self.with_line(&data, "Data", 1, palette.data)
+                let color = self.next_color();
+                self.add_line(data, "Data", 1, color)
             }
         }
+    }
+
+    /// Add a polynomial to the plot
+    ///
+    /// # Errors
+    /// Returns an error if the plot cannot be created.
+    fn add_polynomial<B: Basis<T> + PolynomialDisplay<T>>(
+        &mut self,
+        function: &Polynomial<B, T>,
+        x: &[T],
+    ) -> Result<(), Self::Error> {
+        let element = PlottingElement::from_polynomial(function, x);
+        self.add_element(&element)
     }
 
     /// Add a curve fit to the plot
     ///
     /// # Errors
     /// Returns an error if the plot cannot be created.
-    pub fn with_fit<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
-        mut self,
+    fn add_fit<B: Basis<T> + PolynomialDisplay<T>>(
+        &mut self,
         fit: &CurveFit<B, T>,
         confidence: Confidence,
-        tolerance: Option<Tolerance<T>>,
-    ) -> Result<Self, PlottingError<'root>> {
-        let palette = self.palettes.next();
-        let data = fit.data().as_f64().map_err(|_| PlottingError::Cast)?;
-        let solution = fit.solution().as_f64().map_err(|_| PlottingError::Cast)?;
-
-        //
-        // Confidence bands
-        let covariance = fit.covariance().map_err(|_| PlottingError::Cast)?;
-        let confidence = covariance
-            .solution_confidence(confidence, tolerance)
-            .map_err(|_| PlottingError::Cast)?;
-        let bands = confidence
-            .into_iter()
-            .map(|band| {
-                let (low, high) = (band.lower, band.upper);
-                Some((cast(low).ok()?, cast(high).ok()?))
-            })
-            .collect::<Option<Vec<_>>>()
-            .ok_or(PlottingError::Cast)?;
-
-        //
-        // Residuals
-        let mut residuals = fit
-            .residuals()
-            .y_iter()
-            .zip(&solution)
-            .map(|(r, s)| {
-                let r = cast(r).ok()?;
-                Some((s.0, r))
-            })
-            .collect::<Option<Vec<_>>>()
-            .ok_or(PlottingError::Cast)?;
-        self.clip_y(&mut residuals);
-
-        let equation = fit.equation();
-        self.with_line(&data, &format!("Source Data ({equation})"), 1, palette.data)?
-            .with_confidence(&solution, &bands, palette.fit_error)?
-            .with_line(&solution, &equation, 1, palette.fit)?
-            .with_line(
-                &residuals,
-                &format!("Residuals ({equation})"),
-                1,
-                palette.fit_residual,
-            )
+        noise_tolerance: Option<Tolerance<T>>,
+    ) -> Result<(), Self::Error> {
+        self.add_element(&PlottingElement::from_curve_fit(
+            fit,
+            confidence,
+            noise_tolerance,
+        ))
     }
 
-    /// Add a polynomial to the plot
+    /// Add raw data to the plot
     ///
     /// # Errors
-    /// Returns an error if the plot cannot be modified.
-    pub fn with_canonical<T: Value, B: Basis<T> + PolynomialDisplay<T>>(
-        mut self,
-        func: &Polynomial<B, T>,
-        x: &[T],
-    ) -> Result<Self, PlottingError<'root>> {
-        let palette = self.palettes.next();
-        let data = func
-            .solve(x.iter().copied())
-            .as_f64()
-            .map_err(|_| PlottingError::Cast)?;
-        self.with_line(&data, &func.equation(), 3, palette.canonical)
+    /// Returns an error if the plot cannot be created.
+    fn add_data(&mut self, data: &[(T, T)]) -> Result<(), Self::Error> {
+        self.add_element(&PlottingElement::from_data(data))
+    }
+}
+
+/// Plotters backend for plotting
+pub struct PlottersBackend<'root, T: Value> {
+    _marker: std::marker::PhantomData<T>,
+    context: ChartContext<'root, SVGBackend<'root>, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
+    y_range: Range<f64>,
+    palette: ColorSource<RGBAColor>,
+}
+impl<'root, T: Value> PlotBackend<T> for PlottersBackend<'root, T> {
+    type Error = PlottingError<'root>;
+    type Color = RGBAColor;
+    type Root = PlotRoot<'root>;
+    type RootBacking = &'root mut String;
+
+    fn next_color(&mut self) -> Self::Color {
+        self.palette.next_color()
     }
 
-    /// Add a line to the plot
-    ///
-    /// # Errors
-    /// Returns an error if the plot cannot be modified.
-    pub fn with_line(
-        mut self,
-        data: &[(f64, f64)],
+    fn color_with_alpha(color: &Self::Color, alpha: f64) -> Self::Color {
+        let mut color = *color;
+        color.3 = alpha;
+        color
+    }
+
+    fn new_root(backing: Self::RootBacking, size: (u32, u32)) -> Result<Self::Root, Self::Error> {
+        let backend = SVGBackend::with_string(backing, size);
+        let root = IntoDrawingArea::into_drawing_area(backend);
+        root.fill(&WHITE).expect("Failed to fill drawing area");
+        Ok(root)
+    }
+
+    fn new_plot(
+        root: &Self::Root,
+        title: &str,
+        x_range: Range<T>,
+        y_range: Range<T>,
+    ) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        //
+        // T(Range) -> f64(Range)
+        let x_range: Range<f64> = cast(x_range.start)?..cast(x_range.end)?;
+        let y_range: Range<f64> = cast(y_range.start)?..cast(y_range.end)?;
+
+        let context = ChartBuilder::on(root)
+            .caption(title, ("sans-serif", 24).into_font())
+            .margin(5)
+            .x_label_area_size(30)
+            .y_label_area_size(50)
+            .build_cartesian_2d(x_range, y_range.clone())?;
+
+        let palette = ColorSource::new(vec![
+            RED.into(),
+            BLUE.into(),
+            GREEN.into(),
+            MAGENTA.into(),
+            CYAN.into(),
+        ]);
+
+        Ok(Self {
+            _marker: std::marker::PhantomData,
+            context,
+            y_range,
+            palette,
+        })
+    }
+
+    fn add_line(
+        &mut self,
+        data: &[(T, T)],
         label: &str,
         width: u32,
-        color: impl Into<ShapeStyle>,
-    ) -> Result<Self, PlottingError<'root>> {
-        let mut data = data.to_vec();
-        self.clip_y(&mut data);
+        color: Self::Color,
+    ) -> Result<(), Self::Error> {
+        let data = data.as_f64().map_err(|_| PlottingError::Cast)?;
+        let data = data.y_clipped(&self.y_range);
 
-        let style = color.into().stroke_width(width);
-        self.chart
+        let style = ShapeStyle::from(color).stroke_width(width);
+        self.context
             .draw_series(LineSeries::new(data, style))?
             .label(label)
             .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], style));
-
-        Ok(self)
+        Ok(())
     }
 
-    /// Add a confidence band to the plot
-    ///
-    /// # Errors
-    /// Returns an error if the plot cannot be modified.
-    pub fn with_confidence(
-        mut self,
-        data: &[(f64, f64)],
-        bands: &[(f64, f64)],
-        color: impl Into<ShapeStyle>,
-    ) -> Result<Self, PlottingError<'root>> {
-        let style = color.into().stroke_width(1);
+    fn add_dashed_line(
+        &mut self,
+        data: &[(T, T)],
+        label: &str,
+        width: u32,
+        sizing: (u32, u32),
+        color: Self::Color,
+    ) -> Result<(), Self::Error> {
+        let data = data.as_f64().map_err(|_| PlottingError::Cast)?;
+        let data = data.y_clipped(&self.y_range);
 
-        let mut data = data.to_vec();
-        self.clip_y(&mut data);
-
-        let mut bands = bands.to_vec();
-        self.clip_y(&mut bands);
-
-        let series = data
-            .into_iter()
-            .zip(bands)
-            .map(|((x, y), (low, high))| ErrorBar::new_vertical(x, low, y, high, style, 1));
-        self.chart.draw_series(series)?;
-
-        Ok(self)
+        let style = ShapeStyle::from(color).stroke_width(width);
+        self.context
+            .draw_series(DashedLineSeries::new(data, sizing.0, sizing.1, style))?
+            .label(label)
+            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], style));
+        Ok(())
     }
 
-    /// Build the final plot
-    ///
-    /// # Errors
-    /// Returns an error if the plot cannot be modified.
-    pub fn build(mut self) -> Result<(), PlottingError<'root>> {
+    fn add_confidence(
+        &mut self,
+        data: &[(T, ConfidenceBand<T>)],
+        color: Self::Color,
+    ) -> Result<(), Self::Error> {
+        let style = ShapeStyle::from(color).stroke_width(1);
+        let series: Vec<_> = data
+            .iter()
+            .map(|(x, band)| {
+                let x = x
+                    .to_f64()
+                    .ok_or(PlottingError::Cast)?
+                    .clamp(self.y_range.start, self.y_range.end);
+                let min = band
+                    .min()
+                    .to_f64()
+                    .ok_or(PlottingError::Cast)?
+                    .clamp(self.y_range.start, self.y_range.end);
+                let value = band
+                    .value()
+                    .to_f64()
+                    .ok_or(PlottingError::Cast)?
+                    .clamp(self.y_range.start, self.y_range.end);
+                let max = band
+                    .max()
+                    .to_f64()
+                    .ok_or(PlottingError::Cast)?
+                    .clamp(self.y_range.start, self.y_range.end);
+                Ok(ErrorBar::new_vertical(x, min, value, max, style, 1))
+            })
+            .collect::<Result<_, Self::Error>>()?;
+        self.context.draw_series(series)?;
+        Ok(())
+    }
+
+    fn finalize(mut self) -> Result<(), Self::Error> {
         //
         // Mesh and axes
-        self.chart
+        self.context
             .configure_mesh()
             .x_label_formatter(&|v| format!("{v:.2e}"))
             .y_label_formatter(&|v| format!("{v:.2e}"))
             .draw()?;
-        self.chart
+        self.context
             .configure_series_labels()
             .background_style(WHITE.mix(0.8))
             .border_style(BLACK)
-            .position(SeriesLabelPosition::UpperLeft)
+            .position(SeriesLabelPosition::LowerRight)
             .draw()?;
 
-        self.chart.plotting_area().present()?;
-        Ok(())
-    }
-
-    /// Build a PNG file from the SVG data
-    ///
-    /// # Errors
-    /// Returns an error if the PNG cannot be created.
-    pub fn build_png(svg: &str, target: &Path) -> Result<(), PlottingError<'root>> {
-        let mut opt = usvg::Options::default();
-        opt.fontdb_mut().load_system_fonts();
-
-        let rtree = usvg::Tree::from_str(svg, &opt)?;
-        let pixmap_size = rtree.size().to_int_size();
-
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
-            .ok_or(PlottingError::Cast)?;
-        resvg::render(&rtree, usvg::Transform::default(), &mut pixmap.as_mut());
-
-        pixmap
-            .save_png(target)
-            .map_err(|e| PlottingError::PngEncode(e.to_string()))?;
+        self.context.plotting_area().present()?;
         Ok(())
     }
 }
 
 fn cast<'root, T: Value>(value: T) -> Result<f64, PlottingError<'root>> {
     num_traits::cast(value).ok_or(PlottingError::Cast)
+}
+
+/// Convert an SVG string to a PNG file at the given path
+///
+/// # Errors
+/// Returns an error if the SVG cannot be parsed or the PNG cannot be written.
+pub fn svg2png(svg: &str, path: impl AsRef<Path>) -> std::io::Result<()> {
+    let mut opt = usvg::Options::default();
+    opt.fontdb_mut().load_system_fonts();
+
+    let rtree = usvg::Tree::from_str(svg, &opt).map_err(std::io::Error::other)?;
+    let pixmap_size = rtree.size().to_int_size();
+
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
+        .ok_or(std::io::Error::other("Failed to create pixmap"))?;
+    resvg::render(&rtree, usvg::Transform::default(), &mut pixmap.as_mut());
+
+    pixmap.save_png(path).map_err(std::io::Error::other)?;
+    Ok(())
 }

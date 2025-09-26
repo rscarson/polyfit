@@ -16,14 +16,15 @@
 //! Automatically fits a dataset against every supported polynomial base and reports the best fits.
 //! - The best 3 models are printed to the console, and if the `plotting` feature is enabled, they are plotted too!
 //! ```rust
-//! # use polyfit::statistics::{DegreeBound, ScoringMethod, Tolerance};
+//! # use polyfit::statistics::{DegreeBound, Tolerance};
+//! # use polyfit::score::Aic;
 //! # use polyfit::transforms::ApplyNoise;
 //! # use polyfit::{function, basis_select};
 //! function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
 //! let data = test
 //!     .solve_range(0.0..=100.0, 1.0)
 //!     .apply_normal_noise(Tolerance::Relative(0.1), None);
-//! basis_select!(&data, DegreeBound::Relaxed, ScoringMethod::AIC);
+//! basis_select!(&data, DegreeBound::Relaxed, &Aic);
 //! ```
 //!
 //! ### [`crate::plot!`]
@@ -34,8 +35,9 @@
 //! ```rust
 //! # let data = vec![(0.0, 1.0), (1.0, 2.0), (2.0, 0.5), (3.0, 4.0)];
 //! # use polyfit::{MonomialFit};
-//! # use polyfit::statistics::{DegreeBound, ScoringMethod};
-//! let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+//! # use polyfit::statistics::{DegreeBound};
+//! # use polyfit::score::Aic;
+//! let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
 //! polyfit::plot!(fit, title = "My Fit", x_range = 0.0..3.0, y_range = 0.0..5.0);
 //! ```
 //!
@@ -168,7 +170,7 @@ macro_rules! function {
 ///
 /// # Behavior
 /// - Tries to construct a `CurveFit<Basis>` for each basis in the provided list.
-/// - Uses `CurveFit::new_auto` with for each basis with the provided `DegreeBound` and `ScoringMethod`.
+/// - Uses `CurveFit::new_auto` with for each basis with the provided `DegreeBound` and scoring method ([`crate::score`]).
 /// - For each successful fit, computes:
 ///   - r² value against the source data
 ///   - p-value for residual normality test
@@ -184,19 +186,20 @@ macro_rules! function {
 /// # Parameters
 /// - `$data`: A slice of `(x, y)` points or any type accepted by `CurveFit`.
 /// - `$degree_bound`: The degree bound to use for fitting (see [`crate::statistics::DegreeBound`]).
-/// - `$method`: The scoring method to use for fitting (see [`crate::statistics::ScoringMethod`]).
+/// - `$method`: The scoring method to use for fitting (see [`crate::score`]).
 /// - `options`: Optional. List of basis types to compare. Default is all supported bases.
 ///
 /// # Example
 /// ```rust
-/// # use polyfit::statistics::{DegreeBound, ScoringMethod, Tolerance};
+/// # use polyfit::statistics::{DegreeBound, Tolerance};
 /// # use polyfit::transforms::ApplyNoise;
+/// # use polyfit::score::Aic;
 /// # use polyfit::{function, basis_select};
 /// function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
 /// let data = test
 ///     .solve_range(0.0..=100.0, 1.0)
 ///     .apply_normal_noise(Tolerance::Relative(0.1), None);
-/// basis_select!(&data, DegreeBound::Relaxed, ScoringMethod::AIC);
+/// basis_select!(&data, DegreeBound::Relaxed, &Aic);
 /// ```
 ///
 /// The example above will output something like:
@@ -223,13 +226,13 @@ macro_rules! basis_select {
     ($data:expr, $degree_bound:expr, $method:expr) => {{
         use $crate::basis::*;
         $crate::basis_select!($data, $degree_bound, $method, options = [
-            MonomialBasis<f64> = "Monomial",
             ChebyshevBasis<f64> = "Chebyshev",
             FourierBasis<f64> = "Fourier",
             LegendreBasis<f64> = "Legendre",
             PhysicistsHermiteBasis<f64> = "Physicists' Hermite",
             ProbabilistsHermiteBasis<f64> = "Probabilists' Hermite",
             LaguerreBasis<f64> = "Laguerre",
+            LogarithmicBasis<f64> = "Logarithmic",
         ])
     }};
 
@@ -241,8 +244,9 @@ macro_rules! basis_select {
             plot_fn: Box<dyn Fn()>,
             name: &'static str,
             r2: f64,
+            robust_r2: f64,
             p_value: f64,
-            stars: usize,
+            stars: f64,
             equation: String,
         }
 
@@ -255,6 +259,7 @@ macro_rules! basis_select {
             println!("[ Results may be misleading for small datasets (<100 points) ]\n");
         }
 
+        let mut all_normals_zero = true;
         let mut options = vec![];
         $(
             if let Ok(fit) = $crate::CurveFit::<$basis>::new_auto($data, $degree_bound, $method) {
@@ -262,21 +267,20 @@ macro_rules! basis_select {
                 let equation = fit.equation();
 
                 let model_score = fit.model_score($method);
-                let residuals = fit.residuals().y();
+                let residuals = fit.filtered_residuals().y();
                 let r2 = fit.r_squared(fit.data());
+                let robust_r2 = $crate::statistics::robust_r_squared(fit.data().y_iter(), fit.solution().y_iter());
                 let p_value = $crate::statistics::residual_normality(&residuals);
-                let rating = 0.75 * r2 + 0.25 * p_value;
+                let rating = (0.75 * robust_r2 + 0.25 * p_value).clamp(0.0, 1.0);
+
+                if p_value > f64::EPSILON {
+                    all_normals_zero = false;
+                }
 
                 //
                 // Get a star rating out of 5 based on rating
-                let stars = match rating {
-                    r if r >= 0.95 => 5,
-                    r if r >= 0.9 => 4,
-                    r if r >= 0.8 => 3,
-                    r if r >= 0.7 => 2,
-                    r if r >= 0.6 => 1,
-                    _ => 0,
-                };
+                let normalizer = $crate::statistics::DomainNormalizer::new((0.5, 1.0), (0.0, 5.0));
+                let stars = normalizer.normalize(rating).clamp(0.0, 5.0);
 
                 #[allow(unused_mut, unused_assignments)] let mut plot_fn: Box<dyn Fn()> = Box::new(|| ());
 
@@ -284,7 +288,7 @@ macro_rules! basis_select {
                 {
                     let prefix = name.to_lowercase().replace([' ', '\'', '"', '<', '>', ':', ';', ',', '.'], "_");
 
-                    plot_fn = Box::new(move || $crate::plot!(fit, title = name.to_string(), prefix = prefix));
+                    plot_fn = Box::new(move || $crate::plot!(fit, title = name, prefix = prefix));
                 }
 
                 options.push(FitProps {
@@ -293,6 +297,7 @@ macro_rules! basis_select {
                     plot_fn,
                     name,
                     r2,
+                    robust_r2,
                     p_value,
                     stars,
                     equation,
@@ -317,26 +322,35 @@ macro_rules! basis_select {
 
         //
         // Small table first
-        let (basis, score, r2, norm, rating) = ("Basis", "Score Weight", "R²", "Residuals Normality", "Rating");
-        let sep = || { println!("--|-{:-^30}-|-{:-^12}-|-{:-^10}-|-{:-^20}-|-{:-^10}", "", "", "", "", ""); };
-        println!("# | {basis:^30} | {score:^12} | {r2:^10} | {norm:^20} | {rating}");
+        let (basis, score, r2, norm, rating) = ("Basis", "Score Weight", "Fit Quality", "Normality", "Rating");
+        let sep = || { println!("--|-{:-^30}-|-{:-^12}-|-{:-^11}-|-{:-^9}-|-{:-^10}", "", "", "", "", ""); };
+        println!("# | {basis:^30} | {score:^12} | {r2:^11} | {norm:^9} | {rating}");
         sep();
         for (i, props) in options.iter().enumerate() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let whole_stars = props.stars.round() as usize;
+
             let name = props.name;
             let score = props.model_score * 100.0;
-            let r2 = props.r2 * 100.0;
+            let r2 = props.robust_r2 * 100.0;
             let norm = props.p_value * 100.0;
             let rating = props.rating * 100.0;
-            let stars = "☆".repeat(5 - props.stars) + &"★".repeat(props.stars);
 
-            let score = format!("{score:.4}%");
-            let r2 = format!("{r2:.4}%");
-            let norm = format!("{norm:.4}%");
+            let vis_stars = "☆".repeat(5 - whole_stars) + &"★".repeat(whole_stars);
+
+            let score = format!("{score:.2}%");
+            let r2 = format!("{r2:.2}%");
             let rating = format!("{rating:.0}%");
+
+            let norm = if all_normals_zero {
+                "-----".to_string()
+            } else {
+                format!("{norm:.2}%")
+            };
 
             let n = i + 1;
             println!(
-                "{n} | {name:^30} | {score:^12} | {r2:<10} | {norm:<20} | {rating} {stars}",
+                "{n} | {name:>30} | {score:>12} | {r2:>11} | {norm:>9} | {rating} {vis_stars}",
             );
 
             // Separator after best 3
@@ -350,15 +364,17 @@ macro_rules! basis_select {
         println!();
         println!("[ How to interpret the results ]");
         println!("[ Results may be misleading for small datasets (<100 points) ]");
-        println!(" - Score Weight: Relative likelihood of being the best model among the options tested.");
-        println!(" - R²: Proportion of variance in the data explained by the model (useless for small datasets).");
-        println!(" - Residuals Normality: How closely the residuals follow a normal distribution (useless for small datasets).");
-        println!(" - Rating: Combined score (0.75 * R² + 0.25 * Residuals Normality) to give an overall quality measure.");
-        println!(" - Stars: A simple star rating out of 5 based on the Rating score.");
+        println!(" - Score Weight: Relative likelihood of being the best model among the options tested, based on the scoring method used.");
+        println!(" - Fit Quality: Proportion of variance in the data explained by the model (uses huber loss weighted r2).");
+        println!(" - Normality: How closely the residuals follow a normal distribution (useless for small datasets).");
+        println!(" - Rating: Combined score (0.75 * Fit Quality + 0.25 * Normality) to give an overall quality measure.");
+        println!(" - Stars: A simple star rating out of 5 based on the Rating score. Not scientific.");
+        println!(" - The best 3 models are shown below with their equations and plots (if enabled).");
 
         for props in &best_3 {
             println!();
             println!("{}: {}", props.name, props.equation);
+            println!("Fit R²: {:.4}, Residuals Normality p-value: {:.4}", props.r2, props.p_value);
 
             #[cfg(feature = "plotting")]
             (props.plot_fn)();
@@ -369,12 +385,13 @@ macro_rules! basis_select {
 #[cfg(test)]
 #[test]
 fn test() {
-    use crate::statistics::{DegreeBound, ScoringMethod, Tolerance};
+    use crate::score::Aic;
+    use crate::statistics::{DegreeBound, Tolerance};
     use crate::transforms::ApplyNoise;
 
     function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
     let data = test
         .solve_range(0.0..=1000.0, 1.0)
         .apply_normal_noise(Tolerance::Relative(0.3), None);
-    basis_select!(&data, DegreeBound::Relaxed, ScoringMethod::AIC);
+    basis_select!(&data, DegreeBound::Relaxed, &Aic);
 }

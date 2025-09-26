@@ -2,7 +2,8 @@ use std::path::Path;
 
 use polyfit::{
     basis_select,
-    statistics::{DegreeBound, ScoringMethod},
+    score::{Aic, Bic},
+    statistics::DegreeBound,
 };
 
 fn main() {
@@ -15,7 +16,7 @@ fn main() {
     let path = Path::new(&path);
 
     let mut degree_bound = DegreeBound::Relaxed;
-    let mut method = ScoringMethod::AIC;
+    let mut method = "aic".to_string();
     for arg in std::env::args().skip(2) {
         if let Some(option) = arg.strip_prefix("degree_bound=") {
             match option {
@@ -32,14 +33,7 @@ fn main() {
         }
 
         if let Some(option) = arg.strip_prefix("method=") {
-            match option {
-                "aic" => method = ScoringMethod::AIC,
-                "bic" => method = ScoringMethod::BIC,
-                _ => {
-                    eprintln!("Invalid method value: {}", option);
-                    std::process::exit(1);
-                }
-            }
+            method = option.to_string();
         }
 
         if arg == "help" || arg == "--help" || arg == "-h" {
@@ -101,6 +95,14 @@ fn main() {
         }
     };
 
-    basis_select!(&data, degree_bound, method);
+    match method.as_str() {
+        "aic" => basis_select!(&data, degree_bound, &Aic),
+        "bic" => basis_select!(&data, degree_bound, &Bic),
+        _ => {
+            eprintln!("Unsupported method: {}", method);
+            std::process::exit(1);
+        }
+    }
+
     std::process::exit(0);
 }

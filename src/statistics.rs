@@ -14,7 +14,6 @@
 //! - [`Confidence`]: Enum for common confidence levels (68%, 95%, 99%).
 //!
 //! # Model Selection
-//! - [`ScoringMethod`]: Enum for model selection criteria (AIC, BIC) with methods to calculate scores.
 //! - [`DegreeBound`]: Enum to specify constraints on polynomial degree when automatically selecting it.
 //!
 //! # Error Metrics
@@ -38,7 +37,7 @@
 //!   - 1 = model perfectly fits the data.
 //!
 //! - **Model selection**: Choosing the best polynomial degree to avoid overfitting.
-//!   - Use [`ScoringMethod`] with [`ScoringMethod::calculate`].
+//!   - Use [`crate::score`].
 //!   - Options:
 //!     - `AIC`: Akaike Information Criterion, more lenient penalty for complexity.
 //!     - `BIC`: Bayesian Information Criterion, stricter penalty for complexity.
@@ -47,7 +46,8 @@
 //! # Examples
 //!
 //! ```rust
-//! use polyfit::statistics::{r_squared, ScoringMethod};
+//! use polyfit::statistics::r_squared;
+//! use polyfit::score::{Aic, ModelScoreProvider};
 //!
 //! let y = vec![1.0, 2.0, 3.0];
 //! let y_fit = vec![1.1, 1.9, 3.05];
@@ -57,7 +57,7 @@
 //! println!("R² = {r2}");
 //!
 //! // Model scoring
-//! let score = ScoringMethod::AIC.calculate(y.into_iter(), y_fit.into_iter(), 3.0);
+//! let score = Aic.score(y.into_iter(), y_fit.into_iter(), 3.0);
 //! println!("AIC score = {score}");
 //! ```
 use crate::value::{IntClampedCast, Value};
@@ -191,6 +191,33 @@ pub fn mean<T: Value>(data: impl Iterator<Item = T>) -> T {
         count += T::one();
     }
     sum / count
+}
+
+/// Computes the median of a sequence of values.
+///
+/// The median is the middle value when the data is sorted.
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
+/// # Parameters
+/// - `data`: A slice of values of type `T`.
+///
+/// # Returns
+/// The median value of the elements in `data`.
+#[must_use]
+pub fn median<T: Value>(data: &[T]) -> T {
+    let mut data = data.to_vec();
+    data.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = data.len();
+    if n == 0 {
+        return T::zero();
+    }
+    if n % 2 == 1 {
+        data[n / 2]
+    } else {
+        (data[n / 2 - 1] + data[n / 2]) / T::two()
+    }
 }
 
 /// Computes the standard deviation of a sequence of values.
@@ -408,6 +435,67 @@ pub fn spread<T: Value>(data: impl Iterator<Item = T>) -> T {
     max - min
 }
 
+/// Uses huber loss to compute a robust R-squared value.
+/// - More robust to outliers than traditional R².
+/// - Values closer to 1 indicate a better fit.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// R²_robust = 1 - (Σ huber_loss(y_i - y_fit_i, delta)) / (Σ (y_i - y_fit_i)²)
+/// where
+///   huber_loss(r, delta) = { 0.5 * r²                    if |r| ≤ delta
+///                          { delta * (|r| - 0.5 * delta) if |r| > delta
+///  delta = 1.345 * MAD
+///  MAD = median( |y_i - y_fit_i| )
+///  where
+///    y_i = observed values, y_fit_i = predicted values
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
+/// # Parameters
+/// - `y`: Iterator over observed values.
+/// - `y_fit`: Iterator over predicted values.
+///
+/// # Returns
+/// The robust R² as a `T`.
+///
+/// # Example
+/// ```rust
+/// # use polyfit::statistics::robust_r_squared;
+/// let y = vec![1.0, 2.0, 3.0];
+/// let y_fit = vec![1.1, 1.9, 3.05];
+/// let r2_robust = robust_r_squared(y.into_iter(), y_fit.into_iter());
+/// ```
+pub fn robust_r_squared<T: Value>(y: impl Iterator<Item = T>, y_fit: impl Iterator<Item = T>) -> T {
+    let y: Vec<_> = y.collect();
+    let y_fit: Vec<_> = y_fit.collect();
+
+    let mad = median_absolute_deviation(y.iter().copied(), y_fit.iter().copied());
+    let huber_const = huber_const();
+
+    //
+    // Get TSE - Σ huber_loss(y_i - y_fit_i, delta))
+    let mut tse = T::zero();
+    for (&y, &y_fit) in y.iter().zip(y_fit.iter()) {
+        tse += huber_loss(y - y_fit, huber_const, mad);
+    }
+
+    //
+    // Get TSS - Σ (y_i - y_fit_i)²
+    let mut tss = T::zero();
+    for (y, y_fit) in y.into_iter().zip(y_fit) {
+        tss += Value::powi(y - y_fit, 2);
+    }
+
+    T::one() - (tse / tss)
+}
+
 /// Computes the adjusted R-squared value.
 ///
 /// Adjusted R² accounts for the number of predictors in a model, penalizing
@@ -575,10 +663,6 @@ pub fn root_mean_squared_error<T: Value>(
 
 /// Computes the mean squared error (MSE) between two sets of values.
 ///
-/// For comparing 2 fits, prefer:
-/// - [`ScoringMethod::BIC`] to prevent overfitting (fitting the noise instead of the real trend) or
-/// - [`r_squared`] to evaluate goodness-of-fit.
-///
 /// MSE is a measure of the average squared difference between the
 /// observed (`y`) and predicted (`y_fit`) values. Lower values indicate
 /// a better fit.
@@ -681,30 +765,55 @@ fn mse_with_n<T: Value>(y: impl Iterator<Item = T>, y_fit: impl Iterator<Item = 
 }
 
 /// Internal impl of MSE-like log-likelihood using Huber loss
-fn robust_mse_with_n<T: Value>(
+pub(crate) fn robust_mse_with_n<T: Value>(
     y: impl Iterator<Item = T>,
     y_fit: impl Iterator<Item = T>,
 ) -> (T, T) {
-    // This should only fail for very low precision types
-    let huber_const = T::try_cast(1.345).unwrap_or(T::one());
-
     let y: Vec<_> = y.collect();
     let y_fit: Vec<_> = y_fit.collect();
 
     let mad = median_absolute_deviation(y.iter().copied(), y_fit.iter().copied());
-    let delta = huber_const * mad;
+    let huber_const = huber_const();
 
     let mut total_loss = T::zero();
     let mut n = T::zero();
     for (yi, fi) in y.into_iter().zip(y_fit) {
-        total_loss += huber_loss(yi - fi, delta);
+        total_loss += huber_loss(yi - fi, huber_const, mad);
         n += T::one();
     }
 
     (total_loss / n, n)
 }
 
-fn huber_loss<T: Value>(r: T, delta: T) -> T {
+/// Computes the Huber loss for a single residual.
+/// - Huber loss is a robust error metric that is less sensitive to outliers than traditional squared error.
+/// - It behaves like squared error for small residuals and like absolute error for large residuals.
+///
+/// <div class="warning">
+///
+/// **Technical Details**
+///
+/// ```math
+/// huber_loss(r, delta) = { 0.5 * r²                    if |r| ≤ delta
+///                        { delta * (|r| - 0.5 * delta) if |r| > delta
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
+/// # Parameters
+/// - `r`: The residual (difference between observed and predicted value).
+/// - `huber_const`: The Huber constant (commonly `1.345` for 95% efficiency with normally distributed errors).
+///   See [`huber_const`] for the default value.
+/// - `median_absolute_deviation`: The median absolute deviation (MAD) used to scale the Huber loss.
+///
+/// # Returns
+/// The Huber loss as a `T`.
+pub fn huber_loss<T: Value>(r: T, huber_const: T, median_absolute_deviation: T) -> T {
+    // This should only fail for very low precision types
+    let delta = huber_const * median_absolute_deviation;
+
     let r = Value::abs(r);
     let half = T::one() / T::two();
     if r <= delta {
@@ -712,6 +821,15 @@ fn huber_loss<T: Value>(r: T, delta: T) -> T {
     } else {
         delta * (r - half * delta)
     }
+}
+
+/// Returns the standard Huber constant (1.345).
+/// - This constant is commonly used for 95% efficiency with normally distributed errors.
+/// - It is the value recommended by Peter J. Huber in his original paper "Robust Estimation of a Location Parameter" (1964).
+#[must_use]
+pub fn huber_const<T: Value>() -> T {
+    // This should only fail for very low precision types
+    T::try_cast(1.345).unwrap_or(T::one())
 }
 
 /// Computes the median absolute deviation (MAD) between two sets of values.
@@ -752,132 +870,69 @@ pub fn median_absolute_deviation<T: Value>(
     y_fit: impl Iterator<Item = T>,
 ) -> T {
     let mut residuals: Vec<T> = y.zip(y_fit).map(|(yi, fi)| Value::abs(yi - fi)).collect();
-    let midpoint = residuals.len() / 2;
     if residuals.is_empty() {
         return T::zero();
     }
 
-    residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median = residuals[midpoint];
-
+    let median_r = median(&residuals);
     for r in &mut residuals {
-        *r = Value::abs(*r - median);
+        *r = Value::abs(*r - median_r);
     }
-    residuals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    residuals[midpoint]
+
+    median(&residuals)
 }
 
-/// Methods for scoring a polynomial model to evaluate its fit.
+/// Computes the median squared deviation (MSD) between two sets of values.
+/// - MSD is a measure of variability that is robust to outliers.
+/// - Lower values indicate a closer fit.
+/// - Uses the median of the squared deviations from the median.
 ///
-/// These are used when automatically selecting the "best" polynomial degree.
+/// <div class="warning">
 ///
-/// # Selecting a method
-/// - `AIC`: Picks a slightly more complex model if it fits better.
-/// - `BIC`: Prefers simpler models, even if the fit is slightly worse.
+/// **Technical Details**
 ///
-/// - AIC is a good default for general use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScoringMethod {
-    /// Akaike Information Criterion. Uses a more lenient penalty for model complexity
-    /// - Picks a slightly more complex model if it fits better.
-    ///
-    /// This is the default choice for most applications.
-    ///
-    /// <div class="warning">
-    ///
-    /// **Technical Details**
-    ///
-    /// AIC is calculated as:
-    /// ```math
-    /// AIC = { n * ln(L) + 2k
-    ///       { n * ln(L) + 2k + (2k(k+1)) / (n - k - 1)  if (n / k < 2 + 2) AND (n > k + 1)
-    /// where
-    ///   L = likelihood of the model (using Huber loss)
-    ///   n = number of observations, k = number of model parameters
-    /// ```
-    /// </div>
-    AIC,
-
-    /// Bayesian Information Criterion. Uses a stricter penalty for model complexity.
-    /// - Prefers simpler models, even if the fit is slightly worse.
-    ///
-    /// <div class="warning">
-    ///
-    /// **Technical Details**
-    ///
-    /// BIC is calculated as:
-    /// ```math
-    /// BIC = n * ln(L) + k * ln(n)
-    /// where
-    ///   L = likelihood of the model (using Huber loss)
-    ///   n = number of observations, k = number of model parameters
-    /// ```
-    /// </div>
-    BIC,
-}
-impl ScoringMethod {
-    /// Calculate the model's score using this scoring method.
-    ///
-    /// <div class="warning">
-    ///
-    /// **Technical Details**
-    ///
-    /// In place of MSE, which is susceptible to outliers, we use a robust loss function based on the
-    /// Huber loss. This combines the ideas of MSE and MAE, providing a balance between the two.
-    ///
-    /// For more details, see the documentation for [`huber_log_likelihood`], [`ScoringMethod::AIC`], and [`ScoringMethod::BIC`].
-    /// </div>
-    ///
-    /// # Notes
-    /// - Lower scores indicate a "better" choice for automatically selecting the polynomial degree.
-    /// - This is **not** a measure of how well the model fits your data. For that, use `r_squared`.
-    ///
-    /// # Type Parameters
-    /// - `T`: A numeric type implementing the `Value` trait.
-    ///
-    /// # Parameters
-    /// - `y`: Iterator over the observed (actual) values.
-    /// - `y_fit`: Iterator over the predicted values from the model.
-    /// - `k`: Number of model parameters (degrees of freedom used by the fit).
-    ///
-    /// # Returns
-    /// The computed score as a `T`.
-    ///
-    /// # Errors
-    /// Returns an error if the huber loss constant cannot be cast to the required type.
-    ///
-    /// # Example
-    /// ```
-    /// # use polyfit::{statistics::ScoringMethod, value::Value};
-    /// # let y = vec![1.0, 2.0, 3.0];
-    /// # let y_fit = vec![1.1, 1.9, 3.05];
-    /// let score = ScoringMethod::AIC.calculate(y.into_iter(), y_fit.into_iter(), 3.0);
-    /// ```
-    pub fn calculate<T: Value>(
-        self,
-        y: impl Iterator<Item = T>,
-        y_fit: impl Iterator<Item = T>,
-        k: T,
-    ) -> T {
-        let (log_likelihood, n) = robust_mse_with_n(y, y_fit);
-        let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
-        if n == T::zero() {
-            return T::nan();
-        }
-
-        match self {
-            ScoringMethod::AIC => {
-                let mut aic = n * log_likelihood.ln() + T::two() * k;
-                if n / k < T::two() + T::two() && n > k + T::one() {
-                    // Apply AICc correction
-                    aic += T::two() * k * (k + T::one()) / (n - k - T::one());
-                }
-
-                aic
-            }
-            ScoringMethod::BIC => n * log_likelihood.ln() + k * n.ln(),
-        }
+/// ```math
+/// MAD = median( |y_i - y_fit_i| )
+/// where
+///   y_i = observed values, y_fit_i = predicted values
+/// ```
+/// </div>
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+///
+/// # Parameters
+/// - `y`: Iterator over the observed (actual) values.
+/// - `y_fit`: Iterator over the predicted values from a model.
+///
+/// # Returns
+/// The median squared deviation as a `T`.
+///
+/// # Example
+/// ```rust
+/// # use polyfit::statistics::median_squared_deviation;
+/// let y = vec![1.0, 2.0, 3.0];
+/// let y_fit = vec![1.1, 1.9, 3.05];
+/// let msd = median_squared_deviation(y.into_iter(), y_fit.into_iter());
+/// ```
+pub fn median_squared_deviation<T: Value>(
+    y: impl Iterator<Item = T>,
+    y_fit: impl Iterator<Item = T>,
+) -> T {
+    let mut residuals: Vec<T> = y
+        .zip(y_fit)
+        .map(|(yi, fi)| Value::powi(yi - fi, 2))
+        .collect();
+    if residuals.is_empty() {
+        return T::zero();
     }
+
+    let median_r = median(&residuals);
+    for r in &mut residuals {
+        *r = Value::powi(*r - median_r, 2);
+    }
+
+    median(&residuals)
 }
 
 /// In order to find the best fitting polynomial degree, we need to limit the maximum degree considered.
@@ -1555,77 +1610,5 @@ mod tests {
         let y_fit: Vec<f64> = vec![];
         let mse = mean_squared_error::<f64>(y.into_iter(), y_fit.into_iter());
         assert!(mse.is_nan());
-    }
-
-    #[test]
-    fn scoring_perfect_fit() {
-        let y = vec![1.0, 2.0, 3.0, 4.0];
-        let y_fit = y.clone();
-        let k = 2.0;
-        let aic = ScoringMethod::AIC.calculate::<f64>(
-            y.clone().into_iter(),
-            y_fit.clone().into_iter(),
-            k,
-        );
-        let bic = ScoringMethod::BIC.calculate::<f64>(y.into_iter(), y_fit.into_iter(), k);
-        assert!(aic.is_finite());
-        assert!(bic.is_finite());
-    }
-
-    #[test]
-    fn scoring_aicc_correction() {
-        let y = vec![1.0, 2.0, 3.0];
-        let y_fit = vec![1.8, 2.7, 3.6];
-        let k = 2.0; // n/k = 1.5 < 4 → triggers correction
-        let score = ScoringMethod::AIC.calculate::<f64>(y.into_iter(), y_fit.into_iter(), k);
-        assert!(score.is_finite());
-    }
-
-    #[test]
-    fn scoring_higher_error_higher_score() {
-        let y = vec![1.0, 2.0, 3.0];
-        let y_fit_good = vec![1.0, 2.0, 3.0];
-        let y_fit_bad = vec![0.0, 0.0, 0.0];
-        let k = 2.0;
-        let score_good =
-            ScoringMethod::BIC.calculate::<f64>(y.clone().into_iter(), y_fit_good.into_iter(), k);
-        let score_bad =
-            ScoringMethod::BIC.calculate::<f64>(y.into_iter(), y_fit_bad.into_iter(), k);
-        assert!(score_bad > score_good);
-    }
-    #[test]
-    fn scoring_empty_input_returns_nan() {
-        let y: Vec<f64> = vec![];
-        let y_fit: Vec<f64> = vec![];
-        let k = 2.0;
-        let aic = ScoringMethod::AIC.calculate::<f64>(
-            y.clone().into_iter(),
-            y_fit.clone().into_iter(),
-            k,
-        );
-        let bic = ScoringMethod::BIC.calculate::<f64>(y.into_iter(), y_fit.into_iter(), k);
-        assert!(aic.is_nan());
-        assert!(bic.is_nan());
-    }
-
-    #[test]
-    fn scoring_bic_stricter_than_aic() {
-        let y = vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0,
-            3.0, 4.0, 5.0,
-        ];
-        let y_fit = vec![
-            1.1, 2.1, 2.9, 4.0, 5.05, 1.1, 2.1, 2.9, 4.0, 5.05, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0,
-            3.0, 4.0, 5.0,
-        ];
-        let k = 3.0;
-        let aic = ScoringMethod::AIC.calculate::<f64>(
-            y.clone().into_iter(),
-            y_fit.clone().into_iter(),
-            k,
-        );
-        let bic = ScoringMethod::BIC.calculate::<f64>(y.into_iter(), y_fit.into_iter(), k);
-
-        assert!(bic >= aic);
     }
 }

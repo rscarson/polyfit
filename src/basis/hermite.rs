@@ -23,7 +23,7 @@ use crate::{
 /// - Reduces numerical instability in high-degree fits
 /// - Convenient for physics problems (quantum mechanics, oscillator basis, etc.)
 #[derive(Debug, Clone, Copy)]
-pub struct PhysicistsHermiteBasis<T: Value> {
+pub struct PhysicistsHermiteBasis<T: Value = f64> {
     _marker: std::marker::PhantomData<T>,
 }
 impl<T: Value> Default for PhysicistsHermiteBasis<T> {
@@ -118,7 +118,7 @@ impl<T: Value> IntoMonomialBasis<T> for PhysicistsHermiteBasis<T> {
 /// - Convenient for probabilistic modeling and cumulant expansions
 
 #[derive(Debug, Clone, Copy)]
-pub struct ProbabilistsHermiteBasis<T: Value> {
+pub struct ProbabilistsHermiteBasis<T: Value = f64> {
     _marker: std::marker::PhantomData<T>,
 }
 impl<T: Value> Default for ProbabilistsHermiteBasis<T> {
@@ -207,7 +207,13 @@ fn format_herm<T: Value>(degree: i32, coef: T) -> Option<Term> {
     let rank = display::unicode::subscript(&degree.to_string());
     let func = format!("He{rank}(x)");
 
-    let body = format!("{coef}{func}");
+    let glue = if coef.is_empty() || func.is_empty() {
+        ""
+    } else {
+        "·"
+    };
+
+    let body = format!("{coef}{glue}{func}");
     Some(Term { sign, body })
 }
 
@@ -217,9 +223,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        assert_close, assert_fits,
-        statistics::{DegreeBound, ScoringMethod},
-        PhysicistsHermiteFit, Polynomial, ProbabilistsHermiteFit,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound, PhysicistsHermiteFit,
+        Polynomial, ProbabilistsHermiteFit,
     };
 
     fn get_poly<B: Basis<f64> + PolynomialDisplay<f64> + Default>() -> Polynomial<'static, B> {
@@ -231,8 +236,7 @@ mod tests {
         // Polynomial recovery
         let poly = get_poly::<PhysicistsHermiteBasis<f64>>();
         let data = poly.solve_range(0.0..=100.0, 1.0);
-        let fit = PhysicistsHermiteFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC)
-            .unwrap();
+        let fit = PhysicistsHermiteFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit);
 
         // Monomial conversion
@@ -255,8 +259,7 @@ mod tests {
         // Polynomial recovery
         let poly = get_poly::<ProbabilistsHermiteBasis<f64>>();
         let data = poly.solve_range(0.0..=100.0, 1.0);
-        let fit = ProbabilistsHermiteFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC)
-            .unwrap();
+        let fit = ProbabilistsHermiteFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit);
 
         // Monomial conversion

@@ -1,6 +1,7 @@
 use polyfit::{
     error::Error,
-    statistics::{Confidence, DegreeBound, ScoringMethod, Tolerance},
+    score::Aic,
+    statistics::{Confidence, DegreeBound, Tolerance},
     ChebyshevFit,
 };
 
@@ -16,7 +17,7 @@ fn main() -> Result<(), Error> {
     let mut fit = ChebyshevFit::new_auto(
         &data,                // The data to fit to
         DegreeBound::Relaxed, // How picky we are about the degree of the polynomial (See [`statistics::DegreeBound`])
-        ScoringMethod::AIC,   // How to score the fits (See [`statistics::ScoringMethod`])
+        &Aic,                 // How to score the fits (See [`crate::score`])
     )?;
 
     //

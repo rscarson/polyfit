@@ -49,6 +49,12 @@ pub trait Value:
         Self::one() + Self::one()
     }
 
+    /// Returns the value 0.5
+    #[must_use]
+    fn half() -> Self {
+        Self::one() / Self::two()
+    }
+
     /// Tries to cast a value to the target type
     ///
     /// # Errors
@@ -110,6 +116,41 @@ pub trait Value:
             }
             result
         }
+    }
+
+    /// Computes the binomial coefficient "n choose k" for integer `n` and `k`.
+    #[must_use]
+    fn integer_binomial(n: usize, k: usize) -> Self {
+        if k > n {
+            return Self::zero();
+        }
+        let mut result = Self::one();
+        for i in 0..k {
+            let ni = Self::from_positive_int(n - i);
+            let ki = Self::from_positive_int(i + 1);
+            result *= ni / ki;
+        }
+        result
+    }
+
+    /// Computes the binomial coefficient "n choose k".
+    #[must_use]
+    fn binomial(n: Self, k: Self) -> Self {
+        if k < Self::zero() || k > n {
+            return Self::zero();
+        }
+        if k == Self::zero() || k == n {
+            return Self::one();
+        }
+        let k = nalgebra::RealField::min(k, n - k);
+        let mut result = Self::one();
+
+        for i in 0..k.as_usize().unwrap_or(0) {
+            let ni = n - Self::from_positive_int(i);
+            let ki = Self::from_positive_int(i + 1);
+            result *= ni / ki;
+        }
+        result
     }
 
     /// Converts a `usize` to the target numeric type.
@@ -209,6 +250,9 @@ pub trait CoordExt<T: Value> {
     /// Returns an iterator over the y-coordinates of this value.
     fn y_iter(&self) -> impl Iterator<Item = T>;
 
+    /// Returns the y-coordinates of this value, clipped to the specified range.
+    fn y_clipped(&self, range: &Range<T>) -> Vec<(T, T)>;
+
     /// Returns the x-coordinate of this value.
     fn x(&self) -> Vec<T> {
         self.x_iter().collect()
@@ -220,7 +264,7 @@ pub trait CoordExt<T: Value> {
     }
 
     /// Returns the range of x-coordinates of this value.
-    fn x_range(&self) -> Option<Range<T>> {
+    fn x_range(&self) -> Option<RangeInclusive<T>> {
         let x_min = self.x_iter().fold(None, |acc: Option<(T, T)>, x| {
             Some(match acc {
                 Some((min, max)) => (
@@ -230,11 +274,11 @@ pub trait CoordExt<T: Value> {
                 None => (x, x),
             })
         });
-        x_min.map(|(start, end)| start..end)
+        x_min.map(|(start, end)| start..=end)
     }
 
     /// Returns the range of y-coordinates of this value.
-    fn y_range(&self) -> Option<Range<T>> {
+    fn y_range(&self) -> Option<RangeInclusive<T>> {
         let y_min = self.y_iter().fold(None, |acc: Option<(T, T)>, y| {
             Some(match acc {
                 Some((min, max)) => (
@@ -244,7 +288,7 @@ pub trait CoordExt<T: Value> {
                 None => (y, y),
             })
         });
-        y_min.map(|(start, end)| start..end)
+        y_min.map(|(start, end)| start..=end)
     }
 
     /// Converts the coordinates of this value to `f64`.
@@ -270,6 +314,12 @@ impl<T: Value> CoordExt<T> for Vec<(T, T)> {
     fn y_iter(&self) -> impl Iterator<Item = T> {
         self.iter().map(|(_, y)| *y)
     }
+
+    fn y_clipped(&self, range: &Range<T>) -> Vec<(T, T)> {
+        self.iter()
+            .map(|(x, y)| (*x, nalgebra::RealField::clamp(*y, range.start, range.end)))
+            .collect()
+    }
 }
 impl<T: Value> CoordExt<T> for &[(T, T)] {
     fn x_iter(&self) -> impl Iterator<Item = T> {
@@ -278,6 +328,12 @@ impl<T: Value> CoordExt<T> for &[(T, T)] {
 
     fn y_iter(&self) -> impl Iterator<Item = T> {
         self.iter().map(|(_, y)| *y)
+    }
+
+    fn y_clipped(&self, range: &Range<T>) -> Vec<(T, T)> {
+        self.iter()
+            .map(|(x, y)| (*x, nalgebra::RealField::clamp(*y, range.start, range.end)))
+            .collect()
     }
 }
 

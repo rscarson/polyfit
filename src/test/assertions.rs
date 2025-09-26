@@ -16,29 +16,30 @@
 /// ![Failure Plot](https://github.com/rscarson/polyfit/blob/main/.github/assets/example_fail.png)
 ///
 /// ```rust
-/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_fits};
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, Tolerance}, score::Aic, function, transforms::ApplyNoise, assert_fits};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
 /// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
-/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
+/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
 /// assert_fits!(&test, &fit, 0.9);
 /// ```
 #[macro_export]
 macro_rules! assert_fits {
-    ($canonical:expr, $fit:expr, $r2:literal) => {{
+    ($canonical:expr, $fit:expr, $r2:expr) => {{
         let fit = &$fit;
         let poly = &$canonical;
         let threshold = $r2;
 
         let r2 = fit.r_squared_against(poly);
 
-        if r2 < threshold {
+        if r2 < threshold || !r2.is_finite() {
             // Create a failure plot
             #[cfg(feature = "plotting")]
             $crate::plot!(
                 fit,
                 functions = [poly],
-                title = &format!("Polynomial Fit (R² = {r2:.4})")
+                title = &format!("Polynomial Fit (R² = {r2:.4})"),
+                prefix = "assert_fits"
             );
 
             // And finally, assert to end the test
@@ -47,7 +48,12 @@ macro_rules! assert_fits {
     }};
 
     ($canonical:expr, $fit:expr) => {
-        $crate::assert_fits!($canonical, $fit, 0.9)
+        $crate::assert_fits!(
+            $canonical,
+            $fit,
+            $crate::value::Value::try_cast(0.9)
+                .expect("Failed to cast 0.9 for assert_fits! threshold")
+        )
     };
 }
 
@@ -74,16 +80,16 @@ macro_rules! assert_fits {
 ///
 /// # Example
 /// ```rust
-/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_r_squared};
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, Tolerance}, score::Aic, function, transforms::ApplyNoise, assert_r_squared};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
 /// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
 ///
-/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
+/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
 /// assert_r_squared!(fit, 0.95);
 /// ```
 #[macro_export]
 macro_rules! assert_r_squared {
-    ($fit:expr, $r2:literal) => {
+    ($fit:expr, $r2:expr) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
             let ref fit = $fit;
@@ -93,7 +99,11 @@ macro_rules! assert_r_squared {
             if r2 <= threshold {
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
-                $crate::plot!(fit, title = &format!("Polynomial Fit (R² = {r2:.4})"));
+                $crate::plot!(
+                    fit,
+                    title = &format!("Polynomial Fit (R² = {r2:.4})"),
+                    prefix = "assert_r_squared"
+                );
 
                 // And finally, assert to end the test
                 panic!("R² = {r2} is below {threshold}");
@@ -102,7 +112,11 @@ macro_rules! assert_r_squared {
     };
 
     ($fit:expr) => {
-        $crate::assert_r_squared!($fit, 0.9)
+        $crate::assert_r_squared!(
+            $fit,
+            $crate::value::Value::try_cast(0.9)
+                .expect("Failed to cast 0.9 for assert_r_squared! threshold")
+        )
     };
 }
 
@@ -128,11 +142,11 @@ macro_rules! assert_r_squared {
 ///
 /// # Example
 /// ```rust
-/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, ScoringMethod, Tolerance}, function, transforms::ApplyNoise, assert_residuals_normal};
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, Tolerance}, score::Aic, function, transforms::ApplyNoise, assert_residuals_normal};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
 /// let data = test.solve_range(0.0..=1000.0, 1.0);
 ///
-/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).expect("Failed to create model");
+/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
 ///
 /// // Uses default tolerance 0.1
 /// assert_residuals_normal!(fit);
@@ -142,7 +156,7 @@ macro_rules! assert_r_squared {
 /// ```
 #[macro_export]
 macro_rules! assert_residuals_normal {
-    ($fit:expr, $tolerance:literal $(, strict = $strict:expr)?) => {
+    ($fit:expr, $tolerance:expr $(, strict = $strict:expr)?) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
             use $crate::value::CoordExt;
@@ -164,7 +178,7 @@ macro_rules! assert_residuals_normal {
             if p_value < tolerance {
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
-                $crate::plot!(residuals, title = &format!("Residuals not normally distributed"));
+                $crate::plot!(residuals, title = &format!("Residuals not normally distributed"), prefix = "assert_residuals_normal");
 
                 let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals_y);
                 panic!(
@@ -175,7 +189,10 @@ macro_rules! assert_residuals_normal {
     };
 
     ($fit:expr $(, strict = $strict:expr)?) => {
-        $crate::assert_residuals_normal!($fit, 0.1 $(, strict = $strict)?)
+        $crate::assert_residuals_normal!(
+            $fit,
+            $crate::value::Value::try_cast(0.1).expect("Failed to cast 0.1 for threshold in assert_residuals_normal!")
+            $(, strict = $strict)?)
     };
 }
 
@@ -213,7 +230,11 @@ macro_rules! assert_residual_spread {
             if spread > tolerance {
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
-                $crate::plot!(fit, title = &format!("Abnormal Residuals"));
+                $crate::plot!(
+                    fit,
+                    title = &format!("Abnormal Residuals"),
+                    prefix = "assert_residual_spread"
+                );
 
                 panic!("Residual spread too large - spread={spread:.4}, tol={tolerance}");
             }
@@ -250,7 +271,11 @@ macro_rules! assert_monotone {
                 .expect("Failed to check monotonicity");
             if let Some(first) = violations.first() {
                 #[cfg(feature = "plotting")]
-                $crate::plot!(fit, title = &format!("Monotonicity Violation at x={first}"));
+                $crate::plot!(
+                    fit,
+                    title = &format!("Monotonicity Violation at x={first}"),
+                    prefix = "assert_monotone"
+                );
 
                 panic!("Fit is not monotonic - derivative changes sign at x={first}");
             }
@@ -376,7 +401,8 @@ macro_rules! assert_all_close {
 mod tests {
     use crate::{
         function,
-        statistics::{DegreeBound, ScoringMethod, Tolerance},
+        score::Aic,
+        statistics::{DegreeBound, Tolerance},
         transforms::ApplyNoise,
         MonomialFit,
     };
@@ -406,7 +432,7 @@ mod tests {
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
-        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit, 0.99);
     }
 
@@ -416,7 +442,7 @@ mod tests {
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
-        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_r_squared!(&fit, 0.98);
     }
 
@@ -426,7 +452,7 @@ mod tests {
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
-        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_residuals_normal!(&fit, 0.01);
     }
 
@@ -436,7 +462,7 @@ mod tests {
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Tolerance::Absolute(0.01), None);
-        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_residual_spread!(&fit, 80000.0);
     }
 
@@ -444,7 +470,7 @@ mod tests {
     fn test_assert_monotone_macro() {
         function!(mono(x) = 1.0 + 2.0 x^1); // strictly increasing
         let data = mono.solve_range(0.0..=1000.0, 1.0);
-        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_monotone!(&fit);
     }
 }

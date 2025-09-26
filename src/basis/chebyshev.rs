@@ -62,6 +62,34 @@ impl<T: Value> ChebyshevBasis<T> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
     }
+
+    /// Returns the Chebyshev nodes for Gauss-Chebyshev quadrature.
+    ///
+    /// The Chebyshev series is orthogonal against these nodes
+    #[must_use]
+    pub fn gauss_chebyshev_nodes(n: usize) -> Vec<T> {
+        let mut xs = Vec::with_capacity(n);
+        for k in 1..=n {
+            let x = ((T::two() * T::from_positive_int(k) - T::one()) * T::pi()
+                / (T::two() * T::from_positive_int(n)))
+            .cos();
+            xs.push(x);
+        }
+        xs
+    }
+
+    /// Returns the weights for Gauss-Chebyshev quadrature.
+    ///
+    /// Each weight is π/n
+    #[must_use]
+    pub fn gauss_chebyshev_weights(n: usize) -> Vec<T> {
+        vec![T::pi() / T::from_positive_int(n); n]
+    }
+
+    /// Denormalizes an x-value from the normalized Chebyshev domain back to the original input domain.
+    pub fn denormalize_x(&self, x: T) -> T {
+        self.normalizer.denormalize(x)
+    }
 }
 impl<T: Value> Basis<T> for ChebyshevBasis<T> {
     fn from_data(data: &[(T, T)]) -> Self {
@@ -178,7 +206,13 @@ impl<T: Value> display::PolynomialDisplay<T> for ChebyshevBasis<T> {
         };
         let coef = display::format_coefficient(coef, degree, DEFAULT_PRECISION)?;
 
-        let body = format!("{coef}{func}");
+        let glue = if coef.is_empty() || func.is_empty() {
+            ""
+        } else {
+            "·"
+        };
+
+        let body = format!("{coef}{glue}{func}");
         Some(display::Term::new(sign, body))
     }
 
@@ -197,7 +231,8 @@ mod tests {
 
     use crate::{
         assert_fits, function,
-        statistics::{DegreeBound, ScoringMethod, Tolerance},
+        score::Aic,
+        statistics::{DegreeBound, Tolerance},
         test_basis_build, test_basis_functions, test_basis_normalizes, test_basis_orthogonal,
         transforms::ApplyNoise,
         ChebyshevFit,
@@ -211,11 +246,12 @@ mod tests {
         let data = test
             .solve_range(0.0..=1000.0, 10.0)
             .apply_normal_noise(Tolerance::Relative(0.1), None);
-        let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         let basis = fit.basis().clone();
 
         // Orthogonality test points
-        let (gauss_xs, gauss_ws) = gauss_chebyshev_nodes_weights(100);
+        let gauss_xs = ChebyshevBasis::gauss_chebyshev_nodes(100);
+        let gauss_ws = ChebyshevBasis::gauss_chebyshev_weights(100);
         test_basis_orthogonal!(
             basis,
             norm_fn = norm_fn,
@@ -263,19 +299,5 @@ mod tests {
         } else {
             PI / 2.0
         }
-    }
-
-    fn gauss_chebyshev_nodes_weights(n: usize) -> (Vec<f64>, Vec<f64>) {
-        assert!(n > 0);
-        let mut xs = Vec::with_capacity(n);
-        let mut ws = Vec::with_capacity(n);
-
-        for k in 1..=n {
-            let x = ((2 * k - 1) as f64 * std::f64::consts::PI / (2.0 * n as f64)).cos();
-            xs.push(x);
-            ws.push(std::f64::consts::PI / n as f64);
-        }
-
-        (xs, ws)
     }
 }

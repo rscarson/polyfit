@@ -32,7 +32,7 @@ use crate::{
 /// - Minimizes coefficient correlation, improving numerical stability.
 /// - Provides exact integral properties for weighted projections.
 #[derive(Debug, Clone, Copy)]
-pub struct LegendreBasis<T: Value> {
+pub struct LegendreBasis<T: Value = f64> {
     /// Normalizer to map input domain to [-1, 1]
     pub normalizer: DomainNormalizer<T>,
 }
@@ -112,7 +112,7 @@ impl<T: Value> Basis<T> for LegendreBasis<T> {
         mut row: MatrixViewMut<T, R, C, RS, CS>,
     ) {
         for j in start_index..row.ncols() {
-            row[start_index + j] = self.solve_function(j, x);
+            row[j] = self.solve_function(j, x);
         }
     }
 }
@@ -132,7 +132,13 @@ impl<T: Value> PolynomialDisplay<T> for LegendreBasis<T> {
         };
         let coef = format_coefficient(coef, degree, DEFAULT_PRECISION)?;
 
-        let body = format!("{coef}{func}");
+        let glue = if coef.is_empty() || func.is_empty() {
+            ""
+        } else {
+            "·"
+        };
+
+        let body = format!("{coef}{glue}{func}");
         Some(display::Term::new(sign, body))
     }
 
@@ -175,9 +181,8 @@ impl<T: Value> IntoMonomialBasis<T> for LegendreBasis<T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits,
-        statistics::{DegreeBound, ScoringMethod},
-        test_basis_orthogonal, LegendreFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound, test_basis_orthogonal,
+        LegendreFit, Polynomial,
     };
 
     use super::*;
@@ -192,7 +197,7 @@ mod tests {
         // Recover the polynomial
         let poly = get_poly();
         let data = poly.solve_range(0.0..=100.0, 1.0);
-        let fit = LegendreFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = LegendreFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit);
 
         // Orthogonality test points

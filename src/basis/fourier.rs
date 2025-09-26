@@ -140,39 +140,16 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
         x: T,
         mut row: MatrixViewMut<'_, T, R, C, RS, CS>,
     ) {
-        row[start_index] = T::one(); // constant term
-        if row.ncols() <= start_index + 1 {
-            return;
-        }
-
         let cos_x = x.cos();
-        let sin_x = x.sin();
-
-        row[start_index + 1] = sin_x; // first sin
-        if row.ncols() <= start_index + 2 {
-            return;
-        }
-
-        row[start_index + 2] = cos_x; // first cost
-
-        // then angle-doubling recurrence
-        let mut sin_prev2 = T::zero(); // sin(0x)
-        let mut sin_prev = row[start_index + 1];
-        let mut cos_prev2 = T::one(); // cos(0x)
-        let mut cos_prev = row[start_index + 2];
-
-        let mut idx = start_index + 3;
-        while idx + 1 < row.ncols() {
-            let cos_nx = T::two() * cos_x * cos_prev - cos_prev2;
-            let sin_nx = T::two() * cos_x * sin_prev - sin_prev2;
-
-            row[idx] = sin_nx;
-            row[idx + 1] = cos_nx;
-
-            (cos_prev2, cos_prev) = (cos_prev, cos_nx);
-            (sin_prev2, sin_prev) = (sin_prev, sin_nx);
-
-            idx += 2;
+        for j in start_index..row.ncols() {
+            row[j] = match j {
+                0 => T::one(),
+                1 => x.sin(), // first sin
+                2 => cos_x,   // first cos
+                3 => T::two() * cos_x * row[1],
+                4 => T::two() * cos_x * row[2] - T::one(),
+                _ => T::two() * cos_x * row[j - 2] - row[j - 4],
+            }
         }
     }
 }
@@ -196,7 +173,13 @@ impl<T: Value> display::PolynomialDisplay<T> for FourierBasis<T> {
         let x = display::unicode::subscript("s");
         let x = format!("x{x}");
 
-        let body = format!("{coef}{function}({n}{x})");
+        let glue = if coef.is_empty() || function.is_empty() {
+            ""
+        } else {
+            "·"
+        };
+
+        let body = format!("{coef}{glue}{function}({n}{x})");
         Some(Term { sign, body })
     }
 
@@ -232,8 +215,6 @@ impl<T: Value> IntegralBasis<T> for FourierBasis<T> {
         let mut coef_iter = fourier_terms.iter();
         while let Some(a) = coef_iter.next().copied() {
             let b = coef_iter.next().copied().unwrap_or(T::zero());
-
-            println!("INT a={a}, b={b}, n={n}");
 
             // Fourier expects pairs of (sin, cos), so originally we had (a, b)
             // Now under integration we need (b, -a) to get the right functions
@@ -273,8 +254,6 @@ impl<T: Value> DifferentialBasis<T> for FourierBasis<T> {
         let mut coef_iter = fourier_terms.iter();
         while let Some(a) = coef_iter.next().copied() {
             let b = coef_iter.next().copied().unwrap_or(T::zero());
-
-            println!("DX a={a}, b={b}, n={n}");
 
             // Fourier expects pairs of (sin, cos), so originally we had (a, b)
             // Now under differentiation we need (b, -a) to get the right functions
@@ -393,9 +372,7 @@ fn poly_mul<T: Value>(p1: &[T], p2: &[T]) -> Vec<T> {
 mod tests {
     use super::*;
     use crate::{
-        assert_close, assert_fits,
-        statistics::{DegreeBound, ScoringMethod},
-        FourierFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound, FourierFit, Polynomial,
     };
 
     fn get_poly() -> Polynomial<'static, FourierBasis<f64>> {
@@ -409,7 +386,7 @@ mod tests {
         // Recover polynomial
         let poly = get_poly();
         let data = poly.solve_range(0.0..=100.0, 1.0);
-        let fit = FourierFit::new_auto(&data, DegreeBound::Relaxed, ScoringMethod::AIC).unwrap();
+        let fit = FourierFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit);
 
         // Solve known values
@@ -423,7 +400,6 @@ mod tests {
         let org_coefs = fit.coefficients();
         let (bi, int_coefs) = fit.basis().integral(org_coefs, 0.0).unwrap();
         let (_, diff_coefs) = bi.derivative(&int_coefs).unwrap();
-        println!("fit:      {:?}", fit.coefficients());
         assert_close!(org_coefs[0], diff_coefs[0]); // constant term
         for (a, b) in org_coefs.iter().skip(1).zip(diff_coefs.iter().skip(1)) {
             assert_close!(*a, -*b); // Phase-shifted Fourier terms (negated)

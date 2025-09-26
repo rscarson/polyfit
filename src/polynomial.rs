@@ -539,6 +539,42 @@ where
         Ok(MonomialPolynomial::owned(coefficients))
     }
 
+    /// Projects this polynomial onto another basis over a specified x-range.
+    ///
+    /// This is useful for converting between different polynomial representations.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// Gets `15 * k` evenly spaced sample points over the specified range, where `k` is the number of coefficients in the current polynomial.
+    /// - 15 observations per degree of freedom - [`crate::statistics::DegreeBound::Conservative`]
+    ///
+    /// Fits a new polynomial in the target basis to these points using least-squares fitting.
+    /// </div>
+    ///
+    /// # Type Parameters
+    /// - `B2`: The target basis type to project onto.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which to perform the projection.
+    ///
+    /// # Returns
+    /// - `Ok(Polynomial<'static, B2, T>)`: The projected polynomial in the new basis.
+    ///
+    /// # Errors
+    /// Returns an error if the projection fails, such as if the fitting process encounters issues.
+    pub fn project<B2: Basis<T> + PolynomialDisplay<T>>(
+        &self,
+        x_range: RangeInclusive<T>,
+    ) -> Result<Polynomial<'static, B2, T>> {
+        let samples = self.coefficients.len() * 15; // 15 observations per degree of freedom - [`crate::statistics::DegreeBound::Conservative`]
+        let step = (*x_range.end() - *x_range.start()) / T::try_cast(samples)?;
+        let points = self.solve_range(x_range, step);
+        let fit = crate::CurveFit::<B2, T>::new(&points, self.degree())?;
+        Ok(fit.into_polynomial())
+    }
+
     /// Returns a human-readable string of the polynomial equation.
     ///
     /// The output shows the polynomial in standard mathematical notation, for example:

@@ -50,6 +50,9 @@ pub use hermite::ProbabilistsHermiteBasis;
 mod laguerre;
 pub use laguerre::LaguerreBasis;
 
+mod logarithmic;
+pub use logarithmic::LogarithmicBasis;
+
 /// A trait representing a polynomial basis.
 ///
 /// Assumes a Vandermonde structure for the basis functions.
