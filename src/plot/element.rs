@@ -164,7 +164,34 @@ pub trait AsPlottingElement<T: Value> {
     ) -> PlottingElement<T>;
 }
 
-impl<B, T> AsPlottingElement<T> for CurveFit<B, T>
+impl<T> AsPlottingElement<T> for PlottingElement<T>
+where
+    T: Value,
+{
+    fn as_plotting_element(
+        &self,
+        _: &[T],
+        _: Confidence,
+        _: Option<Tolerance<T>>,
+    ) -> PlottingElement<T> {
+        self.clone()
+    }
+}
+impl<T> AsPlottingElement<T> for &PlottingElement<T>
+where
+    T: Value,
+{
+    fn as_plotting_element(
+        &self,
+        _: &[T],
+        _: Confidence,
+        _: Option<Tolerance<T>>,
+    ) -> PlottingElement<T> {
+        (*self).clone()
+    }
+}
+
+impl<B, T> AsPlottingElement<T> for CurveFit<'_, B, T>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,

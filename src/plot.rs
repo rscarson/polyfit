@@ -83,7 +83,7 @@ macro_rules! plot {
         let mut svg_buffer = String::new();
         let prime = $function.as_plotting_element(&xs, confidence, noise_tolerance);
         let prime_xs = prime.x_values();
-        let mut builder = $crate::plot::PlotBuilder::<$crate::plot::PlottersBackend<_>, _>::from_element(&mut svg_buffer, size, prime).expect("Failed to create plot builder");
+        #[allow(unused)] let mut builder = $crate::plot::PlotBuilder::<$crate::plot::PlottersBackend<_>, _>::from_element(&mut svg_buffer, size, prime).expect("Failed to create plot builder");
 
         #[allow(unused)]
         if xs.is_empty() {

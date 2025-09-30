@@ -238,10 +238,12 @@ macro_rules! basis_select {
 
     ($data:expr, $degree_bound:expr, $method:expr, options = [ $( $basis:path $( = $name:literal)? ),+ $(,)? ]) => {{
         use $crate::value::CoordExt;
+        use $crate::plot::AsPlottingElement;
+
         struct FitProps {
             model_score: f64,
             rating: f64,
-            plot_fn: Box<dyn Fn()>,
+            plot_e: $crate::plot::PlottingElement<f64>,
             name: &'static str,
             r2: f64,
             robust_r2: f64,
@@ -282,19 +284,13 @@ macro_rules! basis_select {
                 let normalizer = $crate::statistics::DomainNormalizer::new((0.5, 1.0), (0.0, 5.0));
                 let stars = normalizer.normalize(rating).clamp(0.0, 5.0);
 
-                #[allow(unused_mut, unused_assignments)] let mut plot_fn: Box<dyn Fn()> = Box::new(|| ());
-
                 #[cfg(feature = "plotting")]
-                {
-                    let prefix = name.to_lowercase().replace([' ', '\'', '"', '<', '>', ':', ';', ',', '.'], "_");
-
-                    plot_fn = Box::new(move || $crate::plot!(fit, title = name, prefix = prefix));
-                }
+                let plot_e = fit.as_plotting_element(&[], $crate::statistics::Confidence::P95, None);
 
                 options.push(FitProps {
                     model_score,
                     rating,
-                    plot_fn,
+                    plot_e,
                     name,
                     r2,
                     robust_r2,
@@ -377,7 +373,10 @@ macro_rules! basis_select {
             println!("Fit R²: {:.4}, Residuals Normality p-value: {:.4}", props.r2, props.p_value);
 
             #[cfg(feature = "plotting")]
-            (props.plot_fn)();
+            {
+                let prefix = props.name.to_lowercase().replace([' ', '\'', '"', '<', '>', ':', ';', ',', '.'], "_");
+                $crate::plot!(props.plot_e, title = props.name, prefix = prefix);
+            }
         }
     }};
 }

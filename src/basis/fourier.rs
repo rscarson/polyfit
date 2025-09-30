@@ -67,23 +67,25 @@ impl<T: Value> FourierBasis<T> {
     }
 }
 impl<T: Value> Basis<T> for FourierBasis<T> {
-    fn from_data(data: &[(T, T)]) -> Self {
-        let normalizer =
-            DomainNormalizer::from_data(data.iter().map(|(x, _)| *x), (T::zero(), T::two_pi()));
+    fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self {
+        let normalizer = DomainNormalizer::from_range(x_range, (T::zero(), T::two_pi()));
         Self {
             normalizer,
             polynomial_terms: 1,
         }
     }
 
+    #[inline(always)]
     fn normalize_x(&self, x: T) -> T {
         self.normalizer.normalize(x)
     }
 
+    #[inline(always)]
     fn k(&self, degree: usize) -> usize {
         2 * degree + 1
     }
 
+    #[inline(always)]
     fn degree(&self, k: usize) -> Option<usize> {
         if k % 2 == 0 {
             None
@@ -92,6 +94,7 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
         }
     }
 
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         // Because we support calculus, there can be a polynomial series at the start
         // The first [0..polynomial_terms] are monomial terms
@@ -134,21 +137,21 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
     //
     // invariant: polynomial_terms == 1 here
     // We only kerfuffle that in calculus methods
+    #[inline(always)]
     fn fill_matrix_row<R: nalgebra::Dim, C: nalgebra::Dim, RS: nalgebra::Dim, CS: nalgebra::Dim>(
         &self,
         start_index: usize,
         x: T,
         mut row: MatrixViewMut<'_, T, R, C, RS, CS>,
     ) {
-        let cos_x = x.cos();
         for j in start_index..row.ncols() {
             row[j] = match j {
                 0 => T::one(),
                 1 => x.sin(), // first sin
-                2 => cos_x,   // first cos
-                3 => T::two() * cos_x * row[1],
-                4 => T::two() * cos_x * row[2] - T::one(),
-                _ => T::two() * cos_x * row[j - 2] - row[j - 4],
+                2 => x.cos(), // first cos
+                3 => T::two() * x.cos() * row[1],
+                4 => T::two() * x.cos() * row[2] - T::one(),
+                _ => T::two() * x.cos() * row[j - 2] - row[j - 4],
             }
         }
     }

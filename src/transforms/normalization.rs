@@ -116,7 +116,8 @@ impl<T: Value> Transform<T> for NormalizationTransform<T> {
         match self {
             Self::Domain { min, max } => {
                 let normalizer =
-                    DomainNormalizer::from_data(data.iter().map(|d| **d), (*min, *max));
+                    DomainNormalizer::from_data(data.iter().map(|d| **d), (*min, *max))
+                        .unwrap_or_default();
                 for value in data {
                     *value = normalizer.normalize(*value);
                 }

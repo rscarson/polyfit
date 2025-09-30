@@ -304,10 +304,7 @@ impl<'root, T: Value> PlotBackend<T> for PlottersBackend<'root, T> {
         let series: Vec<_> = data
             .iter()
             .map(|(x, band)| {
-                let x = x
-                    .to_f64()
-                    .ok_or(PlottingError::Cast)?
-                    .clamp(self.y_range.start, self.y_range.end);
+                let x = x.to_f64().ok_or(PlottingError::Cast)?;
                 let min = band
                     .min()
                     .to_f64()
@@ -362,8 +359,16 @@ pub fn svg2png(svg: &str, path: impl AsRef<Path>) -> std::io::Result<()> {
     let mut opt = usvg::Options::default();
     opt.fontdb_mut().load_system_fonts();
 
+    let now = std::time::SystemTime::now();
+    eprintln!("Parsing SVG..., len={}", svg.len());
     let rtree = usvg::Tree::from_str(svg, &opt).map_err(std::io::Error::other)?;
     let pixmap_size = rtree.size().to_int_size();
+    eprintln!(
+        "Parsing SVG ({}x{}) took {:?}",
+        pixmap_size.width(),
+        pixmap_size.height(),
+        now.elapsed().unwrap()
+    );
 
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
         .ok_or(std::io::Error::other("Failed to create pixmap"))?;

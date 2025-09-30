@@ -11,7 +11,7 @@
 use crate::{statistics, value::Value};
 
 /// Trait for implementing scoring methods for model selection.
-pub trait ModelScoreProvider {
+pub trait ModelScoreProvider: Send + Sync {
     /// Calculate the model's score using this scoring method.
     ///
     /// # Notes

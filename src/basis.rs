@@ -69,11 +69,11 @@ pub use logarithmic::LogarithmicBasis;
 ///
 /// # Type Parameters
 /// - `T`: The numeric type used for coefficients and evaluation (e.g., `f64`).
-pub trait Basis<T: Value>: Sized + Clone + Debug {
+pub trait Basis<T: Value>: Sized + Clone + Debug + Send + Sync {
     /// Create a new basis from the given data
     ///
     /// Initializes any needed metadata for normalization
-    fn from_data(data: &[(T, T)]) -> Self;
+    fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self;
 
     /// Returns the number of basis functions needed for a polynomial of a given degree.
     ///
@@ -90,6 +90,7 @@ pub trait Basis<T: Value>: Sized + Clone + Debug {
     ///
     /// # Returns
     /// The number of basis functions required to represent a polynomial of the given degree.
+    #[inline(always)]
     fn k(&self, degree: usize) -> usize {
         degree + 1
     }
@@ -104,6 +105,7 @@ pub trait Basis<T: Value>: Sized + Clone + Debug {
     /// # Returns
     /// - `Some(degree)`: The polynomial degree if `k` is valid.
     /// - `None`: If `k` does not correspond to a valid degree.
+    #[inline(always)]
     fn degree(&self, k: usize) -> Option<usize> {
         if k > 0 {
             Some(k - 1)
@@ -134,6 +136,7 @@ pub trait Basis<T: Value>: Sized + Clone + Debug {
     /// Normalizes the input value `x` for this basis.
     ///
     /// This is a no-op for the monomial basis.
+    #[inline(always)]
     fn normalize_x(&self, x: T) -> T {
         x
     }

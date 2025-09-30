@@ -70,16 +70,17 @@ impl<T: Value> LegendreBasis<T> {
 }
 
 impl<T: Value> Basis<T> for LegendreBasis<T> {
-    fn from_data(data: &[(T, T)]) -> Self {
-        let normalizer =
-            DomainNormalizer::from_data(data.iter().map(|(x, _)| *x), (-T::one(), T::one()));
+    fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self {
+        let normalizer = DomainNormalizer::from_range(x_range, (-T::one(), T::one()));
         Self { normalizer }
     }
 
+    #[inline(always)]
     fn normalize_x(&self, x: T) -> T {
         self.normalizer.normalize(x)
     }
 
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             0 => T::one(),
@@ -105,6 +106,7 @@ impl<T: Value> Basis<T> for LegendreBasis<T> {
         }
     }
 
+    #[inline(always)]
     fn fill_matrix_row<R: nalgebra::Dim, C: nalgebra::Dim, RS: nalgebra::Dim, CS: nalgebra::Dim>(
         &self,
         start_index: usize,

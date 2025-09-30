@@ -60,6 +60,8 @@
 //! let score = Aic.score(y.into_iter(), y_fit.into_iter(), 3.0);
 //! println!("AIC score = {score}");
 //! ```
+use std::ops::RangeInclusive;
+
 use crate::value::{IntClampedCast, Value};
 
 /// Computes the residual variance of a model's predictions.
@@ -1239,29 +1241,95 @@ impl<T: Value> std::fmt::Display for ConfidenceBand<T> {
 pub struct DomainNormalizer<T: Value> {
     src_range: (T, T),
     dst_range: (T, T),
+    shift: T,
+    scale: T,
+}
+impl<T: Value> Default for DomainNormalizer<T> {
+    fn default() -> Self {
+        DomainNormalizer {
+            src_range: (T::zero(), T::one()),
+            dst_range: (T::zero(), T::one()),
+            shift: T::zero(),
+            scale: T::one(),
+        }
+    }
 }
 impl<T: Value> DomainNormalizer<T> {
     /// Creates a new `DomainNormalizer` for the given source and destination ranges.
     pub fn new(src_range: (T, T), dst_range: (T, T)) -> Self {
-        Self {
+        let (src_min, src_max) = src_range;
+        let (dst_min, dst_max) = dst_range;
+
+        if dst_min == T::neg_infinity() && dst_max == T::infinity() {
+            return DomainNormalizer {
+                src_range,
+                dst_range,
+                shift: T::zero(),
+                scale: T::one(),
+            };
+        }
+
+        if dst_min == T::neg_infinity() {
+            // We have a maximum only
+            // Adjust x by - src_max, then add dst_max
+            return DomainNormalizer {
+                src_range,
+                dst_range,
+                shift: -src_max + dst_max,
+                scale: T::one(),
+            };
+        }
+
+        if dst_max == T::infinity() {
+            // We have a minimum only
+            // Adjust x by - src_min, then add dst_min
+            return DomainNormalizer {
+                src_range,
+                dst_range,
+                shift: -src_min + dst_min,
+                scale: T::one(),
+            };
+        }
+
+        let scale = (dst_max - dst_min) / (src_max - src_min);
+        let shift = dst_min - scale * src_min;
+
+        DomainNormalizer {
             src_range,
             dst_range,
+            shift,
+            scale,
         }
     }
 
-    /// Creates a new `DomainNormalizer` from the range of the given data and a destination range.
-    pub fn from_data(data: impl Iterator<Item = T>, dst_range: (T, T)) -> Self {
-        let (min, max) = data.fold((T::infinity(), T::neg_infinity()), |(lo, hi), v| {
-            (
-                nalgebra::RealField::min(lo, v),
-                nalgebra::RealField::max(hi, v),
-            )
-        });
+    /// Creates a new `DomainNormalizer` from an inclusive source range and a destination range.
+    pub fn from_range(src_range: RangeInclusive<T>, dst_range: (T, T)) -> Self {
+        let (min, max) = src_range.into_inner();
+        Self::new((min, max), dst_range)
+    }
 
-        Self {
-            src_range: (min, max),
-            dst_range,
-        }
+    /// Creates a new `DomainNormalizer` from an iterator of source values and a destination range.
+    pub fn from_data(src: impl Iterator<Item = T>, dst_range: (T, T)) -> Option<Self> {
+        let range = src.fold(None, |acc: Option<(T, T)>, x| {
+            Some(match acc {
+                None => (x, x),
+                Some((min, max)) => (
+                    nalgebra::RealField::min(min, x),
+                    nalgebra::RealField::max(max, x),
+                ),
+            })
+        })?;
+        Some(Self::new(range, dst_range))
+    }
+
+    /// Shift value applied during normalization.
+    pub fn shift(&self) -> T {
+        self.shift
+    }
+
+    /// Scale value applied during normalization.
+    pub fn scale(&self) -> T {
+        self.scale
     }
 
     /// Returns the source range of the normalizer.
@@ -1275,53 +1343,14 @@ impl<T: Value> DomainNormalizer<T> {
     }
 
     /// Normalizes a value from the source range to the destination range.
+    #[inline(always)]
     pub fn normalize(&self, x: T) -> T {
-        let (src_min, src_max) = self.src_range;
-        let (dst_min, dst_max) = self.dst_range;
-
-        if dst_min == T::neg_infinity() && dst_max == T::infinity() {
-            return x;
-        }
-
-        if dst_min == T::neg_infinity() {
-            // We have a maximum only
-            // Adjust x by - src_max, then add dst_max
-            return x - src_max + dst_max;
-        }
-
-        if dst_max == T::infinity() {
-            // We have a minimum only
-            // Adjust x by - src_min, then add dst_min
-            return x - src_min + dst_min;
-        }
-
-        let value = dst_min + (x - src_min) * (dst_max - dst_min) / (src_max - src_min);
-        nalgebra::RealField::clamp(value, dst_min, dst_max)
+        self.scale * x + self.shift
     }
 
     /// Denormalizes a value from the destination range back to the source range.
     pub fn denormalize(&self, x: T) -> T {
-        let (src_min, src_max) = self.src_range;
-        let (dst_min, dst_max) = self.dst_range;
-
-        if dst_min == T::neg_infinity() && dst_max == T::infinity() {
-            return x;
-        }
-
-        if dst_min == T::neg_infinity() {
-            // We have a maximum only
-            // Adjust x by - dst_max, then add src_max
-            return x - dst_max + src_max;
-        }
-
-        if dst_max == T::infinity() {
-            // We have a minimum only
-            // Adjust x by - dst_min, then add src_min
-            return x - dst_min + src_min;
-        }
-
-        let value = src_min + (x - dst_min) * (src_max - src_min) / (dst_max - dst_min);
-        nalgebra::RealField::clamp(value, src_min, src_max)
+        (x - self.shift) / self.scale
     }
 
     /// Denormalizes a slice of polynomial coefficients from the destination range back to the source range.

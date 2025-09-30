@@ -34,12 +34,34 @@ impl<T: Value> MonomialBasis<T> {
     pub const fn default() -> Self {
         Self(std::marker::PhantomData)
     }
+
+    /// Creates a new Monomial polynomial with the given coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `coefficients`: The coefficients for the Monomial basis functions.
+    ///
+    /// # Returns
+    /// A polynomial defined in the Monomial basis.
+    ///
+    /// # Errors
+    /// Returns an error if the polynomial cannot be created with the given basis and coefficients.
+    ///
+    /// # Example
+    /// ```rust
+    /// use polyfit::basis::MonomialBasis;
+    /// let monomial_poly = MonomialBasis::new_polynomial(&[1.0, 0.0, -0.5]).unwrap();
+    /// ```
+    pub fn new_polynomial(coefficients: &[T]) -> Result<crate::Polynomial<'_, Self, T>> {
+        let basis = Self::default();
+        crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
 }
 impl<T: Value> Basis<T> for MonomialBasis<T> {
-    fn from_data(_: &[(T, T)]) -> Self {
+    fn from_range(_x_range: std::ops::RangeInclusive<T>) -> Self {
         Self::default()
     }
 
+    #[inline(always)]
     fn fill_matrix_row<R: nalgebra::Dim, C: nalgebra::Dim, RS: nalgebra::Dim, CS: nalgebra::Dim>(
         &self,
         start_index: usize,
@@ -55,6 +77,7 @@ impl<T: Value> Basis<T> for MonomialBasis<T> {
         }
     }
 
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         Value::powi(x, j.clamped_cast())
     }

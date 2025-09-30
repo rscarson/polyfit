@@ -336,6 +336,21 @@ impl<T: Value> CoordExt<T> for &[(T, T)] {
             .collect()
     }
 }
+impl<T: Value> CoordExt<T> for std::borrow::Cow<'_, [(T, T)]> {
+    fn x_iter(&self) -> impl Iterator<Item = T> {
+        self.iter().map(|(x, _)| *x)
+    }
+
+    fn y_iter(&self) -> impl Iterator<Item = T> {
+        self.iter().map(|(_, y)| *y)
+    }
+
+    fn y_clipped(&self, range: &Range<T>) -> Vec<(T, T)> {
+        self.iter()
+            .map(|(x, y)| (*x, nalgebra::RealField::clamp(*y, range.start, range.end)))
+            .collect()
+    }
+}
 
 /// Trait for infallible integer casting with clamping.
 pub trait IntClampedCast:

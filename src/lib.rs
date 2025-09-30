@@ -139,17 +139,21 @@
 //! The crate is designed to be fast and efficient, and includes benchmarks to help test that performance is linear with respect to
 //! the number of data points and polynomial degree.
 //!
-//! A 3rd degree fit (1,000 points, Chebyshev basis) takes about 28µs in my benchmarks. Going up to 100,000 goes to about 6ms,
+//! A 3rd degree fit (1,000 points, Chebyshev basis) takes about 23µs in my benchmarks. Going up to 100,000 goes to about 4ms,
 //! which is roughly 100x the time for 1,000 points, as expected.
 //!
-//! The same linear scaling can be seen with polynomial degree (1,000 points, Chebyshev basis); 15µs for degree 1, up to 47µs for degree 5.
+//! With parallelization turned on, a 100 million point fit for a 3rd degree Chebyshev took about 1.18s on my machine (8 cores @ 2.2GHz, 32GB RAM).
+//!
+//! The same linear scaling can be seen with polynomial degree (1,000 points, Chebyshev basis); 11µs for degree 1, up to 44µs for degree 5.
+//!
+//! Auto-fit is also reasonably fast; 1,000 points, Chebyshev basis, and 9 candidate degrees takes about 330µs, or 600µs with parallelization disabled.
 //!
 //! There are also performance differences between bases;
-//! 1 - Chebyshev and Laguerre are the fastest, due to the stability of the matrix and the recurrence I use (~30µs for degree 3, 1,000 points)
-//! 2 - Hermite is slightly slower (~37µs for degree 3, 1,000 points)
-//! 3 - Monomials perform worse than more stable bases (~45µs for degree 3, 1,000 points)
-//! 4 - Fourier is slower still, due to the trigonometric calculations (~60µs for degree 3, 1,000 points)
-//! 5 - Legendre is the slowest (~100µs for degree 3, 1,000 points)
+//! 1 - Chebyshev is the fastest, due to the stability of the matrix and the recurrence I use (~24µs for degree 3, 1,000 points)
+//! 2 - Hermite, and Laguerre are fairly close to that (~30µs for degree 3, 1,000 points)
+//! 3 - Monomials perform worse than more stable bases (~53µs for degree 3, 1,000 points)
+//! 4 - Fourier and Logarithmic are around the same due to the trigonometric/logarithmic calculations (~57µs for degree 3, 1,000 points)
+//! 5 - Legendre is the slowest (~80µs for degree 3, 1,000 points)
 //!
 //! The benchmarks actually use my library to test that the scaling is linear - which I think is a pretty cool use-case:
 //! ```rust
@@ -166,23 +170,40 @@
 //!
 //! Raw benchmark results:
 //! ```text
-//! fit_vs_basis/Monomial   time:   [44.814 µs 45.559 µs 46.448 µs]
-//! fit_vs_basis/Chebyshev  time:   [32.959 µs 34.042 µs 35.275 µs]
-//! fit_vs_basis/Legendre   time:   [99.216 µs 103.56 µs 108.96 µs]
-//! fit_vs_basis/Hermite    time:   [37.158 µs 38.235 µs 39.488 µs]
-//! fit_vs_basis/Laguerre   time:   [34.082 µs 34.920 µs 36.090 µs]
-//! fit_vs_basis/Fourier    time:   [58.909 µs 59.444 µs 60.120 µs]
+//! Benchmarking fit vs n (Chebyshev, Degree=3)
+//! fit_vs_n/n=100                  [3.3817 µs 3.4070 µs 3.4363 µs]
+//! fit_vs_n/n=1_000                [23.791 µs 23.926 µs 24.098 µs]
+//! fit_vs_n/n=10_000               [302.99 µs 304.40 µs 306.01 µs]
+//! fit_vs_n/n=100_000              [4.5086 ms 4.5224 ms 4.5376 ms]
+//! fit_vs_n/n=1_000_000            [12.471 ms 12.592 ms 12.725 ms]
+//! fit_vs_n/n=10_000_000           [115.49 ms 116.76 ms 118.07 ms]
+//! fit_vs_n/n=100_000_000          [1.1768 s 1.1838 s 1.1908 s]
 //!
-//! fit_vs_n/n=100          time:   [3.2912 µs 3.3102 µs 3.3335 µs]
-//! fit_vs_n/n=1000         time:   [27.705 µs 28.337 µs 29.258 µs]
-//! fit_vs_n/n=10000        time:   [332.07 µs 334.00 µs 336.60 µs]
-//! fit_vs_n/n=100000       time:   [6.0164 ms 6.0707 ms 6.1309 ms]
+//! Benchmarking fit vs degree (Chebyshev, n=1000)
+//! fit_vs_degree/Degree=1          [11.587 µs 11.691 µs 11.802 µs]
+//! fit_vs_degree/Degree=2          [18.109 µs 18.306 µs 18.505 µs]
+//! fit_vs_degree/Degree=3          [24.672 µs 24.954 µs 25.269 µs]
+//! fit_vs_degree/Degree=4          [33.074 µs 33.206 µs 33.368 µs]
+//! fit_vs_degree/Degree=5          [44.399 µs 44.887 µs 45.401 µs]
+//! fit_vs_degree/Degree=10         [126.07 µs 127.26 µs 128.62 µs]
+//! fit_vs_degree/Degree=20         [420.20 µs 423.44 µs 426.93 µs]
 //!
-//! fit_vs_degree/Degree=1  time:   [15.847 µs 16.571 µs 17.491 µs]
-//! fit_vs_degree/Degree=2  time:   [23.200 µs 24.230 µs 25.875 µs]
-//! fit_vs_degree/Degree=3  time:   [30.084 µs 30.839 µs 31.718 µs]
-//! fit_vs_degree/Degree=4  time:   [36.895 µs 37.137 µs 37.435 µs]
-//! fit_vs_degree/Degree=5  time:   [47.132 µs 47.441 µs 47.807 µs]
+//! Benchmarking fit vs basis (Degree=3, n=1000)
+//! fit_vs_basis/Monomial           [53.513 µs 53.980 µs 54.450 µs]
+//! fit_vs_basis/Chebyshev          [24.307 µs 24.504 µs 24.710 µs]
+//! fit_vs_basis/Legendre           [79.577 µs 80.104 µs 80.714 µs]
+//! fit_vs_basis/Hermite            [30.496 µs 30.872 µs 31.321 µs]
+//! fit_vs_basis/Laguerre           [31.146 µs 31.428 µs 31.734 µs]
+//! fit_vs_basis/Fourier            [56.421 µs 56.985 µs 57.612 µs]
+//!
+//! Benchmarking auto fit vs basis (n=1000, Candidates=9)
+//! auto_fit_vs_basis/Monomial      [497.33 µs 500.27 µs 503.30 µs]
+//! auto_fit_vs_basis/Chebyshev     [327.75 µs 329.67 µs 331.76 µs]
+//! auto_fit_vs_basis/Legendre      [1.6993 ms 1.7061 ms 1.7128 ms]
+//! auto_fit_vs_basis/Hermite       [337.65 µs 339.90 µs 342.44 µs]
+//! auto_fit_vs_basis/Laguerre      [428.36 µs 431.26 µs 434.09 µs]
+//! auto_fit_vs_basis/Fourier       [710.46 µs 713.07 µs 715.85 µs]
+//! auto_fit_vs_basis/Logarithmic   [525.36 µs 528.21 µs 531.10 µs]
 //! ```
 //!
 //! For transparency I ran the same benchmarks in numpy (`benches/numpy_bench.py`):
@@ -288,6 +309,7 @@
 #![allow(clippy::needless_range_loop)] // The worst clippy lint
 #![allow(clippy::cast_precision_loss)] // I don't care about this one
 #![allow(clippy::similar_names)] //       Clippy does not get to decide what names are similar
+#![allow(clippy::inline_always)] //       I know it doesn't do anything but it makes me feel better
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod test;

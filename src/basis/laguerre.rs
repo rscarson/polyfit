@@ -59,16 +59,17 @@ impl<T: Value> LaguerreBasis<T> {
     }
 }
 impl<T: Value> Basis<T> for LaguerreBasis<T> {
-    fn from_data(data: &[(T, T)]) -> Self {
-        let normalizer =
-            DomainNormalizer::from_data(data.iter().map(|(x, _)| *x), (T::zero(), T::infinity()));
+    fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self {
+        let normalizer = DomainNormalizer::from_range(x_range, (T::zero(), T::infinity()));
         Self { normalizer }
     }
 
+    #[inline(always)]
     fn normalize_x(&self, x: T) -> T {
         self.normalizer.normalize(x)
     }
 
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             0 => T::one(),
@@ -87,6 +88,7 @@ impl<T: Value> Basis<T> for LaguerreBasis<T> {
         }
     }
 
+    #[inline(always)]
     fn fill_matrix_row<R: Dim, C: Dim, RS: Dim, CS: Dim>(
         &self,
         start_index: usize,

@@ -42,10 +42,11 @@ impl<T: Value> PhysicistsHermiteBasis<T> {
 }
 
 impl<T: Value> Basis<T> for PhysicistsHermiteBasis<T> {
-    fn from_data(_: &[(T, T)]) -> Self {
+    fn from_range(_x_range: std::ops::RangeInclusive<T>) -> Self {
         Self::new()
     }
 
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             0 => T::one(),
@@ -64,6 +65,7 @@ impl<T: Value> Basis<T> for PhysicistsHermiteBasis<T> {
         }
     }
 
+    #[inline(always)]
     fn fill_matrix_row<R: Dim, C: Dim, RS: Dim, CS: Dim>(
         &self,
         start_index: usize,
@@ -137,10 +139,11 @@ impl<T: Value> ProbabilistsHermiteBasis<T> {
 }
 
 impl<T: Value> Basis<T> for ProbabilistsHermiteBasis<T> {
-    fn from_data(_: &[(T, T)]) -> Self {
+    fn from_range(_: std::ops::RangeInclusive<T>) -> Self {
         Self::new()
     }
 
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             0 => T::one(),
@@ -159,6 +162,7 @@ impl<T: Value> Basis<T> for ProbabilistsHermiteBasis<T> {
         }
     }
 
+    #[inline(always)]
     fn fill_matrix_row<R: Dim, C: Dim, RS: Dim, CS: Dim>(
         &self,
         start_index: usize,

@@ -1,4 +1,4 @@
-use std::ops::RangeInclusive;
+use std::{borrow::Cow, ops::RangeInclusive};
 
 use nalgebra::{DMatrix, DVector, SVD};
 
@@ -16,43 +16,45 @@ use crate::{
 ///
 /// Uses logarithmic basis functions, which are particularly useful for modeling data that exhibits logarithmic growth or decay.
 /// The basis functions include terms like 1, ln(x), (ln(x))^2, ..., (ln(x))^n.
-pub type LogarithmicFit<T = f64> = CurveFit<crate::basis::LogarithmicBasis<T>, T>;
+pub type LogarithmicFit<'data, T = f64> = CurveFit<'data, crate::basis::LogarithmicBasis<T>, T>;
 
 /// Laguerre series curve
 ///
 /// Uses Laguerre polynomials, which are orthogonal polynomials defined on the interval \[0, ∞\].
 /// These polynomials are particularly useful in quantum mechanics and numerical analysis.
-pub type LaguerreFit<T = f64> = CurveFit<crate::basis::LaguerreBasis<T>, T>;
+pub type LaguerreFit<'data, T = f64> = CurveFit<'data, crate::basis::LaguerreBasis<T>, T>;
 
 /// Physicists' Hermite series curve
 ///
 /// Uses Physicists' Hermite polynomials, which are orthogonal polynomials defined on the interval \[-∞, ∞\].
 /// These polynomials are particularly useful in probability, combinatorics, and physics, especially in quantum mechanics.
-pub type PhysicistsHermiteFit<T = f64> = CurveFit<crate::basis::PhysicistsHermiteBasis<T>, T>;
+pub type PhysicistsHermiteFit<'data, T = f64> =
+    CurveFit<'data, crate::basis::PhysicistsHermiteBasis<T>, T>;
 
 /// Probabilists' Hermite series curve
 ///
 /// Uses Probabilists' Hermite polynomials, which are orthogonal polynomials defined on the interval \[-∞, ∞\].
 /// These polynomials are particularly useful in probability theory and statistics, especially in the context of Gaussian distributions.
-pub type ProbabilistsHermiteFit<T = f64> = CurveFit<crate::basis::ProbabilistsHermiteBasis<T>, T>;
+pub type ProbabilistsHermiteFit<'data, T = f64> =
+    CurveFit<'data, crate::basis::ProbabilistsHermiteBasis<T>, T>;
 
 /// Legendre series curve
 ///
 /// Uses Legendre polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
 /// These polynomials are particularly useful for minimizing oscillation in polynomial interpolation.
-pub type LegendreFit<T = f64> = CurveFit<crate::basis::LegendreBasis<T>, T>;
+pub type LegendreFit<'data, T = f64> = CurveFit<'data, crate::basis::LegendreBasis<T>, T>;
 
 /// Fourier series curve
 ///
 /// Uses a Fourier series basis, which is particularly well-suited for modeling periodic functions.
 /// The basis functions include sine and cosine terms, allowing for effective representation of oscillatory behavior.
-pub type FourierFit<T = f64> = CurveFit<crate::basis::FourierBasis<T>, T>;
+pub type FourierFit<'data, T = f64> = CurveFit<'data, crate::basis::FourierBasis<T>, T>;
 
 /// Normalized Chebyshev polynomial curve
 ///
 /// Uses the Chebyshev polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
 /// These polynomials are particularly useful for minimizing Runge's phenomenon in polynomial interpolation.
-pub type ChebyshevFit<T = f64> = CurveFit<crate::basis::ChebyshevBasis<T>, T>;
+pub type ChebyshevFit<'data, T = f64> = CurveFit<'data, crate::basis::ChebyshevBasis<T>, T>;
 
 /// Non-normalized monomial polynomial curve
 ///
@@ -60,7 +62,7 @@ pub type ChebyshevFit<T = f64> = CurveFit<crate::basis::ChebyshevBasis<T>, T>;
 ///
 /// It is the most basic form of polynomial basis and is not normalized.
 /// It can lead to numerical instability for high-degree polynomials.
-pub type MonomialFit<T = f64> = CurveFit<crate::basis::MonomialBasis<T>, T>;
+pub type MonomialFit<'data, T = f64> = CurveFit<'data, crate::basis::MonomialBasis<T>, T>;
 
 /// Represents the covariance matrix and derived statistics for a curve fit.
 ///
@@ -71,15 +73,15 @@ pub type MonomialFit<T = f64> = CurveFit<crate::basis::MonomialBasis<T>, T>;
 /// - `'a`: Lifetime of the reference to the original curve fit.
 /// - `B`: Basis type used by the curve fit (implements `Basis<T>`).
 /// - `T`: Numeric type (defaults to `f64`) implementing `Value`.
-pub struct CurveFitCovariance<'a, B, T: Value = f64>
+pub struct CurveFitCovariance<'a, 'data, B, T: Value = f64>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
 {
-    fit: &'a CurveFit<B, T>,
+    fit: &'a CurveFit<'data, B, T>,
     covariance: DMatrix<T>,
 }
-impl<'a, B, T: Value> CurveFitCovariance<'a, B, T>
+impl<'a, 'data, B, T: Value> CurveFitCovariance<'a, 'data, B, T>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
@@ -90,15 +92,9 @@ where
     ///
     /// # Errors
     /// Returns an error if the covariance matrix cannot be computed.
-    pub fn new(fit: &'a CurveFit<B, T>) -> Result<Self> {
-        let covariance = Self::fill_matrix(fit)?;
-        Ok(Self { fit, covariance })
-    }
-
-    /// Computes the covariance matrix for the curve fit.
-    fn fill_matrix(fit: &CurveFit<B, T>) -> Result<DMatrix<T>> {
+    pub fn new(fit: &'a CurveFit<'data, B, T>) -> Result<Self> {
         let n = fit.data.len();
-        let k = fit.coefficients().len();
+        let k = fit.basis().k(fit.degree());
 
         let mut x_matrix = DMatrix::zeros(n, k);
         for (i, (x, _)) in fit.data.iter().enumerate() {
@@ -115,7 +111,8 @@ where
         let xtx_inv = svd.pseudo_inverse(T::epsilon()).map_err(Error::Algebra)?;
 
         let res_var = fit.residual_variance();
-        Ok(xtx_inv * res_var)
+        let covariance = xtx_inv * res_var;
+        Ok(Self { fit, covariance })
     }
 
     /// Computes the standard error of the coefficient at j.
@@ -301,24 +298,165 @@ where
 /// println!("Coefficients: {:?}", fit.coefficients());
 /// ```
 #[derive(Debug, Clone, PartialEq)]
-pub struct CurveFit<B, T: Value = f64>
+pub struct CurveFit<'data, B, T: Value = f64>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
 {
-    data: Vec<(T, T)>,
+    data: Cow<'data, [(T, T)]>,
     x_range: RangeInclusive<T>,
     function: Polynomial<'static, B, T>,
-
-    matrix: DMatrix<T>,
-    b: DVector<T>,
     k: T,
 }
-impl<T: Value, B> CurveFit<B, T>
+impl<'data, T: Value, B> CurveFit<'data, B, T>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
 {
+    /// Turns a dataset portion into a basis matrix and y-values vector.
+    fn create_matrix(data: &[(T, T)], basis: &B, k: usize) -> (DMatrix<T>, DVector<T>) {
+        let mut bigx = DMatrix::zeros(data.len(), k);
+        let b = DVector::from_iterator(data.len(), data.iter().map(|&(_, y)| y));
+
+        for (row, (x, _)) in bigx.row_iter_mut().zip(data.iter()) {
+            let x = basis.normalize_x(*x);
+            basis.fill_matrix_row(0, x, row);
+        }
+
+        (bigx, b)
+    }
+
+    /// If appropriate, creates the basis matrix in parallel, using the normal equation in chunks
+    /// Otherwise, falls back to the normal `create_matrix`.
+    ///
+    /// The bool indicates if parallel processing was used - needed for `new_auto` to know to slice the matrix properly
+    fn create_parallel_matrix(
+        data: &[(T, T)],
+        basis: &B,
+        k: usize,
+    ) -> (DMatrix<T>, DVector<T>, bool) {
+        #[cfg(not(feature = "parallel"))]
+        {
+            let (m, b) = Self::create_matrix(data, basis, k);
+            return (m, b, false);
+        }
+
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            const MIN_ROWS_TO_PARALLEL: usize = 500_000;
+
+            if data.len() < MIN_ROWS_TO_PARALLEL {
+                let (m, b) = Self::create_matrix(data, basis, k);
+                return (m, b, false);
+            }
+
+            // Each thread builds the (xtx, xtb) pair for its chunk, reducing an NxK to KxK problem
+            let threads = rayon::current_num_threads();
+            let chunk_size = (data.len() / threads).max(1);
+            let thread_data: Vec<&[(T, T)]> = data.chunks(chunk_size).collect();
+            let mut partial_results: Vec<(DMatrix<T>, DVector<T>)> = thread_data
+                .into_par_iter()
+                .map(|chunk| {
+                    let (m, b) = Self::create_matrix(chunk, basis, k);
+                    Self::invert_matrix(&m, &b)
+                })
+                .collect();
+
+            // Now accumulate the partial results to get the full (xtx, xtb)
+            let (mut xtx, mut xtb) = partial_results.pop().unwrap_or_else(|| {
+                (
+                    DMatrix::<T>::zeros(k, k), // No data, zero matrix
+                    DVector::<T>::zeros(k),    // No data, zero vector
+                )
+            });
+
+            // We use kahan summation here to reduce numerical error
+            let mut xtx_c = DMatrix::<T>::zeros(k, k);
+            let mut xtb_c = DVector::<T>::zeros(k);
+            for (part_xtx, part_xtb) in partial_results {
+                for i in 0..k {
+                    let y = part_xtb[i] - xtb_c[i];
+                    let t = xtb[i] + y;
+                    xtb_c[i] = (t - xtb[i]) - y;
+                    xtb[i] = t;
+
+                    for j in 0..k {
+                        let y = part_xtx[(i, j)] - xtx_c[(i, j)];
+                        let t = xtx[(i, j)] + y;
+                        xtx_c[(i, j)] = (t - xtx[(i, j)]) - y;
+                        xtx[(i, j)] = t;
+                    }
+                }
+            }
+
+            (xtx, xtb, true)
+        }
+    }
+
+    /// Reduce the n by k / 1 by n into a k by k and k by 1 system.
+    fn invert_matrix(matrix: &DMatrix<T>, b: &DVector<T>) -> (DMatrix<T>, DVector<T>) {
+        let xtx = matrix.transpose() * matrix;
+        let xtb = matrix.transpose() * b;
+        (xtx, xtb)
+    }
+
+    /// Solves the linear system using SVD.
+    fn solve_matrix(xtx: DMatrix<T>, xtb: &DVector<T>) -> Result<Vec<T>> {
+        let size = xtx.shape();
+
+        // Calculate the singular value decomposition of the matrix
+        let decomp = SVD::new_unordered(xtx, true, true);
+
+        // Calculate epsilon value
+        // ~= machine_epsilon * max(size) * max_singular
+        let machine_epsilon = T::epsilon();
+        let max_size = size.0.max(size.1);
+        let sigma_max = decomp.singular_values.max();
+        let epsilon = machine_epsilon * T::try_cast(max_size)? * sigma_max;
+
+        // Solve for X in `SVD * X = b`
+        let big_x = decomp.solve(xtb, epsilon).map_err(Error::Algebra)?;
+        let coefficients: Vec<_> = big_x.data.into();
+
+        // Make sure the coefficients are valid
+        if coefficients.iter().any(|c| c.is_nan()) {
+            return Err(Error::Algebra("NaN in coefficients"));
+        }
+
+        Ok(coefficients)
+    }
+
+    /// Creates a new polynomial curve fit from raw components.
+    fn from_raw(
+        data: Cow<'data, [(T, T)]>,
+        x_range: RangeInclusive<T>,
+        basis: B,
+        coefs: Vec<T>,
+        degree: usize,
+    ) -> Result<Self> {
+        let k = T::try_cast(coefs.len())?;
+        let function = unsafe { Polynomial::from_raw(basis, coefs.into(), degree) }; // Safety: The coefs were generated by the basis
+
+        Ok(Self {
+            data,
+            x_range,
+            function,
+            k,
+        })
+    }
+
+    /// Returns an owned version of this curve fit, with a full copy of the data.
+    #[must_use]
+    pub fn to_owned(&self) -> CurveFit<'static, B, T> {
+        CurveFit {
+            data: Cow::Owned(self.data.to_vec()),
+            x_range: self.x_range.clone(),
+            function: self.function.clone(),
+            k: self.k,
+        }
+    }
+
     /// Creates a new polynomial curve fit for the given data and degree.
     ///
     /// You can also use [`CurveFit::new_auto`] to automatically select the best degree.
@@ -347,6 +485,14 @@ where
     /// - Computes `x_range` as the inclusive range of `x` values in the data.
     /// - Solves the linear system `A * x = b` to determine polynomial coefficients.
     ///
+    /// # Warning
+    /// If the `parallel` feature is enabled, and the dataset is > 500,000 rows,
+    /// the basis matrix will be constructed in parallel, and the normal equation
+    /// will be used to reduce the size of the system.
+    ///
+    /// This can reduce numerical accuracy for very high-degree polynomials, and
+    /// should be used with caution.
+    ///
     /// # Example
     /// ```
     /// # use polyfit::ChebyshevFit;
@@ -354,7 +500,9 @@ where
     /// let fit = ChebyshevFit::new(data, 2).unwrap();
     /// println!("Coefficients: {:?}", fit.coefficients());
     /// ```
-    pub fn new(data: &[(T, T)], degree: usize) -> Result<Self> {
+    pub fn new(data: impl Into<Cow<'data, [(T, T)]>>, degree: usize) -> Result<Self> {
+        let data: Cow<_> = data.into();
+
         // Cannot fit a polynomial of degree 0 or if there is no data.
         if data.is_empty() {
             return Err(Error::NoData);
@@ -362,37 +510,13 @@ where
             return Err(Error::DegreeTooHigh(degree));
         }
 
-        let basis = B::from_data(data);
-        let data = data.to_vec();
+        let x_range = data.x_range().ok_or(Error::NoData)?;
+        let basis = B::from_range(x_range.clone());
         let k = basis.k(degree);
 
-        let min_x = data
-            .iter()
-            .map(|&(x, _)| x)
-            .fold(T::infinity(), <T as nalgebra::RealField>::min);
-        let max_x = data
-            .iter()
-            .map(|&(x, _)| x)
-            .fold(T::neg_infinity(), <T as nalgebra::RealField>::max);
-        let x_range = min_x..=max_x;
-
-        // Create a column vector of the y values
-        let y_values = data.iter().map(|(_, y)| *y);
-        let b = DVector::from_iterator(data.len(), y_values);
-
-        let mut matrix = DMatrix::zeros(data.len(), k);
-        let coefs = Self::fill_matrix(&basis, &mut matrix, &b, &data, 0)?;
-        let function = unsafe { Polynomial::from_raw(basis, coefs.into(), degree) }; // Safety: The coefs were generated by the basis
-
-        Ok(Self {
-            data,
-            x_range,
-            function,
-
-            matrix,
-            b,
-            k: T::try_cast(k)?,
-        })
+        let (m, b, _) = Self::create_parallel_matrix(&data, &basis, k);
+        let coefs = Self::solve_matrix(m, &b)?;
+        Self::from_raw(data, x_range, basis, coefs, degree)
     }
 
     /// Automatically selects the best polynomial degree and creates a curve fit.
@@ -424,6 +548,14 @@ where
     /// - Stops when the score no longer improves.
     /// - Returns the model with the best score.
     ///
+    /// # Warning
+    /// If the `parallel` feature is enabled, and the dataset is > 500,000 rows,
+    /// the basis matrix will be constructed in parallel, and the normal equation
+    /// will be used to reduce the size of the system.
+    ///
+    /// This can reduce numerical accuracy for very high-degree polynomials, and
+    /// should be used with caution.
+    ///
     /// # Example
     /// ```
     /// # use polyfit::{ChebyshevFit, statistics::DegreeBound, score::Aic};
@@ -432,36 +564,86 @@ where
     /// println!("Selected degree: {}", fit.degree());
     /// ```
     pub fn new_auto(
-        data: &[(T, T)],
+        data: impl Into<Cow<'data, [(T, T)]>>,
         max_degree: impl Into<DegreeBound>,
         method: &impl ModelScoreProvider,
     ) -> Result<Self> {
+        let data: Cow<_> = data.into();
         let max_degree = max_degree.into().max_degree(data.len());
         if data.is_empty() {
             return Err(Error::NoData);
         }
 
-        // Pass 1 - Generate models for all degrees up to max_degree, get score_min
-        let mut min_score = T::infinity();
-        let mut model_scores: Vec<(Self, T)> = Vec::with_capacity(max_degree + 1);
-        for degree in 0..=max_degree {
-            let model = match model_scores.last() {
-                Some((prev, _)) => prev.clone().resize(degree),
-                None => Self::new(data, degree),
-            };
-            let Ok(model) = model else {
-                continue;
-            };
+        // Step 1 - Create the basis and matrix once
+        let x_range = data.x_range().ok_or(Error::NoData)?;
+        let basis = B::from_range(x_range.clone());
+        let max_k = basis.k(max_degree);
+        let (xtx, xtb, normal_eq) = Self::create_parallel_matrix(&data, &basis, max_k);
 
-            let score = model.model_score(method);
-            if score < min_score {
-                min_score = score;
+        #[cfg(not(feature = "parallel"))]
+        let (min_score, model_scores) = {
+            // Step 2 - Build models using increasingly narrow slices of the matrix
+            let mut min_score = T::infinity();
+            let mut model_scores: Vec<(Self, T)> = Vec::with_capacity(max_degree + 1);
+            for degree in 0..=max_degree {
+                let k = basis.k(degree);
+
+                let height = if normal_eq { k } else { xtx.nrows() };
+                let m = xtx.view((0, 0), (height, k)).into_owned();
+                let Ok(coefs) = Self::solve_matrix(m, &xtb) else {
+                    continue;
+                };
+
+                let Ok(model) =
+                    Self::from_raw(data.clone(), x_range.clone(), basis.clone(), coefs, degree)
+                else {
+                    continue;
+                };
+
+                let score = model.model_score(method);
+                model_scores.push((model, score));
+                if score < min_score {
+                    min_score = score;
+                }
             }
 
-            model_scores.push((model, score));
-        }
+            (min_score, model_scores)
+        };
 
-        // Pass 2 - get delta_score
+        #[cfg(feature = "parallel")]
+        let (min_score, model_scores) = {
+            use rayon::prelude::*;
+
+            let mut model_scores: Vec<(Self, T)> = (0..=max_degree)
+                .into_par_iter()
+                .filter_map(|degree| {
+                    let k = basis.k(degree);
+
+                    let height = if normal_eq { k } else { xtx.nrows() };
+                    let m = xtx.view((0, 0), (height, k)).into_owned();
+                    let coefs = Self::solve_matrix(m, &xtb).ok()?;
+
+                    let model =
+                        Self::from_raw(data.clone(), x_range.clone(), basis.clone(), coefs, degree)
+                            .ok()?;
+
+                    let score = model.model_score(method);
+                    Some((model, score))
+                })
+                .collect();
+
+            // Sort by degree ascending
+            model_scores.sort_by_key(|(m, _)| m.degree());
+
+            let min_score = model_scores
+                .iter()
+                .map(|(_, score)| *score)
+                .fold(T::infinity(), nalgebra::RealField::min);
+
+            (min_score, model_scores)
+        };
+
+        // Step 3 - get delta_score
         // Re: Burnham and Anderson, use the first delta <=2 (P = 0.37)
         // Statistically indistinguishable from the top model
         for (model, score) in model_scores {
@@ -504,52 +686,88 @@ where
     /// let fit = ChebyshevFit::new_kfold_cross_validated(data, 2, DegreeBound::Relaxed, &Aic).unwrap();
     /// println!("Selected degree: {}", fit.degree());
     /// ```
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "It's math what do you want from me"
+    )]
     pub fn new_kfold_cross_validated(
-        data: &[(T, T)],
+        data: impl Into<Cow<'data, [(T, T)]>>,
         folds: usize,
         max_degree: impl Into<DegreeBound>,
         method: &impl ModelScoreProvider,
     ) -> Result<Self> {
+        let data: Cow<_> = data.into();
+        let fold_size = data.len() / folds;
         let max_degree = max_degree.into().max_degree(data.len());
         if data.is_empty() || folds < 2 {
             return Err(Error::NoData);
         }
 
-        //
-        // Split data into K folds
-        let n_folds = folds;
-        let mut folds = Vec::with_capacity(n_folds);
-        let n = data.len();
-        let fold_size = n / n_folds;
-        for i in 0..n_folds {
+        // Step 1 - Create the basis and matrix once
+        let x_range = data.x_range().ok_or(Error::NoData)?;
+        let basis = B::from_range(x_range.clone());
+        let k = basis.k(max_degree);
+        let (m, b) = Self::create_matrix(data.as_ref(), &basis, k);
+
+        // Step 2 - Precalculate fold boundaries
+        let mut fold_ranges = Vec::with_capacity(folds);
+        for i in 0..folds {
             let start = i * fold_size;
-            let end = if i == n_folds - 1 {
-                n
+            let end = if i == folds - 1 {
+                data.len()
             } else {
                 (i + 1) * fold_size
             };
-            folds.push(&data[start..end]);
+            fold_ranges.push(start..end);
         }
 
-        //
-        // Evaluate each model with K-fold cross-validation
-        let mut best = Vec::with_capacity(n_folds);
+        // Step 3 - Use `folds` views into m and b for training and test sets
+        // We do this for each degree candidate, and each fold
         let mut min_score = T::infinity();
+        let mut candidates = Vec::with_capacity(max_degree + 1);
         for degree in 0..=max_degree {
-            let n_folds = folds.len();
+            let k = basis.k(degree);
+            let m = m.view((0, 0), (m.nrows(), k)).into_owned();
+
+            // Evaluate this degree with K-fold cross-validation
             let mut mean_score = T::zero();
             let mut n = T::zero();
-            for i in 0..n_folds {
-                let test_data = folds[i];
-                let training_data = folds
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, _)| *j != i)
-                    .flat_map(|(_, &fold)| fold)
-                    .copied()
-                    .collect::<Vec<_>>();
+            for i in 0..folds {
+                let test_range = &fold_ranges[i];
+                let test_data = &data[test_range.clone()];
 
-                let Ok(model) = Self::new(&training_data, degree) else {
+                let mut fold_m = DMatrix::zeros(data.len() - test_range.len(), k);
+                let fold_b = DVector::from_iterator(
+                    data.len() - test_data.len(),
+                    b.iter().enumerate().filter_map(|(j, &y)| {
+                        if test_range.contains(&j) {
+                            None
+                        } else {
+                            Some(y)
+                        }
+                    }),
+                );
+
+                // Copy relevent rows from m into fold_m
+                for (i, src) in m.row_iter().enumerate() {
+                    if !test_range.contains(&i) {
+                        let dst_index = if i < test_range.start {
+                            i
+                        } else {
+                            i - test_range.len()
+                        };
+                        let mut dst = fold_m.row_mut(dst_index);
+                        dst.copy_from(&src);
+                    }
+                }
+
+                let Ok(coefs) = Self::solve_matrix(fold_m, &fold_b) else {
+                    continue;
+                };
+
+                let Ok(model) =
+                    Self::from_raw(data.clone(), x_range.clone(), basis.clone(), coefs, degree)
+                else {
                     continue;
                 };
 
@@ -561,16 +779,14 @@ where
             }
 
             mean_score /= n;
+            candidates.push((degree, mean_score));
             if mean_score < min_score {
                 min_score = mean_score;
             }
-
-            best.push((degree, mean_score));
         }
 
-        //
-        // Select the best model within 2 AIC units of the minimum (Burnham and Anderson 2002)
-        for (degree, score) in best {
+        // Step 4 - Select the best model within 2 AIC units of the minimum (Burnham and Anderson 2002)
+        for (degree, score) in candidates {
             let delta = score - min_score;
             if delta <= T::two() {
                 return Self::new(data, degree);
@@ -620,100 +836,9 @@ where
         Ok(insignificant)
     }
 
-    /// Fills the given Vandermonde matrix for the specified data points.
-    ///
-    /// Returns the coefficients for the polynomial fit.
-    fn fill_matrix(
-        basis: &B,
-        matrix: &mut DMatrix<T>,
-        b: &DVector<T>,
-        data: &[(T, T)],
-        start_index: usize,
-    ) -> Result<Vec<T>> {
-        if start_index < matrix.ncols() {
-            for (i, (x, _)) in data.iter().enumerate() {
-                let row = matrix.row_mut(i);
-                let x = basis.normalize_x(*x);
-                basis.fill_matrix_row(start_index, x, row);
-            }
-        }
-
-        Self::compute_coefficients(matrix, b)
-    }
-
-    /// Recomputes the polynomial coefficients.
-    fn compute_coefficients(matrix: &DMatrix<T>, b: &DVector<T>) -> Result<Vec<T>> {
-        let size = matrix.shape();
-
-        // Calculate the singular value decomposition of the matrix
-        let decomp = SVD::new_unordered(matrix.clone(), true, true);
-
-        // Calculate epsilon value
-        // ~= machine_epsilon * max(size) * max_singular
-        let machine_epsilon = T::epsilon();
-        let max_size = size.0.max(size.1);
-        let sigma_max = decomp.singular_values.max();
-        let epsilon = machine_epsilon * T::try_cast(max_size)? * sigma_max;
-
-        // Solve for X in `SVD * X = b`
-        let big_x = decomp.solve(b, epsilon).map_err(Error::Algebra)?;
-        let coefficients: Vec<_> = big_x.data.into();
-
-        // Make sure the coefficients are valid
-        if coefficients.iter().any(|c| c.is_nan()) {
-            return Err(Error::Algebra("NaN in coefficients"));
-        }
-
-        Ok(coefficients)
-    }
-
     /// Returns a reference to the basis function.
     pub(crate) fn basis(&self) -> &B {
         self.function.basis()
-    }
-
-    /// Changes the polynomial degree of an existing curve fit.
-    ///
-    /// This allows you to **increase or decrease the degree** of a polynomial fit
-    /// after it has been created. The function tries to reuse the existing basis
-    /// matrix where possible to improve performance.
-    ///
-    /// # Behavior
-    /// - **Upsizing (`new_degree` > `old_degree`):** recomputes the matrix rows for the
-    ///   additional columns and solves the new linear system from scratch.
-    /// - **Downsizing (`new_degree` < `old_degree`):** reuses the existing matrix and
-    ///   discards higher-degree columns, then recomputes the coefficients.
-    /// - If `new_degree == old_degree`, returns the original instance unchanged.
-    ///
-    /// # Errors
-    /// Returns [`Error`] if:
-    /// - A numeric value cannot be represented in the target type (`CastFailed`).
-    /// - The final linear solve fails (`Algebra`).
-    ///
-    /// # Example
-    /// ```rust
-    /// # use polyfit::{ChebyshevFit, CurveFit};
-    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
-    /// let fit = ChebyshevFit::new(data, 2).unwrap();
-    /// let lower_fit = fit.resize(1).unwrap(); // decrease degree to 1
-    /// ```
-    pub fn resize(mut self, new_degree: usize) -> Result<Self> {
-        let old_degree = self.degree();
-        if new_degree == old_degree {
-            return Ok(self);
-        }
-
-        let old_k = self.basis().k(old_degree);
-        let k = self.basis().k(new_degree);
-        self.k = T::try_cast(k)?;
-
-        self.matrix = self.matrix.resize_horizontally(k, T::zero());
-        let (basis, _) = self.function.into_inner();
-        let coefs = Self::fill_matrix(&basis, &mut self.matrix, &self.b, &self.data, old_k)?;
-        let function = unsafe { Polynomial::from_raw(basis, coefs.into(), new_degree) }; // Safety: The coefs were generated by the basis
-
-        self.function = function;
-        Ok(self)
     }
 
     /// Computes the covariance matrix and related statistics for this curve fit.
@@ -742,7 +867,7 @@ where
     /// let band = cov.confidence_band(1.0, Confidence::P95, None).unwrap();
     /// println!("Predicted CI at x=1: {} - {}", band.min(), band.max());
     /// ```
-    pub fn covariance(&self) -> Result<CurveFitCovariance<'_, B, T>> {
+    pub fn covariance(&self) -> Result<CurveFitCovariance<'_, '_, B, T>> {
         CurveFitCovariance::new(self)
     }
 
@@ -1398,7 +1523,7 @@ where
     }
 }
 
-impl<B, T: Value> AsRef<Polynomial<'_, B, T>> for CurveFit<B, T>
+impl<B, T: Value> AsRef<Polynomial<'_, B, T>> for CurveFit<'_, B, T>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
@@ -1408,7 +1533,7 @@ where
     }
 }
 
-impl<T: Value, B> std::fmt::Display for CurveFit<B, T>
+impl<T: Value, B> std::fmt::Display for CurveFit<'_, B, T>
 where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
@@ -1459,6 +1584,15 @@ mod tests {
     }
 
     #[test]
+    fn test_big() {
+        function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2 + 4.0 x^3 + 5.0 x^4 + 6.0 x^5);
+        let data = poly.solve_range(0.0..=10_000_000.0, 1.0);
+        let fit = ChebyshevFit::new(&data, 5).unwrap();
+        assert_fits!(poly, fit, 0.999);
+        crate::plot!(fit, prefix = "big");
+    }
+
+    #[test]
     fn test_curvefit_y_in_range() {
         let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
         let fit = MonomialFit::new(data, 2).unwrap();
@@ -1480,16 +1614,6 @@ mod tests {
         let fit = MonomialFit::new(data, 2).unwrap();
         let solution = fit.solution();
         assert_eq!(solution.len(), data.len());
-    }
-
-    #[test]
-    fn test_curvefit_resize_increase_and_decrease() {
-        let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0), (3.0, 13.0)];
-        let fit = MonomialFit::new(data, 2).unwrap();
-        let fit_higher = fit.clone().resize(3).unwrap();
-        assert_eq!(fit_higher.degree(), 3);
-        let fit_lower = fit_higher.resize(1).unwrap();
-        assert_eq!(fit_lower.degree(), 1);
     }
 
     #[test]

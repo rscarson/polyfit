@@ -129,11 +129,6 @@ where
         &self.basis
     }
 
-    /// Converts the polynomial into its basis and coefficients.
-    pub(crate) fn into_inner(self) -> (B, Cow<'a, [T]>) {
-        (self.basis, self.coefficients)
-    }
-
     /// Converts the polynomial into an owned version.
     ///
     /// This consumes the current `Polynomial` and returns a new one with
