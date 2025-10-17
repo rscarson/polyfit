@@ -14,9 +14,40 @@
 //! I provide a set a tools designed to help you:
 //! - Select the right kind (basis) of polynomial for your data
 //! - Automatically determine the optimal degree of the polynomial
-//! - Make predictions and get confidence values based on it
+//! - Make predictions, detect outliers, and get confidence values based on it
 //! - Write easy to understand tests to confirm function
 //!   - Tests even plot the data and functions for you on failure! (`plotting` feature)
+//!
+//! I support:
+//! - Functions and fits generic over floating point type and 11 choices of polynomial basis
+//!   - Monomial
+//!   - Orthogonal bases: Chebyshev (1st, 2nd, and 3rd forms), Legendre, Hermite (Physicists' and Probabilists'), Laguerre
+//!   - Fourier
+//!   - Logarithmic
+//! - Human-readable display of polynomial euations
+//! - Symbolic calculus (differentiation, integration, critical points) for most bases
+//! - Orthogonal basis specific tools (smoothness, coefficient energies, spectral energy truncation, orthogonal projection)
+//! - A suite of statistical tests to validate fit quality (`test` module).
+//!   - Tests include r², residual normality, homoscedasticity, autocorrelation, and more
+//!   - All tests generate plots on failure if the `plotting` feature is enabled
+//! - Data transformation tools (`transforms` module) to add noise, scale, shift, and normalize data
+//! - A library of statistical tools (`statistics` module) to help you understand your data
+//! - Comprehensive engineering-focused documentation with examples and explanations, so you don't need a statistics degree to understand it
+//!
+//!
+//! **Crate features:**
+//! - **`plotting`** - (default: NO) Enables plotting support using `plotters`
+//!   - All `assert_*` macros in the testing library will generate plots on failure
+//!   - The [`plot!`] macro is available to generate plots of fits and polynomials
+//!   - The [`plotting::Plot`] type is available for more customized plots
+//! - **`transforms`** - (default: YES) Enables data transformation tools
+//!   - The [`transforms`] module is available, which includes tools to add noise, scale, shift, and normalize data
+//!   - The [`transforms::ApplyNoise`] trait is available to add noise to data (Gaussian, Poisson, Impulse, Correlated, Salt & Pepper)
+//!   - The [`transforms::ApplyScale`] trait is available to scale data (Shift, Linear, Quadratic, Cubic)
+//!   - The [`transforms::ApplyNormalization`] trait is available to normalize data (Domain, Clip, Mean, zscore)
+//! - **`parallel`** - (default: NO) Enables parallel processing using `rayon`
+//!   - [`CurveFit::new_auto`] uses parallel processing to speed up fitting when this feature is enabled
+//!   - All curve fits can use a faster solver for large enough datasets when this feature is enabled
 //!
 //! -----
 //!
@@ -101,11 +132,33 @@
 //! | Fourier    | Fair                | Yes                | No                  | Poor         | Periodic signals         |
 //! | Logarithmic| Fair                | No                 | Yes                 | Yes          | Logarithmic growth       |
 //!
+//! The orthogonal bases (Chebyshev, Legendre, Hermite, Laguerre) are generally more numerically stable than monomials,
+//! and can often provide better fits for higher-degree polynomials.
+//!
+//! They also unlock a few analytical tools that are not available other bases:
+//! - [`CurveFit::smoothness`] - A measure of how "wiggly" the curve is; useful for regularization and model selection
+//! - [`CurveFit::coefficient_energies`] - A measure of how much each basis function contributes to the overall curve; useful for understanding the shape of the curve
+//! - [`Polynomial::spectral_energy_truncation`] - A way to de-noise the curve by removing high-frequency components the don't contribute enough; useful for smoothing noisy data
+//! - [`Polynomial::project_orthogonal`] - A way to project any function onto an orthogonal basis
+//!   - I like to use this to convert Fourier fits into Chebyshev fits for noisy periodic data (see `examples/whats_an_orthogonal.rs`)
+//!
 //! ### Calculus Support
-//! All built-in bases support differentiation and integration in some way, including built-in methods for definite integrals, and finding critical points.
+//! Most built-in bases support differentiation and integration in some way, including built-in methods for definite integrals, and finding critical points.
 //! - Many basis options implement calculus directly
 //! - A few bases implement `IntoMonomialBasis`, which allows them to be converted into a monomial basis for calculus operations
 //! - For logarithmic series, use [`Polynomial::project`], which can be a good way to approximate over certain ranges
+//!
+//! | Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
+//! |---------------------------|--------------------|-----------------|-----------------------|-------------|
+//! | **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
+//! | **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
+//! | **Chebyshev (2nd/3rd)**   | Yes                | Yes             | Yes                   | No          |
+//! | **Legendre**              | No                 | Yes             | No                    | Yes         |
+//! | **Laguerre**              | No                 | Yes             | No                    | Yes         |
+//! | **Hermite**               | No                 | Yes             | No                    | Yes         |
+//! | **Fourier (sin/cos)**     | No                 | Yes             | Yes                   | No          |
+//! | **Exponential (e^{λx})**  | No                 | Yes             | Yes                   | No          |
+//! | **Logarithmic (ln^n x)**  | No                 | No              | No                    | No          |
 //!
 //! ### Testing Library
 //! The crate includes a set of macros designed to make it easy to write unit tests to validate fit quality.
@@ -150,10 +203,9 @@
 //!
 //! There are also performance differences between bases;
 //! 1 - Chebyshev is the fastest, due to the stability of the matrix and the recurrence I use (~24µs for degree 3, 1,000 points)
-//! 2 - Hermite, and Laguerre are fairly close to that (~30µs for degree 3, 1,000 points)
+//! 2 - Hermite, Legendre, and Laguerre are fairly close to that (~30µs for degree 3, 1,000 points)
 //! 3 - Monomials perform worse than more stable bases (~53µs for degree 3, 1,000 points)
 //! 4 - Fourier and Logarithmic are around the same due to the trigonometric/logarithmic calculations (~57µs for degree 3, 1,000 points)
-//! 5 - Legendre is the slowest (~80µs for degree 3, 1,000 points)
 //!
 //! The benchmarks actually use my library to test that the scaling is linear - which I think is a pretty cool use-case:
 //! ```rust
@@ -191,7 +243,7 @@
 //! Benchmarking fit vs basis (Degree=3, n=1000)
 //! fit_vs_basis/Monomial           [53.513 µs 53.980 µs 54.450 µs]
 //! fit_vs_basis/Chebyshev          [24.307 µs 24.504 µs 24.710 µs]
-//! fit_vs_basis/Legendre           [79.577 µs 80.104 µs 80.714 µs]
+//! fit_vs_basis/Legendre           [27.577 µs 80.104 µs 80.714 µs]
 //! fit_vs_basis/Hermite            [30.496 µs 30.872 µs 31.321 µs]
 //! fit_vs_basis/Laguerre           [31.146 µs 31.428 µs 31.734 µs]
 //! fit_vs_basis/Fourier            [56.421 µs 56.985 µs 57.612 µs]
@@ -269,7 +321,7 @@
 //! let confidence_band = covariance.confidence_band(
 //!     50.0,                          // Confidence band for x=50
 //!     Confidence::P95,               // Find the range where we expect 95% of points to fall within
-//!     Some(Tolerance::Relative(0.1)) // Tolerate some extra noise in the data (10% of standard deviation of the data, in this case)
+//!     Some(Tolerance::Variance(0.1)) // Tolerate some extra noise in the data (10% of variance of the data, in this case)
 //! ).unwrap(); // 95% confidence band
 //! println!("I am 95% confident that the true value at x=50.0 is between {} and {}", confidence_band.min(), confidence_band.max());
 //! ```
@@ -301,8 +353,11 @@
 //! // These are the points that fall outside the 95% confidence interval
 //! // This means that they are outside the range where we expect 95% of the data to fall
 //! // The `Some(0.1)` means we tolerate some noise in the data, so we don't flag points that are just a little bit off
-//! // The noise tolerance is a fraction of the standard deviation of the data (10% in this case)
-//! let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Relative(0.1))).unwrap();
+//! // The noise tolerance is a fraction of the variance of the data (10% in this case)
+//! //
+//! // If we had a sensor that specified a tolerance of ±5 units, we could use `Some(Tolerance::Absolute(5.0))` instead
+//! // If we had a sensor that specified a tolerance of 10% of the reading, we could use `Some(Tolerance::Measurement(0.1))` instead
+//! let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Variance(0.1))).unwrap();
 //! ```
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
@@ -312,11 +367,12 @@
 #![allow(clippy::inline_always)] //       I know it doesn't do anything but it makes me feel better
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[macro_use]
 pub mod test;
 
 #[cfg(feature = "plotting")]
 #[cfg_attr(docsrs, doc(cfg(feature = "plotting")))]
-pub mod plot;
+pub mod plotting;
 
 #[cfg(feature = "transforms")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transforms")))]
@@ -333,6 +389,8 @@ mod fit;
 mod polynomial;
 
 pub use fit::*;
-pub use polynomial::{MonomialPolynomial, Polynomial};
+pub use polynomial::Polynomial;
+
+pub use basis::monomial::MonomialPolynomial;
 
 pub use nalgebra;

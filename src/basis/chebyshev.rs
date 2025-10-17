@@ -1,12 +1,18 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    basis::{Basis, IntoMonomialBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, Root, RootFindingBasis},
     display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
     value::Value,
 };
+
+mod second_form;
+pub use second_form::SecondFormChebyshevBasis;
+
+mod third_form;
+pub use third_form::ThirdFormChebyshevBasis;
 
 /// Normalized Chebyshev basis for polynomial curves.
 ///
@@ -38,6 +44,11 @@ impl<T: Value> ChebyshevBasis<T> {
         Self { normalizer }
     }
 
+    /// Creates a Chebyshev basis from an existing domain normalizer.
+    pub fn from_normalizer(normalizer: DomainNormalizer<T>) -> Self {
+        Self { normalizer }
+    }
+
     /// Creates a new Chebyshev polynomial with the given coefficients over the specified x-range.
     ///
     /// # Parameters
@@ -61,34 +72,6 @@ impl<T: Value> ChebyshevBasis<T> {
     ) -> Result<crate::Polynomial<'_, Self, T>> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
-    }
-
-    /// Returns the Chebyshev nodes for Gauss-Chebyshev quadrature.
-    ///
-    /// The Chebyshev series is orthogonal against these nodes
-    #[must_use]
-    pub fn gauss_chebyshev_nodes(n: usize) -> Vec<T> {
-        let mut xs = Vec::with_capacity(n);
-        for k in 1..=n {
-            let x = ((T::two() * T::from_positive_int(k) - T::one()) * T::pi()
-                / (T::two() * T::from_positive_int(n)))
-            .cos();
-            xs.push(x);
-        }
-        xs
-    }
-
-    /// Returns the weights for Gauss-Chebyshev quadrature.
-    ///
-    /// Each weight is π/n
-    #[must_use]
-    pub fn gauss_chebyshev_weights(n: usize) -> Vec<T> {
-        vec![T::pi() / T::from_positive_int(n); n]
-    }
-
-    /// Denormalizes an x-value from the normalized Chebyshev domain back to the original input domain.
-    pub fn denormalize_x(&self, x: T) -> T {
-        self.normalizer.denormalize(x)
     }
 }
 impl<T: Value> Basis<T> for ChebyshevBasis<T> {
@@ -119,6 +102,11 @@ impl<T: Value> Basis<T> for ChebyshevBasis<T> {
     }
 
     #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        self.normalizer.denormalize(x)
+    }
+
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             0 => T::one(), // T0(x) = 1
@@ -137,6 +125,29 @@ impl<T: Value> Basis<T> for ChebyshevBasis<T> {
 
                 t
             }
+        }
+    }
+}
+
+impl<T: Value> OrthogonalBasis<T> for ChebyshevBasis<T> {
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {
+        let mut nodes = Vec::with_capacity(n);
+        let n2 = T::two() * T::from_positive_int(n);
+        let w = T::pi() / T::from_positive_int(n);
+        for k in 1..=n {
+            let tk1 = T::two() * T::from_positive_int(k) - T::one();
+            let x = (T::pi() * tk1 / n2).cos();
+            nodes.push((x, w));
+        }
+
+        nodes
+    }
+
+    fn gauss_normalization(&self, n: usize) -> T {
+        if n == 0 {
+            T::pi()
+        } else {
+            T::pi() / T::two()
         }
     }
 }
@@ -193,29 +204,33 @@ impl<T: Value> IntoMonomialBasis<T> for ChebyshevBasis<T> {
     }
 }
 
+fn format_cheb_term<T: Value>(function: &str, degree: i32, coef: T) -> Option<display::Term> {
+    let sign = Sign::from_coef(coef);
+
+    let x = display::unicode::subscript("s");
+    let x = format!("x{x}");
+
+    let rank = display::unicode::subscript(&degree.to_string());
+    let func = if degree > 0 {
+        format!("{function}{rank}({x})")
+    } else {
+        String::new()
+    };
+    let coef = display::format_coefficient(coef, degree, DEFAULT_PRECISION)?;
+
+    let glue = if coef.is_empty() || func.is_empty() {
+        ""
+    } else {
+        "·"
+    };
+
+    let body = format!("{coef}{glue}{func}");
+    Some(display::Term::new(sign, body))
+}
+
 impl<T: Value> display::PolynomialDisplay<T> for ChebyshevBasis<T> {
     fn format_term(&self, degree: i32, coef: T) -> Option<display::Term> {
-        let sign = Sign::from_coef(coef);
-
-        let x = display::unicode::subscript("s");
-        let x = format!("x{x}");
-
-        let rank = display::unicode::subscript(&degree.to_string());
-        let func = if degree > 0 {
-            format!("T{rank}({x})")
-        } else {
-            String::new()
-        };
-        let coef = display::format_coefficient(coef, degree, DEFAULT_PRECISION)?;
-
-        let glue = if coef.is_empty() || func.is_empty() {
-            ""
-        } else {
-            "·"
-        };
-
-        let body = format!("{coef}{glue}{func}");
-        Some(display::Term::new(sign, body))
+        format_cheb_term("T", degree, coef)
     }
 
     fn format_scaling_formula(&self) -> Option<String> {
@@ -226,17 +241,56 @@ impl<T: Value> display::PolynomialDisplay<T> for ChebyshevBasis<T> {
     }
 }
 
+impl<T: Value> RootFindingBasis<T> for ChebyshevBasis<T> {
+    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>> {
+        let mut roots = Vec::with_capacity(coefs.len() - 1);
+        // Xk = cos((2k+1)π/(2n)) for k=0..n-1
+        // All roots are real in [-1, 1]
+        let n = coefs.len() - 1;
+        let two_n = T::from_positive_int(2 * n);
+        for k in 0..coefs.len() - 1 {
+            let k = n - 1 - k; // Reverse order to get ascending roots
+
+            let tk1 = 2 * k + 1;
+            let tk1 = T::from_positive_int(tk1);
+
+            let x = (T::pi() * tk1 / two_n).cos();
+            let x = self.denormalize_x(x);
+            roots.push(Root::Real(x));
+        }
+
+        Ok(roots)
+    }
+}
+
+impl<T: Value> DifferentialBasis<T> for ChebyshevBasis<T> {
+    type B2 = SecondFormChebyshevBasis<T>;
+
+    fn derivative(&self, coefficients: &[T]) -> Result<(Self::B2, Vec<T>)> {
+        // Drop the constant term and multiply each coefficient by its degree
+        let mut coefs = coefficients[1..].to_vec();
+        for (i, c) in coefs.iter_mut().enumerate() {
+            *c *= T::from_positive_int(i + 1);
+        }
+
+        let basis = SecondFormChebyshevBasis::from_normalizer(self.normalizer);
+        Ok((basis, coefs))
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use std::f64::consts::PI;
+    use core::f64;
 
     use crate::{
         assert_fits, function,
         score::Aic,
-        statistics::{DegreeBound, Tolerance},
-        test_basis_build, test_basis_functions, test_basis_normalizes, test_basis_orthogonal,
-        transforms::ApplyNoise,
+        statistics::DegreeBound,
+        test::basis_assertions::{
+            assert_basis_functions_close, assert_basis_matrix_row, assert_basis_normalizes,
+            assert_basis_orthogonal,
+        },
         ChebyshevFit,
     };
 
@@ -244,43 +298,34 @@ mod tests {
 
     #[test]
     fn test_chebyshev() {
+        // Large polynomial recover test
         function!(test(x) = 8.0 + 7.0 x^1 + 6.0 x^2 + 5.0 x^3 + 4.0 x^4 + 3.0 x^5 + 2.0 x^6);
-        let data = test
-            .solve_range(0.0..=1000.0, 10.0)
-            .apply_normal_noise(Tolerance::Relative(0.1), None);
+        let data = test.solve_range(0.0..=1000.0, 10.0);
         let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         let basis = fit.basis().clone();
 
         // Orthogonality test points
-        let gauss_xs = ChebyshevBasis::gauss_chebyshev_nodes(100);
-        let gauss_ws = ChebyshevBasis::gauss_chebyshev_weights(100);
-        test_basis_orthogonal!(
-            basis,
-            norm_fn = norm_fn,
-            values = gauss_xs,
-            weights = gauss_ws,
-            n_funcs = 7,
-            eps = 1e-12
-        );
+        assert_basis_orthogonal(&basis, 7, 100, 1e-12);
 
         // Basic evaluations at x = 0.5
         let x_norm = basis.normalize_x(0.5);
-        test_basis_build!(
-            basis,
+        assert_basis_matrix_row(
+            &basis,
             0.5,
             &[
                 /*T0*/ 1.0,
                 /*T1*/ x_norm,
                 /*T2*/ 2.0 * x_norm * x_norm - 1.0,
-                /*T3*/ 2.0 * x_norm * (2.0 * x_norm * x_norm - 1.0) - x_norm
-            ]
+                /*T3*/ 2.0 * x_norm * (2.0 * x_norm * x_norm - 1.0) - x_norm,
+            ],
         );
-        test_basis_functions!(basis, 0.0, &[1.0, 0.0, -1.0, 0.0]);
-        test_basis_functions!(basis, 1.0, &[1.0, 1.0, 1.0, 1.0]);
-        test_basis_functions!(basis, -1.0, &[1.0, -1.0, 1.0, -1.0]);
+
+        assert_basis_functions_close(&basis, 0.0, &[1.0, 0.0, -1.0, 0.0], f64::EPSILON);
+        assert_basis_functions_close(&basis, 1.0, &[1.0, 1.0, 1.0, 1.0], f64::EPSILON);
+        assert_basis_functions_close(&basis, -1.0, &[1.0, -1.0, 1.0, -1.0], f64::EPSILON);
 
         // Normalization (should map x in [-1,1])
-        test_basis_normalizes!(basis, 0.0..1000.0, -1.0..1.0);
+        assert_basis_normalizes(&basis, (0.0, 1000.0), (-1.0, 1.0));
 
         // k() checks
         assert_eq!(basis.k(3), 4);
@@ -289,17 +334,10 @@ mod tests {
         // Now we convert the fit to monomial and compare the solutions
         let monomial_fit = fit.as_monomial().expect("Failed to convert to monomial");
         assert_fits!(&monomial_fit, &fit, 1.0);
-    }
 
-    //
-    // orthogonal points and weights for Gauss-Chebyshev quadrature
-    //
-
-    fn norm_fn(n: usize) -> f64 {
-        if n == 0 {
-            PI
-        } else {
-            PI / 2.0
-        }
+        // Calculus tests - go T(x) -> U(x) -> V(x) -> U(x) -> T(x)
+        // First let's save the lowest 2 coefficients for comparison
+        let poly = ChebyshevBasis::new_polynomial((0.0, 1000.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
+        test_derivation!(poly, &poly.basis().normalizer, with_reverse = true);
     }
 }

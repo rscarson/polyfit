@@ -16,9 +16,9 @@
 /// ![Failure Plot](https://github.com/rscarson/polyfit/blob/main/.github/assets/example_fail.png)
 ///
 /// ```rust
-/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, Tolerance}, score::Aic, function, transforms::ApplyNoise, assert_fits};
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::DegreeBound, score::Aic, function, transforms::{Strength, ApplyNoise}, assert_fits};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
+/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Strength::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
 /// assert_fits!(&test, &fit, 0.9);
@@ -36,9 +36,10 @@ macro_rules! assert_fits {
             // Create a failure plot
             #[cfg(feature = "plotting")]
             $crate::plot!(
-                fit,
-                functions = [poly],
-                title = &format!("Polynomial Fit (R² = {r2:.4})"),
+                [fit, poly],
+                {
+                    title: format!("Polynomial Fit (R² = {r2:.4})")
+                },
                 prefix = "assert_fits"
             );
 
@@ -80,9 +81,9 @@ macro_rules! assert_fits {
 ///
 /// # Example
 /// ```rust
-/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::{DegreeBound, Tolerance}, score::Aic, function, transforms::ApplyNoise, assert_r_squared};
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::DegreeBound, score::Aic, function, transforms::{ApplyNoise, Strength}, assert_r_squared};
 /// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
-/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Tolerance::Relative(0.1), None);
+/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Strength::Relative(0.1), None);
 ///
 /// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
 /// assert_r_squared!(fit, 0.95);
@@ -101,7 +102,7 @@ macro_rules! assert_r_squared {
                 #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
-                    title = &format!("Polynomial Fit (R² = {r2:.4})"),
+                    { title: format!("Polynomial Fit (R² = {r2:.4})") },
                     prefix = "assert_r_squared"
                 );
 
@@ -178,7 +179,7 @@ macro_rules! assert_residuals_normal {
             if p_value < tolerance {
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
-                $crate::plot!(residuals, title = &format!("Residuals not normally distributed"), prefix = "assert_residuals_normal");
+                $crate::plot!(residuals, { title: format!("Residuals not normally distributed") }, prefix = "assert_residuals_normal");
 
                 let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals_y);
                 panic!(
@@ -232,7 +233,7 @@ macro_rules! assert_residual_spread {
                 #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
-                    title = &format!("Abnormal Residuals"),
+                    { title: format!("Abnormal Residuals") },
                     prefix = "assert_residual_spread"
                 );
 
@@ -273,7 +274,7 @@ macro_rules! assert_monotone {
                 #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
-                    title = &format!("Monotonicity Violation at x={first}"),
+                    { title: format!("Monotonicity Violation at x={first}") },
                     prefix = "assert_monotone"
                 );
 
@@ -320,7 +321,44 @@ macro_rules! assert_y {
     }};
 }
 
+/// Asserts that one polynomial is the derivative of another over a specified domain.
+///
+/// This macro checks that the derivative of `f` matches `f_prime` at multiple points within the given domain.
+///
+/// If the assertion fails, a plot showing both functions will be generated in `<target/test_output>`.
+///
+/// # Arguments
+/// * `$f` - The original polynomial function.
+/// * `$f_prime` - The polynomial function that should be the derivative of `$f`.
+/// * `$norm` - The domain normalizer used for both polynomials. Use `DomainNormalizer::default()` if none.
+/// * `$domain` - The range of x-values over which to check the derivative relationship. (inclusive range)
+///
+/// # Panics
+/// Panics if the derivative relationship does not hold within a reasonable tolerance.
+#[macro_export]
+macro_rules! assert_is_derivative {
+    ($f:expr, $f_prime:expr, $norm:expr, $domain:expr $(, f_lbl = $f_lbl:literal)? $(, fprime_lbl = $fprime_lbl:literal)?) => {
+        if let Err(e) = $crate::statistics::is_derivative(&$f, &$f_prime, $norm, &$domain) {
+            #[cfg(feature = "plotting")]
+            {
+                $crate::plot!([$f, $f_prime], {
+                    x_range: Some(*$domain.start()..*$domain.end()),
+                });
+            }
+
+            #[allow(unused_mut, unused_assignments)] let mut f_lbl = "f(x)"; $(f_lbl = $f_lbl;)?
+            #[allow(unused_mut, unused_assignments)] let mut fprime_lbl = "f'(x)"; $(fprime_lbl = $fprime_lbl;)?
+
+            eprintln!("{f_lbl}={}", $f);
+            eprintln!("{fprime_lbl}={}", $f_prime);
+            panic!("{e}");
+        }
+    };
+}
+
 /// Asserts that two floating-point values are approximately equal within a small tolerance (epsilon).
+///
+/// Also works for complex numbers.
 ///
 /// This is useful for comparing computed values where exact equality is not expected due to rounding errors.
 /// - Uses the machine epsilon for the floating-point type as the tolerance.
@@ -341,18 +379,24 @@ macro_rules! assert_y {
 /// ```
 #[macro_export]
 macro_rules! assert_close {
-    ($a:expr, $b:expr $(, $msg:expr $(, $($args:tt),*)?)?) => {{
-        fn assert_close<T: $crate::value::Value>(a: T, b: T, msg: &str) {
-            assert!(
-                a == b || $crate::value::Value::abs(a - b) <= T::epsilon(),
-                "{msg}: {a} != {b}"
-            );
+    ($a:expr, $b:expr $(, $msg:expr $(, $($args:tt),*)?)?) => { #[allow(clippy::float_cmp)] {
+        #[allow(unused_imports)] use $crate::nalgebra::ComplexField;
+        fn epsilon<C: $crate::nalgebra::ComplexField<RealField = T>, T: $crate::value::Value>(_: C) -> T {
+            T::epsilon()
         }
 
         #[allow(unused_mut, unused_assignments)] let mut msg = "Values not close".to_string();
         $( msg = format!($msg, $($($args)?)?); )?
 
-        assert_close($a, $b, &msg);
+        let (a, b) = ($a, $b);
+        assert!(
+            a.imaginary() == b.imaginary() || $crate::value::Value::abs(a.imaginary() - b.imaginary()) <= epsilon($a),
+            "{msg} - imaginary parts differ {} != {}", a.imaginary(), b.imaginary()
+        );
+        assert!(
+            a.real() == b.real() || $crate::value::Value::abs(a.real() - b.real()) <= epsilon($a),
+            "{msg}: {a} != {b}"
+        );
     }};
 }
 
@@ -398,12 +442,13 @@ macro_rules! assert_all_close {
     };
 }
 #[cfg(test)]
+#[cfg(feature = "transforms")]
 mod tests {
     use crate::{
         function,
         score::Aic,
-        statistics::{DegreeBound, Tolerance},
-        transforms::ApplyNoise,
+        statistics::DegreeBound,
+        transforms::{ApplyNoise, Strength},
         MonomialFit,
     };
 
@@ -431,7 +476,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_normal_noise(Tolerance::Absolute(0.01), None);
+            .apply_normal_noise(Strength::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_fits!(&poly, &fit, 0.99);
     }
@@ -441,7 +486,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_normal_noise(Tolerance::Absolute(0.01), None);
+            .apply_normal_noise(Strength::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_r_squared!(&fit, 0.98);
     }
@@ -451,7 +496,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_normal_noise(Tolerance::Absolute(0.01), None);
+            .apply_normal_noise(Strength::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_residuals_normal!(&fit, 0.01);
     }
@@ -461,7 +506,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_normal_noise(Tolerance::Absolute(0.01), None);
+            .apply_normal_noise(Strength::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_residual_spread!(&fit, 80000.0);
     }

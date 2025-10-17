@@ -1,179 +1,228 @@
-/// Macro for testing the construction of a polynomial basis.
+//! A set of macros and functions for testing polynomial bases.
+use crate::{
+    assert_close,
+    basis::{Basis, OrthogonalBasis},
+    value::Value,
+};
+
+/// Asserts that a basis correctly fills a matrix row with expected values.
 ///
-/// This verifies that a basis correctly
-/// populates a Vandermonde-style row and respects the `start_index` offset.
+/// Also verifies that the `start_index` parameter is respected by filling the row
+/// multiple times with increasing offsets.
 ///
 /// # Parameters
-/// - `$basis`: The basis instance to test (must implement [`crate::basis::Basis`]).
-/// - `$x`: The x-value at which to evaluate the basis.
-/// - `$matrix_values`: Slice of expected basis function values at `x`.
+/// - `basis`: The basis instance to test (must implement [`crate::basis::Basis`]).
+/// - `x`: The point at which to evaluate the basis functions.
+/// - `expected`: Slice of expected values corresponding to each basis function.
 ///
 /// # Panics
-/// This macro will panic if the filled row does not match the expected values
-/// or if the `start_index` behavior is incorrect.
-///
-/// # Example
-/// ```rust
-/// # use polyfit::{basis::MonomialBasis, test_basis_build};
-/// test_basis_build!(MonomialBasis::default(), 0.5, &[1.0, 0.5, 0.25]);
-/// ```
-#[macro_export]
-macro_rules! test_basis_build {
-    ($basis:expr, $x:expr, $matrix_values:expr) => {{
-        fn test_basis_build<B: $crate::basis::Basis<T>, T: $crate::value::Value>(
-            basis: &B,
-            x: T,
-            matrix_values: &[T],
-        ) {
-            let mut zeros = 0;
-            let x = basis.normalize_x(x);
-            while zeros <= matrix_values.len() {
-                let mut matrix = $crate::nalgebra::DMatrix::<T>::zeros(1, matrix_values.len());
-                basis.fill_matrix_row(zeros, x, matrix.row_mut(0));
+/// Panics if any filled matrix value deviates from the expected value.
+pub fn assert_basis_matrix_row<B: Basis<T>, T: Value>(basis: &B, x: T, expected: &[T]) {
+    let mut zeros = 0;
+    let x = basis.normalize_x(x);
+    while zeros <= expected.len() {
+        let mut matrix = nalgebra::DMatrix::<T>::zeros(1, expected.len());
+        basis.fill_matrix_row(zeros, x, matrix.row_mut(0));
 
-                // Make sure the first zeros elements are 0
-                for i in 0..zeros {
-                    assert_eq!(matrix[(0, i)], T::zero(), "Matrix col {i} should be zero");
-                }
-
-                basis.fill_matrix_row(0, x, matrix.row_mut(0));
-                for i in 0..matrix_values.len() {
-                    $crate::assert_close!(matrix[(0, i)], matrix_values[i], "Matrix col {i}");
-                }
-
-                zeros += 1;
-            }
+        // Make sure the first zeros elements are 0
+        for i in 0..zeros {
+            assert_eq!(matrix[(0, i)], T::zero(), "Matrix col {i} should be zero");
         }
-        test_basis_build(&$basis, $x, $matrix_values);
-    }};
+
+        basis.fill_matrix_row(0, x, matrix.row_mut(0));
+        for i in 0..expected.len() {
+            assert_close!(matrix[(0, i)], expected[i], "Matrix col {i}");
+        }
+
+        zeros += 1;
+    }
 }
 
-/// Macro for asserting that a polynomial basis evaluates to expected values.
+/// Asserts that a basis evaluates to expected values at a given x.
 ///
 /// # Parameters
-/// - `$basis`: The basis instance to test (must implement [`crate::basis::Basis`]).
-/// - `$x`: The point at which to evaluate the basis functions.
-/// - `$expected`: Slice of expected values corresponding to each basis function.
+/// - `basis`: The basis instance to test (must implement [`crate::basis::Basis`]).
+/// - `x`: The point at which to evaluate the basis functions.
+/// - `expected`: Slice of expected values corresponding to each basis function.
+/// - `tol`: Tolerance for comparison.
 ///
 /// # Panics
-/// Panics if any basis function does not match the expected value.
-///
-/// # Example
-/// ```rust
-/// # use polyfit::{basis::{Basis, MonomialBasis}, test_basis_functions};
-/// let basis = MonomialBasis::default();
-/// let expected = vec![1.0, 0.5, 0.25]; // expected basis function values at x=0.5
-/// test_basis_functions!(basis, 0.5, &expected);
-/// ```
-#[macro_export]
-macro_rules! test_basis_functions {
-    ($basis:expr, $x:expr, $expected:expr) => {{
-        fn test_basis_functions<B: $crate::basis::Basis<T>, T: $crate::value::Value>(
-            basis: &B,
-            x: T,
-            expected: &[T],
-        ) {
-            for (i, &expected) in expected.iter().enumerate() {
-                let value = basis.solve_function(i, x);
-                $crate::assert_close!(value, expected, "B_{i}({x})");
-            }
+/// Panics if any basis function value deviates from the expected value by more than `tol`
+pub fn assert_basis_functions_close<B: Basis<T>, T: Value>(
+    basis: &B,
+    x: T,
+    expected: &[T],
+    tol: T,
+) {
+    let mut actual = vec![T::zero(); expected.len()];
+    for i in 0..expected.len() {
+        actual[i] = basis.solve_function(i, x);
+    }
+
+    for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        if a.abs_sub(e) > tol {
+            eprintln!("Expected ∑{expected:?}");
+            eprintln!("Got      ∑{actual:?}");
+            panic!("Basis function {i} differs: {a:?} != {e:?} (tol {tol:?})");
         }
-        test_basis_functions(&$basis, $x, $expected);
-    }};
+    }
 }
 
-/// Macro to test that a basis is orthogonal over a set of x values.
+/// Tests that a basis is orthogonal over a set of x values.
+///
+/// Constructs the Gram matrix using the basis's `gauss_matrix` method, and checks:
+/// - Diagonal elements match the expected normalization within `tol`.
+/// - Off-diagonal elements are close to zero within `tol`.
+///
+/// On failure, prints the Gram matrix for debugging.
 ///
 /// # Parameters
-/// - `$basis`: The basis instance to test.
-/// - `norm_fn`: A function or closure that takes a basis function index and returns its expected norm (integral of the square).
-/// - `values`: Slice of x values at which to evaluate the basis functions.
-/// - `weights`: Slice of weights corresponding to each x value for weighted quadrature.
-/// - `n_funcs`: Number of basis functions to test.
-/// - `eps`: Tolerance for orthogonality checks.
+/// - `basis`: The basis instance to test (must implement [`crate::basis::OrthogonalBasis`]).
+/// - `functions`: Number of basis functions to test.
+/// - `nodes`: Number of quadrature nodes to use for integration (must be >= `functions`).
+/// - `tol`: Tolerance for orthogonality checks.
 ///
 /// # Panics
-/// Panics if any pair of basis functions are not orthogonal within the given tolerance.
-///
-/// See the implementation on Chebyshev or Legendre polynomials for examples.
-#[macro_export]
-macro_rules! test_basis_orthogonal {
-    (
-        $basis:expr, norm_fn = $norm_fn:expr,
-        values = $xs:expr, weights = $weights:expr,
-        n_funcs = $n_funcs:expr, eps = $tol:expr
-    ) => {{
-        fn test_orthogonality<T>(basis: impl Fn(usize, T) -> T, norm: impl Fn(usize) -> T, n_funcs: usize, xs: &[T], weights: &[T], tol: T)
-        where
-            T: $crate::value::Value,
-        {
-            assert_eq!(xs.len(), weights.len());
-            assert!(weights.len() >= n_funcs, "need >= n_funcs quadrature nodes");
-
-            for i in 0..n_funcs {
-                for j in i..n_funcs {
-                    // weighted quadrature: sum_i w_i * phi_i(x_i) * phi_j(x_i)
-                    let mut sum: T = T::zero();
-                    for (&x, &w) in xs.iter().zip(weights.iter()) {
-                        sum += basis(i, x) * basis(j, x) * w;
-                    }
-
-                    if i == j {
-                        // exact integral: ∫_{-1..1} P_n^2 = 2/(2n+1)
-                        let expected = norm(i);
-                        let err = $crate::value::Value::abs(sum - expected);
-                        assert!(
-                            err <= tol,
-                            "Function {i} norm mismatch: got {sum:?} expected {expected:?} err={err:?} > {tol:?}"
-                        );
-                    } else {
-                        let abs_sum = $crate::value::Value::abs(sum);
-                        assert!(
-                            abs_sum <= tol,
-                            "Functions {i} and {j} not orthogonal: inner product = {sum:?} > {tol:?}"
-                        );
-                    }
-                }
+/// Panics if the orthogonality conditions are not met.
+pub fn assert_basis_orthogonal<B, T>(basis: &B, functions: usize, nodes: usize, tol: T)
+where
+    T: Value,
+    B: OrthogonalBasis<T>,
+{
+    assert!(nodes >= functions, "need >= `functions` quadrature nodes");
+    let gram_matrix = basis.gauss_matrix(functions, nodes);
+    for i in 0..functions {
+        for j in i..functions {
+            let val = gram_matrix[(i, j)];
+            if i == j {
+                let expected = basis.gauss_normalization(i);
+                let err = Value::abs(val - expected);
+                assert!(
+                    err <= tol,
+                    "gram[{i},{j}] : {val:?} != {expected:?} ; {err:?} > {tol:?}\n{gram_matrix}"
+                );
+            } else {
+                let abs_val = Value::abs(val);
+                assert!(
+                    abs_val <= tol,
+                    "gram[{i},{j}] : {val:?} != 0 ; {abs_val:?} > {tol:?}\n{gram_matrix}"
+                );
             }
         }
-
-        test_orthogonality(
-            |j, x| $basis.solve_function(j, x),
-            $norm_fn,
-            $n_funcs,
-            &$xs,
-            &$weights,
-            $tol,
-        );
-    }};
+    }
 }
 
-/// Tests that a basis normalizes input values correctly.
-///
-/// Use `test_basis_normalizes!` instead of calling the function directly.
+/// Asserts that a basis normalizes input values correctly.
 ///
 /// # Parameters
-/// - `$basis`: The basis instance to test.
-/// - `$src_range`: Source range of input values (e.g., `0.0..1.0`).
-/// - `$dst_range`: Expected normalized range (e.g., `-1.0..1.0`).
+/// - basis: The basis instance to test (must implement [`crate::basis::Basis`]).
+/// - `src_range`: Source range of input values (e.g., `(0.0, 1.0)`).
+/// - `dst_range`: Expected normalized range (e.g., `(−1.0, 1.0)`).
 ///
 /// # Panics
 /// Panics if the normalized start or end values deviate from the expected range by more than `T::epsilon()`.
-#[macro_export]
-macro_rules! test_basis_normalizes {
-    ($basis:expr, $src_range:expr, $dst_range:expr) => {{
-        fn test_basis_normalizes<B: $crate::basis::Basis<T>, T: $crate::value::Value>(
-            basis: &B,
-            src_range: ::std::ops::Range<T>,
-            dst_range: ::std::ops::Range<T>,
-        ) {
-            let min = basis.normalize_x(src_range.start);
-            $crate::assert_close!(min, dst_range.start, "Min normalization failed");
+pub fn assert_basis_normalizes<B: Basis<T>, T: Value>(
+    basis: &B,
+    src_range: (T, T),
+    dst_range: (T, T),
+) {
+    let min = basis.normalize_x(src_range.0);
+    assert_close!(min, dst_range.0, "Min normalization failed");
 
-            let max = basis.normalize_x(src_range.end);
-            $crate::assert_close!(max, dst_range.end, "Max normalization failed");
+    let max = basis.normalize_x(src_range.1);
+    assert_close!(max, dst_range.1, "Max normalization failed");
+}
+
+/// Uses a numerical method to comfirm that f'(x) is the derivative of f(x), and that f''(x) is the derivative of f'(x).
+macro_rules! test_derivation {
+    ($f:expr, $norm:expr $(, with_reverse=$bool:literal)?) => {
+        let norm = $norm;
+        let f = &$f;
+
+        let domain = $norm.src_range();
+        let domain = domain.0..=domain.1;
+
+        let f_prime = f.derivative().expect("Failed to compute first derivative");
+        let f_double_prime = f_prime
+            .derivative()
+            .expect("Failed to compute second derivative");
+
+        #[cfg(feature = "plotting")]
+        {
+            let critical_points = $f.critical_points(domain.clone()).expect("Failed to compute critical points");
+            let crit_markers = $crate::basis::CriticalPoint::as_plotting_element(&critical_points);
+
+            $crate::plot!([f, f_prime, crit_markers], {
+                x_range: Some(*domain.start()..*domain.end()),
+            });
         }
 
-        test_basis_normalizes(&$basis, $src_range, $dst_range);
-    }};
+        $crate::assert_is_derivative!(f, f_prime, norm, domain);
+        $crate::assert_is_derivative!(f_prime, f_double_prime, norm, domain, f_lbl = "f'(x)", fprime_lbl = "f''(x)");
+
+        $(
+            if $bool {
+                let c0 = f.coefficients()[0];
+                let c1 = f.coefficients()[1];
+
+                let f_prime2 = f_double_prime.integral(Some(c1)).expect("Failed to integrate f''(x)");
+                let f2 = f_prime2.integral(Some(c0)).expect("Failed to integrate f'(x)");
+
+                $crate::assert_is_derivative!(f_prime2, f_double_prime, norm, &domain, f_lbl = "∫(f'')(x)", fprime_lbl = "f''(x)");
+                $crate::assert_is_derivative!(f2, f_prime2, norm, &domain, f_lbl = "∫∫(f'')(x)", fprime_lbl = "∫(f'')(x)");
+            }
+        )?
+    };
+}
+
+/// Uses a numerical method to comfirm that g(x) is the integral of f(x), and that h(x) is the integral of g(x).
+macro_rules! test_integration {
+    ($f:expr, $norm:expr $(, with_reverse=$bool:literal)?) => {
+        let normalizer = $norm;
+        let f = &$f;
+
+        let domain = $norm.src_range();
+        let domain = domain.0..=domain.1;
+
+        let c0 = f.coefficients()[0];
+        let c1 = f.coefficients()[1];
+
+        let g = f.integral(Some(c1)).expect("Failed to compute first integral");
+        let h = g.integral(Some(c0)).expect("Failed to compute second integral");
+
+        $crate::assert_is_derivative!(g, f, normalizer, domain, fprime_lbl = "g(x)");
+        $crate::assert_is_derivative!(
+            h,
+            g,
+            normalizer,
+            domain,
+            f_lbl = "g(x)",
+            fprime_lbl = "h(x)"
+        );
+
+        $(
+            if $bool {
+                let g2 = h.derivative().expect("Failed to compute first derivative");
+                let f2 = g2.derivative().expect("Failed to compute second derivative");
+
+                $crate::assert_is_derivative!(
+                    h,
+                    g2,
+                    normalizer,
+                    domain,
+                    f_lbl = "h(x)",
+                    fprime_lbl = "d(h(x))/dx"
+                );
+
+                $crate::assert_is_derivative!(
+                    g2,
+                    f2,
+                    normalizer,
+                    domain,
+                    f_lbl = "d(h(x))/dx",
+                    fprime_lbl = "d(d(h(x))/dx)/dx"
+                );
+            }
+        )?
+    };
 }

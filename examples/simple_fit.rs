@@ -1,7 +1,12 @@
+//! A simple example of fitting a polynomial to data.
+//!
+//! This example loads some sample data from a JSON file, fits a Chebyshev polynomial to it,
+//! prunes insignificant terms, and prints the resulting polynomial.
+//!
 use polyfit::{
     error::Error,
     score::Aic,
-    statistics::{Confidence, DegreeBound, Tolerance},
+    statistics::{Confidence, DegreeBound},
     ChebyshevFit,
 };
 
@@ -48,34 +53,10 @@ fn main() -> Result<(), Error> {
     let _fitted_points = fit.solve([42.0, 76.0, 89.9])?;
 
     //
-    // Or maybe you want to detect outliers?
-    //
-    // This will get a range, called a confidence band, where we expect 99% of points to fall within.
-    // Any points outside this band are potential outliers.
-    // But - the data may have noise, so we can specify a noise tolerance to avoid flagging points
-    // In this case I happen to know the data has about 10% noise, so I set a tolerance of 0.1
-    // Mathematically this treats noise_tolerance as a fraction of the standard deviation of the data to tolerate.
-    let covariance = fit.covariance()?;
-    for (x, y, confidence_band) in
-        covariance.outliers(Confidence::P99, Some(Tolerance::Relative(0.1)))?
-    {
-        println!(
-            "x={x} may be an outlier. y={y} outside confidence range: {} - {}",
-            confidence_band.min(),
-            confidence_band.max()
-        );
-    }
-
-    //
     // If you have the `plotting` feature enabled, you can plot the fit and data to a PNG file:
     // The file will be created in the `target/plot_output/` directory with a unique name.
     #[cfg(feature = "plotting")]
-    polyfit::plot!(
-        fit,
-        prefix = "example",
-        confidence = Confidence::P99,
-        noise_tolerance = Tolerance::Relative(0.1)
-    );
+    polyfit::plot!(fit, prefix = "example");
 
     Ok(())
 }
@@ -84,11 +65,11 @@ fn main() -> Result<(), Error> {
 #[cfg(feature = "transforms")]
 fn gen_sample_data() {
     use polyfit::function;
-    use polyfit::transforms::ApplyNoise;
+    use polyfit::transforms::{ApplyNoise, Strength};
     function!(y(x) = 5.3 x^2 + 3.0 x + 1.0);
     let data = y
         .solve_range(0.0..=100.0, 1.0)
-        .apply_normal_noise(Tolerance::Relative(0.1), None)
+        .apply_normal_noise(Strength::Relative(0.1), None)
         .apply_poisson_noise(0.05, None);
 
     // data to json

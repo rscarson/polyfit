@@ -1,7 +1,7 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis},
+    basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis, OrthogonalBasis},
     display::{self, format_coefficient, Sign, Term, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
@@ -81,6 +81,11 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
     }
 
     #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        self.normalizer.denormalize(x)
+    }
+
+    #[inline(always)]
     fn k(&self, degree: usize) -> usize {
         2 * degree + 1
     }
@@ -118,11 +123,7 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
             angle.sin()
         } else {
             // Cosine terms (even indices)
-            #[allow(
-                clippy::manual_div_ceil,
-                reason = "Accidentally looking like your function != is your function"
-            )]
-            let n = (j + 1) / 2;
+            let n = j.div_ceil(2);
 
             // Infallible multiplication for the *n term
             let mut angle = x;
@@ -159,12 +160,12 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
 
 impl<T: Value> display::PolynomialDisplay<T> for FourierBasis<T> {
     fn format_term(&self, degree: i32, coef: T) -> Option<Term> {
+        if degree < self.polynomial_terms.clamped_cast() {
+            return MonomialBasis::format_term(&MonomialBasis::default(), degree, coef);
+        }
+
         let sign = Sign::from_coef(coef);
         let coef = format_coefficient(coef, degree, DEFAULT_PRECISION)?;
-
-        if degree == 0 {
-            return Some(Term { sign, body: coef });
-        }
 
         // frequency index
         let n = (degree + 1) / 2;
@@ -190,12 +191,13 @@ impl<T: Value> display::PolynomialDisplay<T> for FourierBasis<T> {
         let x = display::unicode::subscript("s");
         let x = format!("x{x}");
 
-        let (src_min, src_max) = self.normalizer.src_range();
-        Some(format!("{x} = T[ {src_min}..{src_max} -> 0..2π ]"))
+        Some(format!("{x} = {}", self.normalizer))
     }
 }
 
 impl<T: Value> IntegralBasis<T> for FourierBasis<T> {
+    type B2 = Self;
+
     fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self, Vec<T>)> {
         if coefficients.is_empty() {
             return Ok((self.clone(), vec![constant]));
@@ -236,6 +238,8 @@ impl<T: Value> IntegralBasis<T> for FourierBasis<T> {
 }
 
 impl<T: Value> DifferentialBasis<T> for FourierBasis<T> {
+    type B2 = Self;
+
     fn derivative(&self, coefficients: &[T]) -> Result<(Self, Vec<T>)> {
         if coefficients.len() <= 1 {
             return Ok((self.clone(), vec![T::zero()]));
@@ -260,122 +264,59 @@ impl<T: Value> DifferentialBasis<T> for FourierBasis<T> {
 
             // Fourier expects pairs of (sin, cos), so originally we had (a, b)
             // Now under differentiation we need (b, -a) to get the right functions
-            derivative_coeffs.push(n * b);
-            derivative_coeffs.push(n * -a);
+            derivative_coeffs.push(n * -b);
+            derivative_coeffs.push(n * a);
 
             n += T::one(); // increment frequency index
         }
 
         let basis = Self {
             normalizer: self.normalizer,
-            polynomial_terms: self.polynomial_terms.saturating_sub(1),
+            polynomial_terms: (self.polynomial_terms - 1).max(1),
         };
         Ok((basis, derivative_coeffs))
     }
+}
 
-    fn critical_points(&self, dx_coefs: &[T]) -> Result<Vec<T>> {
-        //
-        // We will use tangents to build a monomial form over one period [0, 2π]
-        // We can substitute sin(x) = (2t)/(1+t^2) and cos(x) = (1-t^2)/(1+t^2)
-        // where t = tan(x/2). This gives us a rational polynomial in t.
-        let monomial_coefs = build_tangent_polynomial(dx_coefs);
+impl<T: Value> OrthogonalBasis<T> for FourierBasis<T> {
+    fn is_orthogonal(&self) -> bool {
+        self.polynomial_terms < 2
+    }
 
-        // Now we can find the roots of the monomial polynomial
-        let mut points = crate::basis::MonomialBasis::default().critical_points(&monomial_coefs)?;
-
-        //
-        // Finally, we need to convert back to x by de-normalizing and using x = 2 arctan(t)
-        for t in &mut points {
-            *t = T::two() * t.atan(); // x in [0, 2π]
-            *t = self.normalizer.denormalize(*t); // x in original range
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {
+        // Nodes: equispaced in [0, 2π)
+        // Weights: uniform (trapezoid rule for periodic functions)
+        if n == 0 {
+            return vec![(T::zero(), T::one())];
         }
 
-        Ok(points)
-    }
-}
-
-//
-// For critical points, we build a polynomial in t = tan(x/2) using the tangent half-angle formulas
-// sin(x) = 2t / (1 + t^2)
-fn build_tangent_polynomial<T: Value>(dx_coefs: &[T]) -> Vec<T> {
-    let max_n = (dx_coefs.len() - 1) / 2;
-
-    // Initialize base cases: sin(1x) and cos(1x) in terms of t
-    let mut sin_poly: Vec<Vec<T>> = vec![vec![T::zero()]; max_n + 1];
-    let mut cos_poly: Vec<Vec<T>> = vec![vec![T::zero()]; max_n + 1];
-
-    sin_poly[1] = vec![T::zero(), T::two()]; // sin(x) = 2 t
-    cos_poly[1] = vec![T::one(), T::zero(), -T::one()]; // cos(x) = 1 - t^2
-
-    // Build higher harmonics recursively
-    for n in 2..=max_n {
-        sin_poly[n] = poly_sub(
-            &poly_mul(&[T::two(), T::zero(), -T::two()], &sin_poly[n - 1]), // 2 cos(x) * sin((n-1)x)
-            &sin_poly[n - 2],
-        );
-        cos_poly[n] = poly_sub(
-            &poly_mul(&[T::two(), T::zero(), -T::two()], &cos_poly[n - 1]), // 2 cos(x) * cos((n-1)x)
-            &cos_poly[n - 2],
-        );
+        let two_pi = T::two() * T::pi();
+        let w = two_pi / T::from_positive_int(n);
+        (0..n)
+            .map(|k| {
+                let x = T::from_positive_int(k) * w; // x in [0, 2π)
+                (x, w)
+            })
+            .collect()
     }
 
-    // Combine all terms with derivative coefficients
-    let mut poly = vec![T::zero()];
-    let mut n = 1;
-    let mut coef_iter = dx_coefs.iter().skip(1);
-    while let Some(a) = coef_iter.next() {
-        let b = coef_iter.next().copied().unwrap_or(T::zero());
-
-        poly = poly_add(&poly, &scalar_poly(*a, &sin_poly[n]));
-        poly = poly_add(&poly, &scalar_poly(b, &cos_poly[n]));
-
-        n += 1;
-    }
-
-    // multiply numerator by (1 + t^2)^max_n to clear denominators
-    let denom_poly = vec![T::one(), T::zero(), T::one()]; // 1 + t^2
-    let mut full_poly = vec![T::one()]; // start as 1
-
-    for _ in 0..max_n {
-        full_poly = poly_mul(&full_poly, &denom_poly);
-    }
-
-    poly_mul(&poly, &full_poly)
-}
-
-fn scalar_poly<T: Value>(s: T, p: &[T]) -> Vec<T> {
-    p.iter().map(|x| s * *x).collect()
-}
-
-fn poly_add<T: Value>(p1: &[T], p2: &[T]) -> Vec<T> {
-    let n = p1.len().max(p2.len());
-    (0..n)
-        .map(|i| p1.get(i).copied().unwrap_or(T::zero()) + p2.get(i).copied().unwrap_or(T::zero()))
-        .collect()
-}
-
-fn poly_sub<T: Value>(p1: &[T], p2: &[T]) -> Vec<T> {
-    let n = p1.len().max(p2.len());
-    (0..n)
-        .map(|i| p1.get(i).copied().unwrap_or(T::zero()) - p2.get(i).copied().unwrap_or(T::zero()))
-        .collect()
-}
-
-fn poly_mul<T: Value>(p1: &[T], p2: &[T]) -> Vec<T> {
-    let mut res = vec![T::zero(); p1.len() + p2.len() - 1];
-    for (i, a) in p1.iter().enumerate() {
-        for (j, b) in p2.iter().enumerate() {
-            res[i + j] += *a * *b;
+    fn gauss_normalization(&self, n: usize) -> T {
+        if n == 0 {
+            // constant term
+            T::two() * T::pi()
+        } else {
+            // all sin/cos terms
+            T::pi()
         }
     }
-    res
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound, FourierFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
+        test::basis_assertions::assert_basis_orthogonal, FourierFit, Polynomial,
     };
 
     fn get_poly() -> Polynomial<'static, FourierBasis<f64>> {
@@ -400,12 +341,19 @@ mod tests {
         assert_close!(basis.solve_function(3, 0.5), 0.8414709848078965);
 
         // Integrate -> differentiate = Original
+        let poly = FourierBasis::new_polynomial((0.0, 100.0), &[0.5, 2.0, -1.5]).unwrap();
+        test_derivation!(poly, &fit.basis().normalizer, with_reverse = true);
+        test_integration!(poly, &fit.basis().normalizer, with_reverse = true);
+
         let org_coefs = fit.coefficients();
         let (bi, int_coefs) = fit.basis().integral(org_coefs, 0.0).unwrap();
         let (_, diff_coefs) = bi.derivative(&int_coefs).unwrap();
         assert_close!(org_coefs[0], diff_coefs[0]); // constant term
         for (a, b) in org_coefs.iter().skip(1).zip(diff_coefs.iter().skip(1)) {
-            assert_close!(*a, -*b); // Phase-shifted Fourier terms (negated)
+            assert_close!(*a, *b); // Phase-shifted Fourier terms (negated)
         }
+
+        // Orthogonality test points
+        assert_basis_orthogonal(&basis, 7, 100, 1e-12);
     }
 }

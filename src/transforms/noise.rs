@@ -1,11 +1,16 @@
 use rand::SeedableRng;
 use rand_distr::{Bernoulli, Beta, Distribution, Normal, Poisson, Uniform};
 
-use crate::{
-    statistics::{DomainNormalizer, Tolerance},
-    transforms::Transform,
-    value::Value,
-};
+use crate::{statistics::DomainNormalizer, transforms::Transform, value::Value};
+
+/// Strength of noise to add
+pub enum Strength<T> {
+    /// Absolute strength - This is the std-dev of the gaussian distribution
+    Absolute(T),
+
+    /// Relative strength - multiplied by the std-dev of the data to get the std-dev of the gaussian distribution
+    Relative(T),
+}
 
 /// Types of noise based transforms for data
 pub enum NoiseTransform<T: Value> {
@@ -52,7 +57,7 @@ pub enum NoiseTransform<T: Value> {
         rho: T,
 
         /// Standard deviation (spread) of the Gaussian distribution.
-        strength: Tolerance<T>,
+        strength: Strength<T>,
 
         /// `seed` *(optional)*: Fixes the RNG seed for reproducibility.
         /// If not provided, a system RNG will be used each run.
@@ -241,9 +246,9 @@ where
 
                 let rho = num_traits::Float::clamp(*rho, -T::one(), T::one());
 
-                let mut noise_std = match strength {
-                    Tolerance::Absolute(tol) => *tol,
-                    Tolerance::Relative(rel) => {
+                let mut std_dev = match strength {
+                    Strength::Absolute(tol) => *tol,
+                    Strength::Relative(rel) => {
                         let mut mean = T::zero();
                         let mut n = T::zero();
                         for v in &data {
@@ -262,13 +267,13 @@ where
                     }
                 };
 
-                if !num_traits::Float::is_finite(noise_std) {
-                    noise_std = T::zero();
+                if !num_traits::Float::is_finite(std_dev) {
+                    std_dev = T::zero();
                 }
 
-                noise_std = num_traits::Float::max(noise_std, <T as num_traits::Float>::epsilon());
+                std_dev = num_traits::Float::max(std_dev, <T as num_traits::Float>::epsilon());
 
-                let gaussian = Normal::new(T::zero(), noise_std)
+                let gaussian = Normal::new(T::zero(), std_dev)
                     .map_err(|e| e.to_string())
                     .expect("std must be finite!");
 
@@ -388,12 +393,12 @@ where
     /// # Example
     /// ```rust
     /// # use polyfit::transforms::ApplyNoise;
-    /// # use polyfit::statistics::Tolerance;
+    /// # use polyfit::transforms::Strength;
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_normal_noise(Tolerance::Relative(0.1), None);
+    /// let noisy_data = data.apply_normal_noise(Strength::Relative(0.1), None);
     /// ```
     #[must_use]
-    fn apply_normal_noise(self, strength: Tolerance<T>, seed: Option<u64>) -> Self;
+    fn apply_normal_noise(self, strength: Strength<T>, seed: Option<u64>) -> Self;
 
     /// Adds Gaussian noise to a signal or dataset.
     ///
@@ -443,12 +448,12 @@ where
     /// # Example
     /// ```rust
     /// # use polyfit::transforms::ApplyNoise;
-    /// # use polyfit::statistics::Tolerance;
+    /// # use polyfit::transforms::Strength;
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_correlated_noise(Tolerance::Relative(0.1), 0.5, None);
+    /// let noisy_data = data.apply_correlated_noise(Strength::Relative(0.1), 0.5, None);
     /// ```
     #[must_use]
-    fn apply_correlated_noise(self, strength: Tolerance<T>, rho: T, seed: Option<u64>) -> Self;
+    fn apply_correlated_noise(self, strength: Strength<T>, rho: T, seed: Option<u64>) -> Self;
 
     /// Adds uniform noise to a signal or dataset.
     ///
@@ -632,7 +637,7 @@ where
     rand_distr::Exp1: rand_distr::Distribution<T>,
     rand_distr::Open01: rand_distr::Distribution<T>,
 {
-    fn apply_normal_noise(mut self, strength: Tolerance<T>, seed: Option<u64>) -> Self {
+    fn apply_normal_noise(mut self, strength: Strength<T>, seed: Option<u64>) -> Self {
         NoiseTransform::CorrelatedGaussian {
             rho: T::zero(),
             strength,
@@ -642,7 +647,7 @@ where
         self
     }
 
-    fn apply_correlated_noise(mut self, strength: Tolerance<T>, rho: T, seed: Option<u64>) -> Self {
+    fn apply_correlated_noise(mut self, strength: Strength<T>, rho: T, seed: Option<u64>) -> Self {
         NoiseTransform::CorrelatedGaussian {
             rho,
             strength,
@@ -710,7 +715,7 @@ mod tests {
         let data = vec![(1.0, 2.0); 1000];
         let noisy_data =
             data.clone()
-                .apply_correlated_noise(Tolerance::Absolute(0.1), 0.9, Some(42));
+                .apply_correlated_noise(Strength::Absolute(0.1), 0.9, Some(42));
 
         let mut diffs = Vec::new();
         for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {

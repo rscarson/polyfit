@@ -64,7 +64,7 @@
 use crate::value::Value;
 
 mod noise;
-pub use noise::{ApplyNoise, NoiseTransform};
+pub use noise::{ApplyNoise, NoiseTransform, Strength};
 
 mod scale;
 pub use scale::{ApplyScale, ScaleTransform};

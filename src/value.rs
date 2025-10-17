@@ -91,6 +91,30 @@ pub trait Value:
         self < &Self::zero()
     }
 
+    /// Clamps the value between a minimum and maximum.
+    #[must_use]
+    fn clamp(self, min: Self, max: Self) -> Self {
+        nalgebra::RealField::clamp(self, min, max)
+    }
+
+    /// Returns the minimum of two values.
+    #[must_use]
+    fn min(self, other: Self) -> Self {
+        nalgebra::RealField::min(self, other)
+    }
+
+    /// Returns the maximum of two values.
+    #[must_use]
+    fn max(self, other: Self) -> Self {
+        nalgebra::RealField::max(self, other)
+    }
+
+    /// Returns the machine epsilon for the numeric type.
+    #[must_use]
+    fn is_near_zero(&self) -> bool {
+        self.abs() < Self::epsilon()
+    }
+
     /// Returns the sign of the value as a numeric type
     ///
     /// This function returns -1 for negative values, 1 for positive values, and NaN for NaN values.
@@ -379,6 +403,34 @@ pub trait IntClampedCast:
     }
 }
 impl<T: num_traits::PrimInt> IntClampedCast for T {}
+
+/// Trait for infallible floating-point casting with clamping.
+pub trait FloatClampedCast:
+    num_traits::Num + num_traits::NumCast + Copy + PartialOrd + num_traits::float::FloatCore
+{
+    /// Clamps a value to the range of the target type and casts it.
+    fn clamped_cast<T: num_traits::float::FloatCore>(self) -> T {
+        //
+        // Simple case: self is in range of T
+        if let Some(v) = num_traits::cast(self) {
+            return v;
+        }
+
+        let min = match num_traits::cast::<T, Self>(T::min_value()) {
+            Some(v) => v,              // Self can go lower than T - clamp to min
+            None => Self::min_value(), // Self cannot go lower than T
+        };
+
+        let max = match num_traits::cast::<T, Self>(T::max_value()) {
+            Some(v) => v,              // Self can go higher than T - clamp to max
+            None => Self::max_value(), // Self cannot go higher than T
+        };
+
+        let clamped = self.clamp(min, max);
+        num_traits::cast(clamped).expect("clamped value should be in range")
+    }
+}
+impl<T: num_traits::float::FloatCore> FloatClampedCast for T {}
 
 #[cfg(test)]
 mod tests {

@@ -1,12 +1,13 @@
-use std::fmt::Debug;
+use std::{borrow::Cow, fmt::Debug};
 
-use nalgebra::{DMatrix, MatrixViewMut};
+use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut, Normed};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis},
+    basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis, Root, RootFindingBasis},
     display::{self, Sign, DEFAULT_PRECISION},
-    error::{Error, Result},
+    error::Result,
     value::{IntClampedCast, Value},
+    Polynomial,
 };
 
 /// Standard (non-normalized) monomial basis for polynomials.
@@ -55,10 +56,29 @@ impl<T: Value> MonomialBasis<T> {
         let basis = Self::default();
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
     }
+
+    /// Evaluates the polynomial at a given complex x-value using Horner's method.
+    pub fn complex_y(&self, x: Complex<T>, coefficients: &[T]) -> Complex<T> {
+        let mut y = Complex::new(T::zero(), T::zero());
+        for &coef in coefficients.iter().rev() {
+            y = y * x + Complex::from_real(coef);
+        }
+        y
+    }
 }
 impl<T: Value> Basis<T> for MonomialBasis<T> {
     fn from_range(_x_range: std::ops::RangeInclusive<T>) -> Self {
         Self::default()
+    }
+
+    #[inline(always)]
+    fn normalize_x(&self, x: T) -> T {
+        x
+    }
+
+    #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        x
     }
 
     #[inline(always)]
@@ -79,7 +99,11 @@ impl<T: Value> Basis<T> for MonomialBasis<T> {
 
     #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
-        Value::powi(x, j.clamped_cast())
+        match j {
+            0 => T::one(),
+            1 => x,
+            _ => Value::powi(x, j.clamped_cast()),
+        }
     }
 }
 impl<T: Value> IntoMonomialBasis<T> for MonomialBasis<T> {
@@ -89,6 +113,8 @@ impl<T: Value> IntoMonomialBasis<T> for MonomialBasis<T> {
     }
 }
 impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
+    type B2 = Self;
+
     fn derivative(&self, coefficients: &[T]) -> Result<(Self, Vec<T>)> {
         if coefficients.len() <= 1 {
             return Ok((self.clone(), vec![T::zero()]));
@@ -102,14 +128,32 @@ impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
 
         Ok((self.clone(), coefficients))
     }
+}
 
-    fn critical_points(&self, dx_coefs: &[T]) -> Result<Vec<T>> {
-        let n = dx_coefs.len() - 1; // degree of derivative
+impl<T: Value> RootFindingBasis<T> for MonomialBasis<T> {
+    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>> {
+        let n = coefs.len() - 1; // degree of polynomial
         if n == 0 {
             return Ok(vec![]);
         }
 
         let mut companion = DMatrix::zeros(n, n);
+
+        // Reduce to monic form
+        // Get the last non-zero coefficient
+        let leading_index = coefs.iter().rposition(|&c| Value::abs(c) > T::epsilon());
+        let mut coefs = coefs.to_vec();
+        if let Some(idx) = leading_index {
+            let leading = coefs[idx];
+            if Value::abs(leading) > T::epsilon() && leading != T::one() {
+                for c in &mut coefs {
+                    *c /= leading;
+                }
+            }
+        } else {
+            // All coefficients are zero
+            return Ok(vec![]);
+        }
 
         // Fill sub-diagonal with 1s
         for i in 1..n {
@@ -117,28 +161,23 @@ impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
         }
 
         // Fill last column
-        let leading = dx_coefs[n];
+        let leading = coefs[n];
         for i in 0..n {
-            companion[(i, n - 1)] = -dx_coefs[i] / leading;
+            companion[(i, n - 1)] = -coefs[i] / leading;
         }
 
-        let eigs = companion
-            .eigenvalues()
-            .ok_or(Error::Algebra("Failed to compute eigenvalues"))?;
-
-        Ok(eigs
+        let eigs: Vec<Complex<T>> = companion
+            .complex_eigenvalues()
             .into_iter()
-            .filter_map(|c| {
-                if Value::abs(c.imaginary()) < T::epsilon() {
-                    Some(c.real())
-                } else {
-                    None
-                }
-            })
-            .collect())
+            .copied()
+            .collect();
+
+        Ok(categorize_roots(&eigs, |z| self.complex_y(*z, &coefs)))
     }
 }
 impl<T: Value> IntegralBasis<T> for MonomialBasis<T> {
+    type B2 = Self;
+
     fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self, Vec<T>)> {
         let mut coefficients = coefficients.to_vec();
         for (i, c) in coefficients.iter_mut().enumerate() {
@@ -162,10 +201,217 @@ impl<T: Value> display::PolynomialDisplay<T> for MonomialBasis<T> {
     }
 }
 
+/// A monomial polynomial of the form `y = a_n * x^n + ... + a_1 * x + a_0`.
+///
+/// This is the what most people imagine when they hear "polynomial".
+///
+/// # Type Parameters
+/// - `'a`: Lifetime of borrowed coefficients (if used).
+/// - `T`: Numeric type (default `f64`).
+pub type MonomialPolynomial<'a, T = f64> = Polynomial<'a, MonomialBasis<T>, T>;
+
+impl<'a, T: Value> MonomialPolynomial<'a, T> {
+    /// Creates a new borrowed monomial polynomial from a slice of coefficients.
+    ///
+    /// # Parameters
+    /// - `coefficients`: Slice of coefficients, starting from the constant term.
+    ///
+    /// # Example
+    /// ```
+    /// # use polyfit::MonomialPolynomial;
+    /// let poly = MonomialPolynomial::borrowed(&[1.0, 2.0, 3.0]); // 1 + 2x + 3x^2
+    /// ```
+    pub const fn borrowed(coefficients: &'a [T]) -> Self {
+        let degree = coefficients.len().saturating_sub(1);
+        unsafe {
+            Self::from_raw(
+                MonomialBasis::default(),
+                Cow::Borrowed(coefficients),
+                degree,
+            )
+        } // Safety: Monomials expect k+1 coefficients
+    }
+
+    /// Creates a new owned monomial polynomial from a vector of coefficients.
+    ///
+    /// # Parameters
+    /// - `coefficients`: Vec of coefficients, starting from the constant term.
+    ///
+    /// # Example
+    /// ```
+    /// # use polyfit::MonomialPolynomial;
+    /// let poly = MonomialPolynomial::owned(vec![1.0, 2.0, 3.0]); // 1 + 2x + 3x^2
+    /// ```
+    #[must_use]
+    pub const fn owned(coefficients: Vec<T>) -> Self {
+        let degree = coefficients.len().saturating_sub(1);
+        unsafe { Self::from_raw(MonomialBasis::default(), Cow::Owned(coefficients), degree) }
+        // Safety: Monomials expect k+1 coefficients
+    }
+}
+
+impl<T: Value> std::ops::Add for MonomialPolynomial<'_, T> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let (lhs_basis, mut lhs_coeffs, _) = self.into_inner();
+        let (_, rhs_coeffs, _) = rhs.into_inner();
+
+        let k = lhs_coeffs.len().max(rhs_coeffs.len());
+        lhs_coeffs.to_mut().resize(k, T::zero());
+
+        for &c in rhs_coeffs.iter() {
+            lhs_coeffs.to_mut()[0] += c;
+        }
+
+        // Pop off trailing zeros
+        while let Some(&last) = lhs_coeffs.to_mut().last() {
+            if last < T::epsilon() && lhs_coeffs.len() > 1 {
+                lhs_coeffs.to_mut().pop();
+            } else {
+                break;
+            }
+        }
+
+        let degree = lhs_coeffs.len().saturating_sub(1);
+        unsafe { Self::from_raw(lhs_basis, lhs_coeffs, degree) }
+    }
+}
+impl<T: Value> std::ops::AddAssign for MonomialPolynomial<'_, T> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.clone() + rhs;
+    }
+}
+
+impl<T: Value> std::ops::Sub for MonomialPolynomial<'_, T> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let (lhs_basis, mut lhs_coeffs, _) = self.into_inner();
+        let (_, rhs_coeffs, _) = rhs.into_inner();
+
+        let k = lhs_coeffs.len().max(rhs_coeffs.len());
+        lhs_coeffs.to_mut().resize(k, T::zero());
+
+        for (i, &c) in rhs_coeffs.iter().enumerate() {
+            lhs_coeffs.to_mut()[i] -= c;
+        }
+
+        // Pop off trailing zeros
+        while let Some(&last) = lhs_coeffs.to_mut().last() {
+            if last < T::epsilon() && lhs_coeffs.len() > 1 {
+                lhs_coeffs.to_mut().pop();
+            } else {
+                break;
+            }
+        }
+
+        let degree = lhs_coeffs.len().saturating_sub(1);
+        unsafe { Self::from_raw(lhs_basis, lhs_coeffs, degree) }
+    }
+}
+impl<T: Value> std::ops::SubAssign for MonomialPolynomial<'_, T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = self.clone() - rhs;
+    }
+}
+
+impl<T: Value> std::ops::Mul for MonomialPolynomial<'_, T> {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let (lhs_basis, lhs_coeffs, _) = self.into_inner();
+        let (_, rhs_coeffs, _) = rhs.into_inner();
+
+        let mut new_coefs = vec![T::zero(); lhs_coeffs.len() + rhs_coeffs.len() - 1];
+
+        for (i, &a) in lhs_coeffs.iter().enumerate() {
+            for (j, &b) in rhs_coeffs.iter().enumerate() {
+                new_coefs[i + j] += a * b;
+            }
+        }
+
+        // Pop off trailing zeros
+        while let Some(&last) = new_coefs.last() {
+            if last < T::epsilon() && new_coefs.len() > 1 {
+                new_coefs.pop();
+            } else {
+                break;
+            }
+        }
+
+        let degree = lhs_coeffs.len().saturating_sub(1);
+        unsafe { Self::from_raw(lhs_basis, Cow::Owned(new_coefs), degree) }
+    }
+}
+impl<T: Value> std::ops::MulAssign for MonomialPolynomial<'_, T> {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = self.clone() * rhs;
+    }
+}
+
+/// Categorizes the roots of a polynomial into real and complex roots, while removing duplicates.
+pub fn categorize_roots<T: Value, F: Fn(&Complex<T>) -> Complex<T>>(
+    eigenvalues: &[Complex<T>],
+    solver: F,
+) -> Vec<Root<T>> {
+    let mut roots = Vec::new();
+    let mut skip = vec![false; eigenvalues.len()];
+    for i in 0..eigenvalues.len() {
+        if skip[i] {
+            continue;
+        }
+
+        // Skip INF/NAN roots
+        if !eigenvalues[i].imaginary().is_finite() || !eigenvalues[i].real().is_finite() {
+            continue;
+        }
+
+        // Skip roots where P(x) != 0
+        let zero_tol = (T::one() + eigenvalues[i].norm()) * T::epsilon().sqrt();
+        if solver(&eigenvalues[i]).norm() > zero_tol {
+            continue;
+        }
+
+        // Skip future duplicates
+        let conj_tol = T::epsilon().sqrt() * (T::one() + eigenvalues[i].norm());
+        for j in (i + 1)..eigenvalues.len() {
+            if (eigenvalues[i] - eigenvalues[j]).norm() < conj_tol {
+                skip[j] = true;
+            }
+        }
+
+        // At this point for reals we can stop
+        if Value::abs(eigenvalues[i].imaginary()) < zero_tol {
+            roots.push(Root::Real(eigenvalues[i].real()));
+            continue;
+        }
+
+        // Complex root - we check for conjugate pairs
+        for j in (i + 1)..eigenvalues.len() {
+            if Value::abs(eigenvalues[i].real() - eigenvalues[j].real()) < conj_tol
+                && Value::abs(eigenvalues[i].imaginary() + eigenvalues[j].imaginary()) < conj_tol
+            {
+                skip[j] = true;
+                roots.push(Root::ComplexPair(eigenvalues[i], eigenvalues[j]));
+                break;
+            }
+        }
+
+        // Singular complex root - should only happen for complex coefficients
+        roots.push(Root::Complex(eigenvalues[i]));
+    }
+
+    roots
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use crate::{test_basis_build, test_basis_functions};
+    use crate::{
+        statistics::DomainNormalizer,
+        test::basis_assertions::{assert_basis_functions_close, assert_basis_matrix_row},
+    };
 
     use super::*;
 
@@ -174,10 +420,10 @@ mod tests {
         let basis = MonomialBasis::<f64>::default();
 
         // Basic evaluation tests
-        test_basis_build!(basis, 2.0, &[1.0, 2.0, 4.0, 8.0]);
-        test_basis_functions!(basis, 0.5, &[1.0, 0.5, 0.25, 0.125]);
-        test_basis_functions!(basis, 1.0, &[1.0, 1.0, 1.0, 1.0]);
-        test_basis_functions!(basis, 2.0, &[1.0, 2.0, 4.0, 8.0]);
+        assert_basis_matrix_row(&basis, 2.0, &[1.0, 2.0, 4.0, 8.0]);
+        assert_basis_functions_close(&basis, 0.5, &[1.0, 0.5, 0.25, 0.125], f64::EPSILON);
+        assert_basis_functions_close(&basis, 1.0, &[1.0, 1.0, 1.0, 1.0], f64::EPSILON);
+        assert_basis_functions_close(&basis, 2.0, &[1.0, 2.0, 4.0, 8.0], f64::EPSILON);
 
         // Normalization and dimension checks
         assert_eq!(basis.normalize_x(1.0), 1.0);
@@ -186,6 +432,18 @@ mod tests {
         assert_eq!(basis.k(0), 1);
 
         // Derivative and integral
+        let poly = MonomialPolynomial::owned(vec![1.0, 2.0, 3.0, 4.0]); // 1 + 2x + 3x^2 + 4x^3
+        test_derivation!(
+            poly,
+            &DomainNormalizer::<f64>::default(),
+            with_reverse = true
+        );
+        test_integration!(
+            poly,
+            &DomainNormalizer::<f64>::default(),
+            with_reverse = true
+        );
+
         let (_, derivative) = basis
             .derivative(&[1.0, 2.0, 3.0, 4.0])
             .expect("Derivative failed");

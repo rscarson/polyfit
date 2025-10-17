@@ -1,7 +1,7 @@
 use nalgebra::{Dim, MatrixViewMut};
 
 use crate::{
-    basis::{Basis, IntoMonomialBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
     display::{self, format_coefficient, PolynomialDisplay, Sign, Term, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
@@ -22,7 +22,7 @@ use crate::{
 /// - Minimizes numerical issues for high-degree polynomial approximations on [0, ∞).
 /// - Naturally models decaying or exponential-type behavior.
 /// - Orthogonal under weight `exp(-x)`, making coefficient estimation more stable.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct LaguerreBasis<T: Value = f64> {
     normalizer: DomainNormalizer<T>,
 }
@@ -67,6 +67,11 @@ impl<T: Value> Basis<T> for LaguerreBasis<T> {
     #[inline(always)]
     fn normalize_x(&self, x: T) -> T {
         self.normalizer.normalize(x)
+    }
+
+    #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        self.normalizer.denormalize(x)
     }
 
     #[inline(always)]
@@ -125,6 +130,26 @@ impl<T: Value> PolynomialDisplay<T> for LaguerreBasis<T> {
     }
 }
 
+impl<T: Value> DifferentialBasis<T> for LaguerreBasis<T> {
+    type B2 = LaguerreBasis<T>;
+
+    fn derivative(&self, a: &[T]) -> Result<(Self::B2, Vec<T>)> {
+        let n = a.len();
+        let mut b = Vec::with_capacity(n);
+
+        for k in 0..n {
+            // sum A_{k+1} to A_{N-1} and negate
+            let mut sum = T::zero();
+            for i in k + 1..n {
+                sum += a[i];
+            }
+            b.push(-sum);
+        }
+
+        Ok((*self, b))
+    }
+}
+
 impl<T: Value> IntoMonomialBasis<T> for LaguerreBasis<T> {
     fn as_monomial(&self, coefficients: &mut [T]) -> Result<()> {
         let n = coefficients.len();
@@ -149,10 +174,58 @@ impl<T: Value> IntoMonomialBasis<T> for LaguerreBasis<T> {
     }
 }
 
+impl<T: Value> OrthogonalBasis<T> for LaguerreBasis<T> {
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {
+        // Laguerre polynomials are orthogonal on [0, ∞) with weight e^{-x}
+        // The Golub–Welsch algorithm constructs a symmetric tridiagonal matrix
+        // whose eigenvalues are the roots, and whose eigenvectors give weights.
+        if n == 0 {
+            return vec![(T::zero(), T::one())];
+        }
+
+        // α = 0 for standard Laguerre
+        let alpha = T::zero();
+
+        // Build Jacobi matrix
+        let mut a = nalgebra::DMatrix::<T>::zeros(n, n);
+        for i in 0..n {
+            let ti = T::from_positive_int(i);
+            a[(i, i)] = T::two() * ti + T::one() + alpha;
+            if i > 0 {
+                a[(i, i - 1)] = -ti;
+                a[(i - 1, i)] = -ti;
+            }
+        }
+
+        // Diagonalize
+        let eig = a.symmetric_eigen();
+        let mut nodes = Vec::with_capacity(n);
+
+        // weights: w_i = x_i / [(n+1)^2 * (L_{n+1}(x_i))^2]
+        // Golub–Welsch gives normalized weights directly from the first eigenvector component:
+        // w_i = v_0^2
+        for (xi, vi0) in eig.eigenvalues.iter().zip(eig.eigenvectors.row(0).iter()) {
+            let x = *xi;
+            let w = *vi0 * *vi0;
+            nodes.push((x, w));
+        }
+
+        // Sort by node
+        nodes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        nodes
+    }
+
+    fn gauss_normalization(&self, _n: usize) -> T {
+        // ∫₀^∞ e^{-x} dx = 1
+        T::one()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound, LaguerreFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
+        test::basis_assertions::assert_basis_orthogonal, LaguerreFit, Polynomial,
     };
 
     use super::*;
@@ -179,5 +252,12 @@ mod tests {
         assert_close!(basis.solve_function(0, 1.0), 1.0);
         assert_close!(basis.solve_function(1, 1.0), 0.0);
         assert_close!(basis.solve_function(2, 1.0), -0.5);
+
+        // Calculus tests
+        let poly = LaguerreBasis::new_polynomial((0.0, 100.0), &[3.0, 2.0, 1.5]).unwrap();
+        test_derivation!(poly, &poly.basis().normalizer);
+
+        // Orthogonality test points
+        assert_basis_orthogonal(&basis, 4, 100, 1e-12);
     }
 }

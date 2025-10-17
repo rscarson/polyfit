@@ -273,7 +273,7 @@ pub trait ApplyNormalization<T: Value> {
 }
 impl<T: Value> ApplyNormalization<T> for Vec<(T, T)> {
     fn apply_domain_normalization(mut self, min: T, max: T) -> Self {
-        NormalizationTransform::Domain { min, max }.apply(self.iter_mut().map(|(_, y)| y));
+        NormalizationTransform::Domain { min, max }.apply(self.iter_mut().map(|(x, _)| x));
         self
     }
 
@@ -535,7 +535,7 @@ mod tests {
     fn test_domain_normalization() {
         let data = vec![(1.0, 2.0), (2.0, 3.0), (3.0, 4.0)];
         let normalized = data.clone().apply_domain_normalization(0.0, 1.0);
-        let expected = vec![(1.0, 0.0), (2.0, 0.5), (3.0, 1.0)];
+        let expected = vec![(0.0, 2.0), (0.5, 3.0), (1.0, 4.0)];
         assert_eq!(normalized, expected);
     }
 

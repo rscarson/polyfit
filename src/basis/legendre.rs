@@ -1,11 +1,11 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    basis::{Basis, IntoMonomialBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
     display::{self, format_coefficient, PolynomialDisplay, Sign, Term, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
-    value::{IntClampedCast, Value},
+    value::{FloatClampedCast, IntClampedCast, Value},
 };
 
 /// Normalized Legendre basis for polynomial curves.
@@ -67,6 +67,23 @@ impl<T: Value> LegendreBasis<T> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
     }
+
+    /// Evaluate `P_n(x)` and `P_n'(x)` at once
+    /// Warning: does not normalize x
+    pub fn solve_and_derive(&self, n: usize, x: T) -> (T, T) {
+        let mut p0 = T::one();
+        let mut p1 = x;
+        for k in 2..=n {
+            let k = T::from_positive_int(k);
+            let p2 = ((T::two() * k - T::one()) * x * p1 - (k - T::one()) * p0) / k;
+            p0 = p1;
+            p1 = p2;
+        }
+        let p = if n == 0 { p0 } else { p1 };
+        // Derivative using recurrence
+        let dp = T::from_positive_int(n) * (x * p - p0) / (x * x - T::one());
+        (p, dp)
+    }
 }
 
 impl<T: Value> Basis<T> for LegendreBasis<T> {
@@ -81,27 +98,28 @@ impl<T: Value> Basis<T> for LegendreBasis<T> {
     }
 
     #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        self.normalizer.denormalize(x)
+    }
+
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             0 => T::one(),
             1 => x,
             _ => {
-                // P_j(x) = SUM_k:0..j/2 [ -1^k * (2j - 2k)! / (2^j * k! * (j - k)! * (j - 2k)! ) * x^(j - 2k) ]
-                let mut sum = T::zero();
-                for k in 0..=(j / 2) {
-                    let sign = if k % 2 == 0 { T::one() } else { -T::one() };
+                let mut p0 = T::one();
+                let mut p1 = x;
 
-                    let numerator = T::factorial(2 * j - 2 * k);
-                    let denom = Value::powi(T::two(), j.clamped_cast())
-                        * T::factorial(k)
-                        * T::factorial(j - k)
-                        * T::factorial(j - 2 * k);
-                    let x_factor = Value::powi(x, (j - 2 * k).clamped_cast());
-
-                    sum += sign * numerator / denom * x_factor;
+                for n in 1..j {
+                    let p_next = ((T::from_positive_int(2 * n + 1) * x * p1)
+                        - (T::from_positive_int(n) * p0))
+                        / T::from_positive_int(n + 1);
+                    p0 = p1;
+                    p1 = p_next;
                 }
 
-                sum
+                p1
             }
         }
     }
@@ -180,11 +198,74 @@ impl<T: Value> IntoMonomialBasis<T> for LegendreBasis<T> {
     }
 }
 
+impl<T: Value> DifferentialBasis<T> for LegendreBasis<T> {
+    type B2 = LegendreBasis<T>;
+
+    fn derivative(&self, a: &[T]) -> Result<(Self::B2, Vec<T>)> {
+        if a.is_empty() {
+            return Ok((*self, vec![T::zero()]));
+        }
+
+        let mut b = vec![T::zero(); a.len() - 1];
+        for n in 1..a.len() {
+            for m in 0..n {
+                let tm1 = T::two() * T::from_positive_int(m) + T::one();
+                if (n - m) % 2 == 1 {
+                    b[m] += tm1 * a[n];
+                }
+            }
+        }
+
+        Ok((*self, b))
+    }
+}
+
+impl<T: Value> OrthogonalBasis<T> for LegendreBasis<T> {
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {
+        let tol = T::epsilon().sqrt();
+        let mut nodes = Vec::with_capacity(n);
+
+        let m = n.div_ceil(2); // roots in [0,1]
+        for i in 0..m {
+            // Initial guess via cosine
+            let theta = T::pi() * (T::from_positive_int(i) + 0.75f64.clamped_cast::<T>())
+                / (T::from_positive_int(n) + T::half());
+            let mut x = theta.cos();
+
+            // Newton–Raphson
+            loop {
+                let (p, dp) = self.solve_and_derive(n, x);
+                let dx = -p / dp;
+                x += dx;
+                if Value::abs(dx) < tol {
+                    break;
+                }
+            }
+
+            let (_, dp) = self.solve_and_derive(n, x);
+            let w = T::two() / ((T::one() - x * x) * dp * dp);
+
+            // Mirror pair
+            nodes.push((-x, w));
+            if i != m - 1 || n % 2 == 0 {
+                nodes.push((x, w));
+            }
+        }
+
+        nodes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        nodes
+    }
+
+    fn gauss_normalization(&self, n: usize) -> T {
+        T::two() / (T::two() * T::from_positive_int(n) + T::one())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound, test_basis_orthogonal,
-        LegendreFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
+        test::basis_assertions::assert_basis_orthogonal, LegendreFit, Polynomial,
     };
 
     use super::*;
@@ -203,15 +284,7 @@ mod tests {
         assert_fits!(&poly, &fit);
 
         // Orthogonality test points
-        let (gauss_xs, gauss_ws) = gauss_legendre_nodes_weights(100, 1e-12);
-        test_basis_orthogonal!(
-            fit.basis(),
-            norm_fn = norm_fn,
-            values = gauss_xs,
-            weights = gauss_ws,
-            n_funcs = 3,
-            eps = 1e-12
-        );
+        assert_basis_orthogonal(fit.basis(), 3, 100, 1e-12);
 
         // Monomial conversion
         let mono = fit.as_monomial().unwrap();
@@ -223,67 +296,9 @@ mod tests {
         assert_close!(basis.solve_function(1, 0.5), 0.5);
         assert_close!(basis.solve_function(2, 0.5), -0.125);
         assert_close!(basis.solve_function(3, 0.5), -0.4375);
-    }
 
-    //
-    // orthogonal points and weights for Gauss-Legendre quadrature
-    //
-
-    fn norm_fn(n: usize) -> f64 {
-        2.0 / (2.0 * n as f64 + 1.0)
-    }
-
-    fn gauss_legendre_nodes_weights(n: usize, tol: f64) -> (Vec<f64>, Vec<f64>) {
-        assert!(n > 0);
-        let mut xs = Vec::with_capacity(n);
-        let mut ws = Vec::with_capacity(n);
-
-        let m = n.div_ceil(2); // roots in [0,1]
-        for i in 0..m {
-            // Initial guess via cosine
-            let theta = std::f64::consts::PI * (i as f64 + 0.75) / (n as f64 + 0.5);
-            let mut x = theta.cos();
-
-            // Newton–Raphson
-            loop {
-                let (p, dp) = legendre_and_derivative(n, x);
-                let dx = -p / dp;
-                x += dx;
-                if dx.abs() < tol {
-                    break;
-                }
-            }
-
-            let (_, dp) = legendre_and_derivative(n, x);
-            let w = 2.0 / ((1.0 - x * x) * dp * dp);
-
-            // Mirror pair
-            xs.push(-x);
-            ws.push(w);
-            if i != m - 1 || n % 2 == 0 {
-                xs.push(x);
-                ws.push(w);
-            }
-        }
-
-        let mut combined: Vec<_> = xs.into_iter().zip(ws).collect();
-        combined.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        let (xs, ws): (Vec<_>, Vec<_>) = combined.into_iter().unzip();
-        (xs, ws)
-    }
-
-    // Evaluate P_n(x) and derivative at once
-    fn legendre_and_derivative(n: usize, x: f64) -> (f64, f64) {
-        let mut p0 = 1.0;
-        let mut p1 = x;
-        for k in 2..=n {
-            let p2 = ((2 * k - 1) as f64 * x * p1 - (k - 1) as f64 * p0) / k as f64;
-            p0 = p1;
-            p1 = p2;
-        }
-        let p = if n == 0 { p0 } else { p1 };
-        // Derivative using recurrence
-        let dp = (n as f64) * (x * p - p0) / (x * x - 1.0);
-        (p, dp)
+        // Calculus tests
+        let poly = LegendreBasis::new_polynomial((0.0, 100.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
+        test_derivation!(poly, &poly.basis().normalizer);
     }
 }

@@ -56,6 +56,10 @@ pub enum Error {
     #[error("Failed to cast value to target type")]
     CastFailed,
 
+    /// The basis functions are not orthogonal.
+    #[error("The series is not orthogonal")]
+    NotOrthogonal,
+
     /// Failed to solve the algebraic system during fitting.
     ///
     /// Contains a static string describing the solver error.

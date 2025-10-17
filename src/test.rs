@@ -16,14 +16,14 @@
 //! Automatically fits a dataset against every supported polynomial base and reports the best fits.
 //! - The best 3 models are printed to the console, and if the `plotting` feature is enabled, they are plotted too!
 //! ```rust
-//! # use polyfit::statistics::{DegreeBound, Tolerance};
+//! # use polyfit::statistics::DegreeBound;
 //! # use polyfit::score::Aic;
-//! # use polyfit::transforms::ApplyNoise;
+//! # use polyfit::transforms::{ApplyNoise, Strength};
 //! # use polyfit::{function, basis_select};
 //! function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
 //! let data = test
 //!     .solve_range(0.0..=100.0, 1.0)
-//!     .apply_normal_noise(Tolerance::Relative(0.1), None);
+//!     .apply_normal_noise(Strength::Relative(0.1), None);
 //! basis_select!(&data, DegreeBound::Relaxed, &Aic);
 //! ```
 //!
@@ -38,7 +38,10 @@
 //! # use polyfit::statistics::{DegreeBound};
 //! # use polyfit::score::Aic;
 //! let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
-//! polyfit::plot!(fit, title = "My Fit", x_range = 0.0..3.0, y_range = 0.0..5.0);
+//! # #[cfg(feature = "plotting")]
+//! # {
+//! polyfit::plot!(fit, { title: "My Fit".to_string(), x_range: Some(0.0..3.0), y_range: Some(0.0..5.0) });
+//! # }
 //! ```
 //!
 //! ## Fit quality assertions
@@ -90,8 +93,11 @@
 //! This helps to ensure that the fit is not only accurate, but also consistent.
 //! - This is an absolute measure, unlike [`crate::assert_residuals_normal`] which is a relative measure.
 
+#[macro_use]
+#[cfg(test)]
+pub mod basis_assertions;
+
 mod assertions;
-mod basis_assertions;
 
 /// Macro to generate a monomial polynomial function.
 ///
@@ -191,14 +197,14 @@ macro_rules! function {
 ///
 /// # Example
 /// ```rust
-/// # use polyfit::statistics::{DegreeBound, Tolerance};
-/// # use polyfit::transforms::ApplyNoise;
+/// # use polyfit::statistics::DegreeBound;
+/// # use polyfit::transforms::{ApplyNoise, Strength};
 /// # use polyfit::score::Aic;
 /// # use polyfit::{function, basis_select};
 /// function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
 /// let data = test
 ///     .solve_range(0.0..=100.0, 1.0)
-///     .apply_normal_noise(Tolerance::Relative(0.1), None);
+///     .apply_normal_noise(Strength::Relative(0.1), None);
 /// basis_select!(&data, DegreeBound::Relaxed, &Aic);
 /// ```
 ///
@@ -238,12 +244,17 @@ macro_rules! basis_select {
 
     ($data:expr, $degree_bound:expr, $method:expr, options = [ $( $basis:path $( = $name:literal)? ),+ $(,)? ]) => {{
         use $crate::value::CoordExt;
-        use $crate::plot::AsPlottingElement;
+
+        #[cfg(feature = "plotting")]
+        use $crate::plotting::AsPlottingElement;
 
         struct FitProps {
             model_score: f64,
             rating: f64,
-            plot_e: $crate::plot::PlottingElement<f64>,
+
+            #[cfg(feature = "plotting")]
+            plot_e: $crate::plotting::PlottingElement<f64>,
+
             name: &'static str,
             r2: f64,
             robust_r2: f64,
@@ -290,7 +301,10 @@ macro_rules! basis_select {
                 options.push(FitProps {
                     model_score,
                     rating,
+
+                    #[cfg(feature = "plotting")]
                     plot_e,
+
                     name,
                     r2,
                     robust_r2,
@@ -314,7 +328,7 @@ macro_rules! basis_select {
             o.model_score = l / sum_likelihoods;
         }
 
-        let best_3: Vec<_> = options.iter().take(3).collect();
+        // let best_3: Vec<_> = options.iter().take(3).collect();
 
         //
         // Small table first
@@ -367,7 +381,7 @@ macro_rules! basis_select {
         println!(" - Stars: A simple star rating out of 5 based on the Rating score. Not scientific.");
         println!(" - The best 3 models are shown below with their equations and plots (if enabled).");
 
-        for props in &best_3 {
+        for props in &options {
             println!();
             println!("{}: {}", props.name, props.equation);
             println!("Fit R²: {:.4}, Residuals Normality p-value: {:.4}", props.r2, props.p_value);
@@ -375,22 +389,25 @@ macro_rules! basis_select {
             #[cfg(feature = "plotting")]
             {
                 let prefix = props.name.to_lowercase().replace([' ', '\'', '"', '<', '>', ':', ';', ',', '.'], "_");
-                $crate::plot!(props.plot_e, title = props.name, prefix = prefix);
+                $crate::plot!(props.plot_e, {
+                    title: props.name.to_string()
+                }, prefix = prefix);
             }
         }
     }};
 }
 
 #[cfg(test)]
+#[cfg(feature = "transforms")]
 #[test]
 fn test() {
     use crate::score::Aic;
-    use crate::statistics::{DegreeBound, Tolerance};
-    use crate::transforms::ApplyNoise;
+    use crate::statistics::DegreeBound;
+    use crate::transforms::{ApplyNoise, Strength};
 
     function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
     let data = test
         .solve_range(0.0..=1000.0, 1.0)
-        .apply_normal_noise(Tolerance::Relative(0.3), None);
+        .apply_normal_noise(Strength::Relative(0.3), None);
     basis_select!(&data, DegreeBound::Relaxed, &Aic);
 }

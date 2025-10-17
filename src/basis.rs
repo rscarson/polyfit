@@ -25,32 +25,32 @@
 //! 3. Implement `solve(&self, x: T, coefficients: &[T]) -> T` to evaluate the polynomial.
 //!
 //! This allows `CurveFit` and `Polynomial` to use your custom basis seamlessly.
-use std::fmt::Debug;
 
+use nalgebra::Complex;
 use nalgebra::MatrixViewMut;
 
 use crate::{error::Result, value::Value};
 
-mod monomial;
+pub(crate) mod monomial;
 pub use monomial::MonomialBasis;
 
-mod chebyshev;
+pub(crate) mod chebyshev;
 pub use chebyshev::ChebyshevBasis;
 
-mod fourier;
+pub(crate) mod fourier;
 pub use fourier::FourierBasis;
 
-mod legendre;
+pub(crate) mod legendre;
 pub use legendre::LegendreBasis;
 
-mod hermite;
+pub(crate) mod hermite;
 pub use hermite::PhysicistsHermiteBasis;
 pub use hermite::ProbabilistsHermiteBasis;
 
-mod laguerre;
+pub(crate) mod laguerre;
 pub use laguerre::LaguerreBasis;
 
-mod logarithmic;
+pub(crate) mod logarithmic;
 pub use logarithmic::LogarithmicBasis;
 
 /// A trait representing a polynomial basis.
@@ -69,7 +69,7 @@ pub use logarithmic::LogarithmicBasis;
 ///
 /// # Type Parameters
 /// - `T`: The numeric type used for coefficients and evaluation (e.g., `f64`).
-pub trait Basis<T: Value>: Sized + Clone + Debug + Send + Sync {
+pub trait Basis<T: Value>: Sized + Clone + std::fmt::Debug + Send + Sync {
     /// Create a new basis from the given data
     ///
     /// Initializes any needed metadata for normalization
@@ -136,10 +136,12 @@ pub trait Basis<T: Value>: Sized + Clone + Debug + Send + Sync {
     /// Normalizes the input value `x` for this basis.
     ///
     /// This is a no-op for the monomial basis.
-    #[inline(always)]
-    fn normalize_x(&self, x: T) -> T {
-        x
-    }
+    fn normalize_x(&self, x: T) -> T;
+
+    /// Denormalizes the input value `x` for this basis.
+    ///
+    /// This is a no-op for the monomial basis.
+    fn denormalize_x(&self, x: T) -> T;
 
     /// Evaluates the jth function of a polynomial expressed in this basis at a given point.
     ///
@@ -187,6 +189,10 @@ pub trait IntoMonomialBasis<T: Value>: Basis<T> {
 /// - `T`: Numeric type for coefficients.
 /// - `B2`: Basis type returned by the derivative (defaults to `Self`).
 pub trait DifferentialBasis<T: Value>: Basis<T> {
+    /// The basis type returned by the derivative operation.
+    /// This allows the derivative to be expressed in a different basis if needed.
+    type B2: Basis<T> + crate::display::PolynomialDisplay<T>;
+
     /// Computes the derivative of a polynomial in this basis.
     ///
     /// # Parameters
@@ -198,16 +204,44 @@ pub trait DifferentialBasis<T: Value>: Basis<T> {
     ///
     /// # Returns
     /// - The derivative's coefficients.
-    fn derivative(&self, coefficients: &[T]) -> Result<(Self, Vec<T>)>;
+    fn derivative(&self, coefficients: &[T]) -> Result<(Self::B2, Vec<T>)>;
 
-    /// Finds the critical points (where the derivative is zero) of a polynomial in this basis.
+    /// Computes the second derivative of a polynomial in this basis.
+    ///
+    /// This is a convenience method that applies `derivative` twice.
+    ///
+    /// # Parameters
+    /// - `coefficients`: Slice of coefficients of the polynomial to differentiate.
+    ///
+    /// # Errors
+    /// Returns an error if the differentiation is not supported for the given basis
+    /// or coefficients (e.g., invalid length), or for casting errors
+    ///
+    /// # Returns
+    /// - The derivative's coefficients.
+    fn second_derivative(&self, coefficients: &[T]) -> Result<(SecondDerivative<Self, T>, Vec<T>)>
+    where
+        Self::B2: DifferentialBasis<T>,
+    {
+        let (basis1, first) = self.derivative(coefficients)?;
+        let (basis2, second) = basis1.derivative(&first)?;
+        Ok((basis2, second))
+    }
+}
+
+/// Helper type alias for the second derivative basis type.
+pub type SecondDerivative<B, T> = <<B as DifferentialBasis<T>>::B2 as DifferentialBasis<T>>::B2;
+
+/// Trait for bases that support root finding of polynomials.
+pub trait RootFindingBasis<T: Value>: Basis<T> {
+    /// Finds the roots (where the function is zero) of a polynomial in this basis.
     ///
     /// # Parameters
     /// - `coefficients`: Slice of coefficients of the polynomial to analyze.
     ///
     /// # Errors
-    /// Returns an error if the critical points cannot be found.
-    fn critical_points(&self, dx_coefs: &[T]) -> Result<Vec<T>>;
+    /// Returns an error if the roots cannot be found.
+    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>>;
 }
 
 /// Trait for bases that support integration of polynomials.
@@ -216,6 +250,10 @@ pub trait DifferentialBasis<T: Value>: Basis<T> {
 /// - `T`: Numeric type for coefficients.
 /// - `B2`: Basis type returned by the integral (defaults to `Self`).
 pub trait IntegralBasis<T: Value>: Basis<T> {
+    /// The basis type returned by the derivative operation.
+    /// This allows the derivative to be expressed in a different basis if needed.
+    type B2: Basis<T> + crate::display::PolynomialDisplay<T>;
+
     /// Computes the integral of a polynomial in this basis.
     ///
     /// # Parameters
@@ -228,5 +266,135 @@ pub trait IntegralBasis<T: Value>: Basis<T> {
     ///
     /// # Returns
     /// - The integral's coefficients.
-    fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self, Vec<T>)>;
+    fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self::B2, Vec<T>)>;
+}
+
+/// Represents a critical point of a polynomial; representing a point where the curve changes direction.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum CriticalPoint<T: Value> {
+    /// A local minimum point where the curve changes from decreasing to increasing.
+    /// - This represents a point where the first derivative is zero and the second derivative is positive.
+    /// - It's a "valley" in the curve.
+    Minima(T, T),
+
+    /// A local maximum point where the curve changes from increasing to decreasing.
+    /// - This represents a point where the first derivative is zero and the second derivative is negative.
+    /// - It's a "peak" in the curve.
+    Maxima(T, T),
+
+    /// A point where the curve changes concavity (from concave up to concave down, or vice versa).
+    /// - This represents a point where the second derivative is zero.
+    /// - It's where the curve "bends" but does not necessarily have a local extremum.
+    Inflection(T, T),
+}
+impl<T: Value> std::fmt::Display for CriticalPoint<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CriticalPoint::Minima(x, y) => write!(f, "Minima({x:.2}, {y:.2})"),
+            CriticalPoint::Maxima(x, y) => write!(f, "Maxima({x:.2}, {y:.2})"),
+            CriticalPoint::Inflection(x, y) => write!(f, "Inflection({x:.2}, {y:.2})"),
+        }
+    }
+}
+impl<T: Value> CriticalPoint<T> {
+    /// Converts a slice of critical points into a `PlottingElement` for visualization.
+    pub fn as_plotting_element(points: &[Self]) -> crate::plotting::PlottingElement<T> {
+        crate::plotting::PlottingElement::from_markers(points.iter().map(|p| {
+            let (x, y) = p.coords();
+            (x, y, Some(p.to_string()))
+        }))
+    }
+
+    /// Returns the x-coordinate of the critical point.
+    pub fn x(&self) -> T {
+        match self {
+            CriticalPoint::Minima(x, _)
+            | CriticalPoint::Maxima(x, _)
+            | CriticalPoint::Inflection(x, _) => *x,
+        }
+    }
+
+    /// Returns the y-coordinate of the critical point.
+    pub fn y(&self) -> T {
+        match self {
+            CriticalPoint::Minima(_, y)
+            | CriticalPoint::Maxima(_, y)
+            | CriticalPoint::Inflection(_, y) => *y,
+        }
+    }
+
+    /// Returns the coordinates of the critical point as a tuple (x, y).
+    pub fn coords(&self) -> (T, T) {
+        match self {
+            CriticalPoint::Minima(x, y)
+            | CriticalPoint::Maxima(x, y)
+            | CriticalPoint::Inflection(x, y) => (*x, *y),
+        }
+    }
+}
+
+/// Represents a root of a polynomial, which can be real or complex.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Root<T: Value> {
+    /// A root that is a real number, where the polynomial crosses the x-axis.
+    /// - This represents a solution to the equation P(x) = 0 where x is a real number.
+    Real(T),
+
+    /// A root that is a complex number, where the polynomial does not cross the x-axis.
+    /// - This represents a solution to the equation P(x) = 0 where x has
+    Complex(Complex<T>),
+
+    /// A pair of complex conjugate roots, which often occur in polynomials with real coefficients.
+    /// - This represents two solutions to the equation P(x) = 0 that are complex
+    ComplexPair(Complex<T>, Complex<T>),
+}
+
+/// A trait for orthogonal polynomial bases.
+///
+/// Orthogonal bases have special properties that make them useful for numerical stability and
+/// integration. This trait extends the `Basis` trait with methods specific to orthogonal bases.
+pub trait OrthogonalBasis<T: Value>: Basis<T> {
+    /// Returns true if the series this basis represents is orthogonal.
+    ///
+    /// Can be false, for example in integrated fourier series
+    fn is_orthogonal(&self) -> bool {
+        true
+    }
+
+    /// Returns the nodes and weights for Gauss quadrature.
+    ///
+    /// The basis is orthogonal against these nodes
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)>;
+
+    /// Returns the theoretical exact value of the integral of the square of the nth basis function over the weight function.
+    fn gauss_normalization(&self, n: usize) -> T;
+
+    /// Computes the inner product of two basis functions using the provided nodes and weights.
+    ///
+    /// Get these from [`OrthogonalBasis::gauss_nodes`].
+    fn inner_product(&self, i: usize, j: usize, nodes: &[(T, T)]) -> T {
+        let mut sum = T::zero();
+        for (x, w) in nodes {
+            sum += self.solve_function(i, *x) * self.solve_function(j, *x) * *w;
+        }
+        sum
+    }
+
+    /// Constructs the Gram matrix for the first `n` basis functions using Gauss quadrature.
+    ///
+    /// Should have shape (n, n), and be ~zero outside the diagonal.
+    fn gauss_matrix(&self, functions: usize, nodes: usize) -> nalgebra::DMatrix<T> {
+        let nodes = self.gauss_nodes(nodes);
+        let mut mat = nalgebra::DMatrix::<T>::zeros(functions, functions);
+        for i in 0..functions {
+            for j in i..functions {
+                let val = self.inner_product(i, j, &nodes);
+                mat[(i, j)] = val;
+                if i != j {
+                    mat[(j, i)] = val; // enforce symmetry explicitly
+                }
+            }
+        }
+        mat
+    }
 }

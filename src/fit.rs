@@ -3,7 +3,9 @@ use std::{borrow::Cow, ops::RangeInclusive};
 use nalgebra::{DMatrix, DVector, SVD};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis},
+    basis::{
+        Basis, CriticalPoint, DifferentialBasis, IntegralBasis, IntoMonomialBasis, OrthogonalBasis,
+    },
     display::PolynomialDisplay,
     error::{Error, Result},
     score::ModelScoreProvider,
@@ -176,23 +178,23 @@ where
         let mut y_var = self.prediction_variance(x);
         let value = self.fit.y(x)?;
 
-        match noise_tolerance {
-            Some(Tolerance::Absolute(tol)) => {
-                y_var += tol;
-            }
-            Some(Tolerance::Relative(rel)) => {
+        let abs_tol = match noise_tolerance {
+            None => T::zero(),
+            Some(Tolerance::Absolute(tol)) => tol,
+            Some(Tolerance::Variance(pct)) => {
                 let (data_sdev, _) = statistics::stddev_and_mean(self.fit.data().y_iter());
-                let noise_tolerance = data_sdev * rel;
+                let noise_tolerance = data_sdev * pct;
                 y_var += noise_tolerance * noise_tolerance;
+                T::zero()
             }
-            None => {}
-        }
+            Some(Tolerance::Measurement(pct)) => Value::abs(value) * pct,
+        };
 
         let y_se = y_var.sqrt();
 
         let z = confidence_level.try_cast::<T>()?;
-        let lower = value - z * y_se;
-        let upper = value + z * y_se;
+        let lower = value - z * y_se - abs_tol;
+        let upper = value + z * y_se + abs_tol;
         Ok(ConfidenceBand {
             value,
             lower,
@@ -313,16 +315,25 @@ where
     B: Basis<T>,
     B: PolynomialDisplay<T>,
 {
-    /// Turns a dataset portion into a basis matrix and y-values vector.
-    fn create_matrix(data: &[(T, T)], basis: &B, k: usize) -> (DMatrix<T>, DVector<T>) {
-        let mut bigx = DMatrix::zeros(data.len(), k);
-        let b = DVector::from_iterator(data.len(), data.iter().map(|&(_, y)| y));
+    #[cfg(feature = "parallel")]
+    const MIN_ROWS_TO_PARALLEL: usize = 1_000_000; // We won't bother parallelizing until n > 1 million
 
+    #[cfg(feature = "parallel")]
+    const MAX_STABLE_DIGITS: usize = 8; // Given digits=log10(-epsilon) for T, 10^(digits - MAX_STABLE_DIGITS) gives a threshold for condition number
+
+    fn create_bigx(data: &[(T, T)], basis: &B, k: usize) -> DMatrix<T> {
+        let mut bigx = DMatrix::zeros(data.len(), k);
         for (row, (x, _)) in bigx.row_iter_mut().zip(data.iter()) {
             let x = basis.normalize_x(*x);
             basis.fill_matrix_row(0, x, row);
         }
+        bigx
+    }
 
+    /// Turns a dataset portion into a basis matrix and y-values vector.
+    fn create_matrix(data: &[(T, T)], basis: &B, k: usize) -> (DMatrix<T>, DVector<T>) {
+        let bigx = Self::create_bigx(data, basis, k);
+        let b = DVector::from_iterator(data.len(), data.iter().map(|&(_, y)| y));
         (bigx, b)
     }
 
@@ -338,16 +349,18 @@ where
         #[cfg(not(feature = "parallel"))]
         {
             let (m, b) = Self::create_matrix(data, basis, k);
-            return (m, b, false);
+            (m, b, false)
         }
 
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
-            const MIN_ROWS_TO_PARALLEL: usize = 500_000;
 
-            if data.len() < MIN_ROWS_TO_PARALLEL {
+            // If the data is small, or not stable, don't parallelize
+            let tikhonov = Self::is_data_stable(data, basis, k);
+            if tikhonov.is_none() {
                 let (m, b) = Self::create_matrix(data, basis, k);
+
                 return (m, b, false);
             }
 
@@ -390,11 +403,55 @@ where
                 }
             }
 
+            // We also use Tikhonov regularization to improve stability
+            let tikhonov = tikhonov.unwrap_or(T::zero());
+            let identity = DMatrix::<T>::identity(k, k) * tikhonov;
+            xtx += identity;
+
             (xtx, xtb, true)
         }
     }
 
+    /// Checks if the data is stable for fitting with normal eq mode with the given basis and degree.
+    /// It will also return a tikhonov number based on eigenvalues.
+    ///
+    /// Some(tikhonov) if stable, None if not stable
+    #[cfg(feature = "parallel")]
+    fn is_data_stable(data: &[(T, T)], basis: &B, k: usize) -> Option<T> {
+        if data.len() < Self::MIN_ROWS_TO_PARALLEL {
+            return None; // Not enough data to bother
+        }
+
+        // First we sample ~1% of the data
+        let stride = (data.len() / 100).max(1);
+        let sample: Vec<_> = data.iter().step_by(stride).map(|(x, y)| (*x, *y)).collect();
+
+        // Build the basis matrix for the sample
+        let bigx = Self::create_bigx(&sample, basis, k);
+        let xtx = &bigx.transpose() * bigx;
+
+        // Eigen
+        let eigen = xtx.complex_eigenvalues().map(nalgebra::ComplexField::real);
+        let max_eigen = eigen.max();
+        let min_eigen = eigen.min();
+
+        // Get the condition number, and our threshold for stability
+        let condition_number = (max_eigen / min_eigen).sqrt();
+        let digits_to_keep = T::try_cast(Self::MAX_STABLE_DIGITS).ok()?;
+        let ten = T::try_cast(10).ok()?;
+        let threshold = T::one() / T::epsilon() * ten.powf(-T::one() * digits_to_keep);
+
+        if condition_number >= threshold {
+            return None; // Not stable
+        }
+
+        // We use the mean diagonal trace as the base for tikhonov
+        let mean_trace = xtx.trace() / T::try_cast(k).ok()?;
+        Some(mean_trace * T::epsilon())
+    }
+
     /// Reduce the n by k / 1 by n into a k by k and k by 1 system.
+    #[cfg(feature = "parallel")]
     fn invert_matrix(matrix: &DMatrix<T>, b: &DVector<T>) -> (DMatrix<T>, DVector<T>) {
         let xtx = matrix.transpose() * matrix;
         let xtb = matrix.transpose() * b;
@@ -486,12 +543,17 @@ where
     /// - Solves the linear system `A * x = b` to determine polynomial coefficients.
     ///
     /// # Warning
-    /// If the `parallel` feature is enabled, and the dataset is > 500,000 rows,
-    /// the basis matrix will be constructed in parallel, and the normal equation
-    /// will be used to reduce the size of the system.
+    /// For datasets with >1,000,000 points, the basis matrix may be constructed in parallel.
+    /// The normal equation is used to reduce the system size only if the data is stable (see below).
     ///
-    /// This can reduce numerical accuracy for very high-degree polynomials, and
-    /// should be used with caution.
+    /// <div class="warning">
+    /// For a given problem of NxK, where N is the number of data points and K is the number of basis functions,
+    /// if N > 1e6, and condition number of (X^T X) > 10^(digits - 8), then the normal equation will be used.
+    /// where `digits` is the number of significant digits for type `T`.
+    ///
+    /// We use Kahan summation to reduce numerical error when accumulating the partial results, as well as
+    /// Tikhonov regularization to improve stability.
+    /// </div>
     ///
     /// # Example
     /// ```
@@ -549,12 +611,16 @@ where
     /// - Returns the model with the best score.
     ///
     /// # Warning
-    /// If the `parallel` feature is enabled, and the dataset is > 500,000 rows,
-    /// the basis matrix will be constructed in parallel, and the normal equation
-    /// will be used to reduce the size of the system.
+    /// For datasets with >1,000,000 points, the basis matrix may be constructed in parallel.
+    /// The normal equation is used to reduce the system size only if the data is stable (see below).
     ///
-    /// This can reduce numerical accuracy for very high-degree polynomials, and
-    /// should be used with caution.
+    /// <div class="warning">
+    /// For a given problem of NxK, where N is the number of data points and K is the number of basis functions,
+    /// if N > 1e6, and condition number of (X^T X) > 10^(digits - 8), then the normal equation will be used.
+    ///
+    /// We use Kahan summation to reduce numerical error when accumulating the partial results, as well as
+    /// Tikhonov regularization to improve stability.
+    /// </div>
     ///
     /// # Example
     /// ```
@@ -678,6 +744,18 @@ where
     /// - `data` is empty or `folds < 2` (`Error::NoData`)  
     /// - A numeric value cannot be represented in the target type (`Error::CastFailed`)
     /// - No valid model could be fitted (`Error::NoModel`)
+    ///
+    /// # Warning
+    /// For datasets with >1,000,000 points, the basis matrix may be constructed in parallel.
+    /// The normal equation is used to reduce the system size only if the data is stable (see below).
+    ///
+    /// <div class="warning">
+    /// For a given problem of NxK, where N is the number of data points and K is the number of basis functions,
+    /// if N > 1e6, and condition number of (X^T X) > 10^(digits - 8), then the normal equation will be used.
+    ///
+    /// We use Kahan summation to reduce numerical error when accumulating the partial results, as well as
+    /// Tikhonov regularization to improve stability.
+    /// </div>
     ///
     /// # Example
     /// ```
@@ -901,11 +979,13 @@ where
     /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
     /// let critical_points = model.critical_points().unwrap();
     /// ```
-    pub fn critical_points(&self) -> Result<Vec<T>>
+    pub fn critical_points(&self) -> Result<Vec<CriticalPoint<T>>>
     where
         B: DifferentialBasis<T>,
+        B::B2: DifferentialBasis<T>,
     {
-        self.function.critical_points()
+        let points = self.function.critical_points(self.x_range.clone())?;
+        Ok(points)
     }
 
     /// Computes the definite integral (area under the curve) of the fitted polynomial
@@ -1478,6 +1558,108 @@ where
         Ok(MonomialPolynomial::owned(coefficients))
     }
 
+    /// Computes the energy contribution of each coefficient in an orthogonal basis.
+    ///
+    /// This is a measure of how much each basis function contributes to the resulting polynomial.
+    ///
+    /// It can be useful for understanding the significance of each term
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// For an orthogonal basis, the energy contribution of each coefficient is calculated as:
+    /// ```math
+    /// E_j = c_j^2 * N_j
+    /// ```
+    /// where:
+    /// - `E_j` is the energy contribution of the jth coefficient.
+    /// - `c_j` is the jth coefficient.
+    /// - `N_j` is the normalization factor for the jth basis function, provided by the basis.
+    ///
+    /// </div>
+    ///
+    /// # Returns
+    /// A vector of energy contributions for each coefficient.
+    ///
+    /// # Errors
+    /// Returns an error if the series is not orthogonal, like with integrated Fourier series.
+    pub fn coefficient_energies(&self) -> Result<Vec<T>>
+    where
+        B: OrthogonalBasis<T>,
+    {
+        self.function.coefficient_energies()
+    }
+
+    /// Computes a smoothness metric for the polynomial.
+    ///
+    /// This metric quantifies how "smooth" the polynomial is, with lower values indicating smoother curves.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The smoothness is calculated as a weighted average of the coefficient energies, where higher-degree coefficients are penalized more heavily.
+    /// The formula used is:
+    /// ```math
+    /// Smoothness = (Σ (k^2 * E_k)) / (Σ E_k)
+    /// ```
+    /// where:
+    /// - `k` is the degree of the basis function.
+    /// - `E_k` is the energy contribution of the k-th coefficient.
+    /// </div>
+    ///
+    /// # Returns
+    /// A smoothness value, where lower values indicate a smoother polynomial.
+    ///
+    /// # Errors
+    /// Returns an error if the series is not orthogonal, like with integrated Fourier series.
+    pub fn smoothness(&self) -> Result<T>
+    where
+        B: OrthogonalBasis<T>,
+    {
+        self.function.smoothness()
+    }
+
+    /// Applies a spectral energy filter to the series.
+    ///
+    /// This uses the properties of a orthogonal basis to de-noise the polynomial by removing higher-degree terms that contribute little to the overall energy.
+    /// Terms are split into "signal" and "noise" based on their energy contributions, and the polynomial is truncated to only include the signal components.
+    ///
+    /// Remaining terms are smoothly attenuated to prevent ringing artifacts from a hard cutoff.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The energy of each coefficient is calculated using the formula:
+    ///
+    /// ```math
+    /// E_j = c_j^2 * N_j
+    /// ```
+    /// where:
+    /// - `E_j` is the energy contribution of the jth coefficient.
+    /// - `c_j` is the jth coefficient.
+    /// - `N_j` is the normalization factor for the jth basis function, provided by the basis.
+    ///
+    /// Generalized Cross-Validation (GCV) is used to determine the optimal cutoff degree `K` that minimizes the prediction error using:
+    /// `GCV(K) = (suffix[0] - suffix[K]) / K^2`, where `suffix` is the suffix sum of energies.
+    ///
+    /// A Lanczos Sigma filter with p=1 is applied to smoothly attenuate coefficients up to the cutoff degree, reducing Gibbs ringing artifacts.
+    /// </div>
+    ///
+    /// # Notes
+    /// - This method modifies the polynomial in place.
+    ///
+    /// # Errors
+    /// Returns an error if the basis is not orthogonal. This can be checked with [`Polynomial::is_orthogonal`].
+    pub fn spectral_energy_filter(&mut self) -> Result<()>
+    where
+        B: OrthogonalBasis<T>,
+    {
+        self.function.spectral_energy_filter()
+    }
+
     /// Returns a human-readable string of the polynomial equation.
     ///
     /// The output shows the polynomial in standard mathematical notation, for example:
@@ -1568,9 +1750,13 @@ pub struct FitProperties<T: Value> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "transforms")]
 mod tests {
     use crate::{
-        assert_close, assert_fits, function, score::Aic, transforms::ApplyNoise, MonomialFit,
+        assert_close, assert_fits, function,
+        score::Aic,
+        transforms::{ApplyNoise, Strength},
+        MonomialFit,
     };
 
     use super::*;
@@ -1589,7 +1775,6 @@ mod tests {
         let data = poly.solve_range(0.0..=10_000_000.0, 1.0);
         let fit = ChebyshevFit::new(&data, 5).unwrap();
         assert_fits!(poly, fit, 0.999);
-        crate::plot!(fit, prefix = "big");
     }
 
     #[test]
@@ -1650,7 +1835,7 @@ mod tests {
         function!(mono(x) = 1.0 + 2.0 x^1); // strictly increasing
         let data = mono
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_normal_noise(Tolerance::Relative(0.3), None);
+            .apply_normal_noise(Strength::Relative(0.3), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert!(fit.r_squared(&data) < 1.0);
         assert!(fit.model_score(&Aic).is_finite());

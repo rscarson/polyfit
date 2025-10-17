@@ -73,6 +73,11 @@ impl<T: Value> Basis<T> for LogarithmicBasis<T> {
     }
 
     #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        self.normalizer.denormalize(x)
+    }
+
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         match j {
             _ if x <= T::zero() => {
@@ -122,7 +127,7 @@ impl<T: Value> PolynomialDisplay<T> for LogarithmicBasis<T> {
         };
 
         // ln(x')^degree
-        let body = format_variable(&format!("{coef}{glue}{func}"), None, degree);
+        let body = format!("{coef}{glue}{func}");
         Some(Term { sign, body })
     }
 }
@@ -131,8 +136,8 @@ impl<T: Value> PolynomialDisplay<T> for LogarithmicBasis<T> {
 #[allow(clippy::float_cmp)]
 mod tests {
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound, test_basis_normalizes,
-        LogarithmicFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
+        test::basis_assertions::assert_basis_normalizes, LogarithmicFit, Polynomial,
     };
 
     use super::*;
@@ -159,7 +164,7 @@ mod tests {
         assert_close!(basis.solve_function(3, 0.5), -0.33302465198892944);
 
         // Normalization (should map x in [0, 100] to [ε, ∞))
-        test_basis_normalizes!(basis, 0.0..100.0, 1.0..101.0);
+        assert_basis_normalizes(&basis, (0.0, 100.0), (1.0, 101.0));
 
         // k() checks
         assert_eq!(basis.k(3), 4);

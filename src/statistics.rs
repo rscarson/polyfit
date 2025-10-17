@@ -62,7 +62,13 @@
 //! ```
 use std::ops::RangeInclusive;
 
-use crate::value::{IntClampedCast, Value};
+use crate::{
+    basis::Basis,
+    display::PolynomialDisplay,
+    score::{Bic, ModelScoreProvider},
+    value::{CoordExt, FloatClampedCast, IntClampedCast, SteppedValues, Value},
+    Polynomial,
+};
 
 /// Computes the residual variance of a model's predictions.
 ///
@@ -937,6 +943,139 @@ pub fn median_squared_deviation<T: Value>(
     median(&residuals)
 }
 
+/// Error information when a derivative check fails. See [`is_derivative`]
+pub struct DerivationError<T: Value> {
+    /// The x value where the derivative check failed.
+    pub x: T,
+
+    /// The finite difference approximation of the derivative at `x`
+    /// - `(f(x + h) - f(x - h)) / (2h)`
+    pub finite_diff: T,
+
+    /// The value of the claimed derivative polynomial at `x`
+    /// - `f'(x)`
+    pub derivative: T,
+
+    /// The absolute difference between the finite difference and the derivative
+    /// - `|finite_diff - derivative|`
+    pub diff: T,
+
+    /// The relative tolerance used for the comparison
+    /// - `sqrt(ε) * max(|derivative|, 1)`
+    pub rel_tol: T,
+}
+impl<T: Value> std::fmt::Display for DerivationError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Derivative check failed at x = {}: finite difference = {}, derivative = {}, |diff| = {}, rel_tol = {}",
+            self.x, self.finite_diff, self.derivative, self.diff, self.rel_tol
+        )
+    }
+}
+
+/// Computes the Bayes factor between two polynomial models.
+///
+/// The result indicates how much more likely the data is under one model compared to the other:
+/// - < 1.0 → Model 2 is favored
+/// - 1.0 → Both models are equally likely
+/// - 1.0 to 3.0 → Weak evidence for Model 1
+/// - 3.0 to 10.0 → Moderate evidence for Model 1
+/// - > 10.0 → Strong evidence for Model 1
+pub fn bayes_factor<T: Value, B1, B2>(
+    m1: &Polynomial<B1, T>,
+    m2: &Polynomial<B2, T>,
+    data: &[(T, T)],
+) -> T
+where
+    B1: Basis<T> + PolynomialDisplay<T>,
+    B2: Basis<T> + PolynomialDisplay<T>,
+{
+    let y1 = m1.solve(data.x_iter()).y();
+    let y2 = m2.solve(data.x_iter()).y();
+
+    let k1 = T::from_positive_int(m1.coefficients().len());
+    let bic1 = Bic.score::<T>(y1.into_iter(), data.y_iter(), k1);
+
+    let k2 = T::from_positive_int(m2.coefficients().len());
+    let bic2 = Bic.score::<T>(y2.into_iter(), data.y_iter(), k2);
+
+    ((bic2 - bic1) / T::two()).exp()
+}
+
+/// Checks if `f_prime` is the derivative of polynomial `f`.
+///
+/// Uses a numerical approach to verify the derivative relationship.
+/// - Evaluates both polynomials at several points and compares the results.
+/// - Uses central difference to approximate the derivative of `f`.
+///
+/// # Type Parameters
+/// - `T`: A numeric type implementing the `Value` trait.
+/// - `B`: Basis type for the original polynomial.
+/// - `B2`: Basis type for the derivative polynomial.
+///
+/// # Parameters
+/// - `f`: The original polynomial.
+/// - `f_prime`: The polynomial claimed to be the derivative of `f`.
+/// - `normalizer`: The domain normalizer used for scaling.
+/// - `domain`: The range over which to check the derivative relationship.
+///
+/// # Returns
+/// - `Ok(())` if `f_prime` is verified as the derivative of `f` within tolerance.
+/// - `Err(DerivationError)` if the check fails, containing details of the failure
+///
+/// # Errors
+/// Returns `Err` if the derivative check fails at any point in the specified domain.
+pub fn is_derivative<T: Value, B, B2>(
+    f: &Polynomial<B, T>,
+    f_prime: &Polynomial<B2, T>,
+    normalizer: &DomainNormalizer<T>,
+    domain: &RangeInclusive<T>,
+) -> Result<(), DerivationError<T>>
+where
+    B: Basis<T> + PolynomialDisplay<T>,
+    B2: Basis<T> + PolynomialDisplay<T>,
+{
+    let range = *domain.end() - *domain.start();
+    let one_hundred = 100.0.clamped_cast::<T>();
+    let steps = Value::clamp(
+        one_hundred * (range),
+        one_hundred,
+        10_000.0.clamped_cast::<T>(),
+    );
+
+    let step = (range) / steps;
+
+    let tol = T::epsilon().sqrt();
+    for x in SteppedValues::new(domain.clone(), step) {
+        let h = T::epsilon().sqrt() * Value::max(T::one(), Value::abs(x));
+
+        let xhp = x + h;
+        let xhm = x - h;
+        if xhp > *domain.end() || xhm < *domain.start() {
+            continue;
+        }
+
+        let finite_diff = (f.y(xhp) - f.y(xhm)) / (T::two() * h);
+        let derivative = f_prime.y(x);
+        let derivative = derivative * normalizer.scale();
+
+        let rel_tol = tol.sqrt() * Value::max(Value::abs(derivative), T::one());
+        let diff = Value::abs(finite_diff - derivative);
+        if diff > rel_tol {
+            return Err(DerivationError {
+                x,
+                finite_diff,
+                derivative,
+                diff,
+                rel_tol,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// In order to find the best fitting polynomial degree, we need to limit the maximum degree considered.
 /// The choice of degree bound can significantly impact the model's performance and its ability to generalize.
 ///
@@ -1154,14 +1293,29 @@ impl std::fmt::Display for Confidence {
 
 /// Specifies a tolerance level for numerical comparisons.
 ///
-/// Can be either an absolute unit value, or a percentage of the variance or standard deviation (depending on context).
+/// Can be either an absolute unit value, or a percentage of the variance or of the value itself.
+///
+/// The idea is to seperate the uncertainty in the model used (Confidence)
+/// from the known uncertainty in the measurements (Tolerance).
+///
+/// It lets you encode domain knowledge about the expected accuracy of the data (Sensor specs, process variation, etc).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Tolerance<T: Value> {
     /// An absolute tolerance value.
+    ///
+    /// For example, if your sensor has a known error of ±0.5 dB, you would use `Tolerance::Absolute(0.5)`.
     Absolute(T),
 
-    /// A relative tolerance value (percentage).
-    Relative(T),
+    /// A percentage of the variance of the data set.
+    ///
+    /// For example, in vibration analysis of rotating machinery, engineers may allow a tolerance of ±10% of the signal variance
+    /// to account for normal operational fluctuations. Use `Tolerance::Variance(0.1)`.
+    Variance(T),
+
+    /// A percentage of the value itself.
+    ///
+    /// For example, if your sensor has a known error of ±5% of the reading, you would use `Tolerance::Measurement(0.05)`.
+    Measurement(T),
 }
 
 // A confidence band for a fitted model.
@@ -1237,7 +1391,7 @@ impl<T: Value> std::fmt::Display for ConfidenceBand<T> {
 ///
 /// Destination range use infinity to indicate unbounded ranges.
 /// - `(f64::NEG_INFINITY, f64::INFINITY)` means no normalization.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DomainNormalizer<T: Value> {
     src_range: (T, T),
     dst_range: (T, T),
@@ -1353,6 +1507,12 @@ impl<T: Value> DomainNormalizer<T> {
         (x - self.shift) / self.scale
     }
 
+    /// Denormalizes a complex value from the destination range back to the source range.
+    pub fn denormalize_complex(&self, z: nalgebra::Complex<T>) -> nalgebra::Complex<T> {
+        (z - nalgebra::Complex::new(self.shift(), T::zero()))
+            / nalgebra::Complex::new(self.scale(), T::one())
+    }
+
     /// Denormalizes a slice of polynomial coefficients from the destination range back to the source range.
     ///
     /// The coefficients are assumed to be in ascending order (constant term first).
@@ -1403,9 +1563,17 @@ impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
 
         let dst_max = if dst_max == T::infinity() {
             "∞".to_string()
+        } else if Value::abs_sub(dst_max, T::pi()) < T::epsilon() {
+            "π".to_string()
+        } else if Value::abs_sub(dst_max, T::two_pi()) < T::epsilon() {
+            "2π".to_string()
         } else {
             dst_max.to_string()
         };
+
+        if self.shift == T::zero() && self.scale == T::one() {
+            return write!(f, "T[ {dst_min}..{dst_max} ]");
+        }
 
         write!(f, "T[ {src_min}..{src_max} -> {dst_min}..{dst_max} ]")
     }

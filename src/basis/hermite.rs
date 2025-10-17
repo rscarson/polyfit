@@ -1,7 +1,7 @@
 use nalgebra::{Dim, MatrixViewMut};
 
 use crate::{
-    basis::{Basis, IntoMonomialBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
     display::{self, format_coefficient, PolynomialDisplay, Sign, Term, DEFAULT_PRECISION},
     error::Result,
     value::{IntClampedCast, Value},
@@ -39,11 +39,43 @@ impl<T: Value> PhysicistsHermiteBasis<T> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    /// Creates a new Hermite polynomial with the given coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which the Hermite basis is defined.
+    /// - `coefficients`: The coefficients for the Hermite basis functions.
+    ///
+    /// # Returns
+    /// A polynomial defined in the Hermite basis.
+    ///
+    /// # Errors
+    /// Returns an error if the polynomial cannot be created with the given basis and coefficients.
+    ///
+    /// # Example
+    /// ```rust
+    /// use polyfit::basis::PhysicistsHermiteBasis;
+    /// let hermite_poly = PhysicistsHermiteBasis::new_polynomial(&[1.0, 0.0, -0.5]).unwrap();
+    /// ```
+    pub fn new_polynomial(coefficients: &[T]) -> Result<crate::Polynomial<'_, Self, T>> {
+        let basis = Self::new();
+        crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
 }
 
 impl<T: Value> Basis<T> for PhysicistsHermiteBasis<T> {
     fn from_range(_x_range: std::ops::RangeInclusive<T>) -> Self {
         Self::new()
+    }
+
+    #[inline(always)]
+    fn normalize_x(&self, x: T) -> T {
+        x
+    }
+
+    #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        x
     }
 
     #[inline(always)]
@@ -77,11 +109,34 @@ impl<T: Value> Basis<T> for PhysicistsHermiteBasis<T> {
         }
     }
 }
+
 impl<T: Value> PolynomialDisplay<T> for PhysicistsHermiteBasis<T> {
     fn format_term(&self, degree: i32, coef: T) -> Option<Term> {
         format_herm(degree, coef)
     }
 }
+
+impl<T: Value> DifferentialBasis<T> for PhysicistsHermiteBasis<T> {
+    type B2 = PhysicistsHermiteBasis<T>;
+
+    fn derivative(&self, a: &[T]) -> Result<(Self::B2, Vec<T>)> {
+        let n = a.len();
+        let mut b = Vec::with_capacity(n);
+
+        for k in 0..n {
+            // He'_k = 2*(k+1) * He_{k+1}
+            let val = if k + 1 < n {
+                a[k + 1] * T::from_positive_int(2 * (k + 1))
+            } else {
+                T::zero()
+            };
+            b.push(val);
+        }
+
+        Ok((*self, b))
+    }
+}
+
 impl<T: Value> IntoMonomialBasis<T> for PhysicistsHermiteBasis<T> {
     fn as_monomial(&self, coefficients: &mut [T]) -> Result<()> {
         let n = coefficients.len();
@@ -100,6 +155,46 @@ impl<T: Value> IntoMonomialBasis<T> for PhysicistsHermiteBasis<T> {
 
         coefficients.copy_from_slice(&result);
         Ok(())
+    }
+}
+
+impl<T: Value> OrthogonalBasis<T> for PhysicistsHermiteBasis<T> {
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {
+        if n == 0 {
+            // ∫ e^{-x²} dx = √π
+            return vec![(T::zero(), T::pi().sqrt())];
+        }
+
+        let mut a = nalgebra::DMatrix::<T>::zeros(n, n);
+
+        // Build symmetric tridiagonal Jacobi matrix for Hermite
+        for i in 1..n {
+            let b = (T::from_positive_int(i) / T::two()).sqrt();
+            a[(i, i - 1)] = b;
+            a[(i - 1, i)] = b;
+        }
+
+        // Eigen-decomposition
+        let eig = a.symmetric_eigen();
+
+        let mut nodes = Vec::with_capacity(n);
+        let v0 = eig.eigenvectors.row(0);
+
+        // weights from first row of eigenvector matrix
+        for (xi, vi0) in eig.eigenvalues.iter().zip(v0.iter()) {
+            let x = *xi;
+            let w = *vi0 * *vi0 * T::pi().sqrt();
+            nodes.push((x, w));
+        }
+
+        // sort ascending
+        nodes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        nodes
+    }
+
+    fn gauss_normalization(&self, n: usize) -> T {
+        // ∫ H_n(x)^2 e^{-x²} dx = 2^n n! √π
+        (Value::powi(T::two(), n.clamped_cast::<i32>())) * T::factorial(n) * T::pi().sqrt()
     }
 }
 
@@ -136,11 +231,43 @@ impl<T: Value> ProbabilistsHermiteBasis<T> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    /// Creates a new Hermite polynomial with the given coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which the Hermite basis is defined.
+    /// - `coefficients`: The coefficients for the Hermite basis functions.
+    ///
+    /// # Returns
+    /// A polynomial defined in the Hermite basis.
+    ///
+    /// # Errors
+    /// Returns an error if the polynomial cannot be created with the given basis and coefficients.
+    ///
+    /// # Example
+    /// ```rust
+    /// use polyfit::basis::ProbabilistsHermiteBasis;
+    /// let hermite_poly = ProbabilistsHermiteBasis::new_polynomial(&[1.0, 0.0, -0.5]).unwrap();
+    /// ```
+    pub fn new_polynomial(coefficients: &[T]) -> Result<crate::Polynomial<'_, Self, T>> {
+        let basis = Self::new();
+        crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
 }
 
 impl<T: Value> Basis<T> for ProbabilistsHermiteBasis<T> {
     fn from_range(_: std::ops::RangeInclusive<T>) -> Self {
         Self::new()
+    }
+
+    #[inline(always)]
+    fn normalize_x(&self, x: T) -> T {
+        x
+    }
+
+    #[inline(always)]
+    fn denormalize_x(&self, x: T) -> T {
+        x
     }
 
     #[inline(always)]
@@ -174,11 +301,34 @@ impl<T: Value> Basis<T> for ProbabilistsHermiteBasis<T> {
         }
     }
 }
+
 impl<T: Value> PolynomialDisplay<T> for ProbabilistsHermiteBasis<T> {
     fn format_term(&self, degree: i32, coef: T) -> Option<Term> {
         format_herm(degree, coef)
     }
 }
+
+impl<T: Value> DifferentialBasis<T> for ProbabilistsHermiteBasis<T> {
+    type B2 = ProbabilistsHermiteBasis<T>;
+
+    fn derivative(&self, a: &[T]) -> Result<(Self::B2, Vec<T>)> {
+        let n = a.len();
+        let mut b = Vec::with_capacity(n);
+
+        for k in 0..n {
+            // B_k = (k+1) * A_{k+1}
+            let val = if k + 1 < n {
+                a[k + 1] * T::from_positive_int(k + 1)
+            } else {
+                T::zero()
+            };
+            b.push(val);
+        }
+
+        Ok((*self, b))
+    }
+}
+
 impl<T: Value> IntoMonomialBasis<T> for ProbabilistsHermiteBasis<T> {
     fn as_monomial(&self, coefficients: &mut [T]) -> Result<()> {
         let n = coefficients.len();
@@ -196,6 +346,22 @@ impl<T: Value> IntoMonomialBasis<T> for ProbabilistsHermiteBasis<T> {
 
         coefficients.copy_from_slice(&result);
         Ok(())
+    }
+}
+
+impl<T: Value> OrthogonalBasis<T> for ProbabilistsHermiteBasis<T> {
+    fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {
+        let phys = PhysicistsHermiteBasis::<T>::default().gauss_nodes(n);
+        let sqrt2 = T::two().sqrt();
+
+        phys.into_iter()
+            .map(|(x, w)| (x * sqrt2, w * sqrt2))
+            .collect()
+    }
+
+    fn gauss_normalization(&self, n: usize) -> T {
+        // ∫ He_n(x)² e^{-x²/2} dx = √(2π) n!
+        T::two_pi().sqrt() * T::factorial(n)
     }
 }
 
@@ -227,8 +393,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound, PhysicistsHermiteFit,
-        Polynomial, ProbabilistsHermiteFit,
+        assert_close, assert_fits,
+        score::Aic,
+        statistics::{DegreeBound, DomainNormalizer},
+        test::basis_assertions::assert_basis_orthogonal,
+        PhysicistsHermiteFit, Polynomial, ProbabilistsHermiteFit,
     };
 
     fn get_poly<B: Basis<f64> + PolynomialDisplay<f64> + Default>() -> Polynomial<'static, B> {
@@ -254,8 +423,11 @@ mod tests {
         assert_close!(basis.solve_function(2, 0.5), -1.0);
         assert_close!(basis.solve_function(3, 0.5), -5.0);
 
+        let poly = PhysicistsHermiteBasis::new_polynomial(&[3.0, 2.0, 1.5]).unwrap();
+        test_derivation!(poly, &DomainNormalizer::default());
+
         // Orthogonality test points
-        // todo
+        assert_basis_orthogonal(&basis, 4, 100, 1e-12);
     }
 
     #[test]
@@ -277,7 +449,11 @@ mod tests {
         assert_close!(basis.solve_function(2, 0.5), -0.75);
         assert_close!(basis.solve_function(3, 0.5), -1.375);
 
+        // Calculus tests
+        let poly = ProbabilistsHermiteBasis::new_polynomial(&[3.0, 2.0, 1.5]).unwrap();
+        test_derivation!(poly, &DomainNormalizer::default());
+
         // Orthogonality test points
-        // todo
+        assert_basis_orthogonal(&basis, 4, 100, 1e-12);
     }
 }

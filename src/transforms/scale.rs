@@ -85,6 +85,27 @@ pub enum ScaleTransform<T: Value> {
     /// # Parameters
     /// - `factor`: Multiplier applied after cubing each element.
     Cubic(T),
+
+    /// Applies an exponential scaling to each element of a dataset.
+    ///
+    /// Each element is raised to the specified degree and then multiplied by the specified factor.
+    /// Useful for modeling exponential growth or decay.
+    ///
+    /// ![Exponential example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/exponential_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * x^degree
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
+    /// - `degree`: The exponent to which each element is raised.
+    /// - `factor`: The multiplier applied after exponentiation.
+    Exponential(T, T),
 }
 impl<T: Value> Transform<T> for ScaleTransform<T> {
     fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
@@ -107,6 +128,11 @@ impl<T: Value> Transform<T> for ScaleTransform<T> {
             ScaleTransform::Cubic(coef) => {
                 for value in data {
                     *value = *value * *value * *value * *coef;
+                }
+            }
+            ScaleTransform::Exponential(degree, coef) => {
+                for value in data {
+                    *value = value.powf(*degree) * *coef;
                 }
             }
         }
@@ -228,6 +254,34 @@ pub trait ApplyScale<T: Value> {
     #[must_use]
     fn apply_cubic_scale(self, coef: T) -> Self;
 
+    /// Applies an exponential scaling to each element of a dataset.
+    ///
+    /// Each element is raised to the specified degree and then multiplied by the specified factor.
+    /// Useful for modeling exponential growth or decay.
+    ///
+    /// ![Exponential example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/exponential_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * x^degree
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
+    /// - `degree`: The exponent to which each element is raised.
+    /// - `factor`: The multiplier applied after exponentiation.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::transforms::ApplyScale;
+    /// let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_exponential_scale(2.0, 3.0);
+    /// ```
+    #[must_use]
+    fn apply_exponential_scale(self, degree: T, factor: T) -> Self;
+
     /// Applies a polynomial series as a transformation to each element of a dataset.
     ///
     /// The value of each element is replaced by the polynomial evaluated at that element.
@@ -270,6 +324,11 @@ impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
 
     fn apply_cubic_scale(mut self, coef: T) -> Self {
         ScaleTransform::Cubic(coef).apply(self.iter_mut().map(|(_, y)| y));
+        self
+    }
+
+    fn apply_exponential_scale(mut self, degree: T, factor: T) -> Self {
+        ScaleTransform::Exponential(degree, factor).apply(self.iter_mut().map(|(_, y)| y));
         self
     }
 

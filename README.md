@@ -243,7 +243,7 @@ let covariance = fit.covariance().expect("Failed to calculate covariance");
 let confidence_band = covariance.confidence_band(
     50.0,                          // Confidence band for x=50
     Confidence::P95,               // Find the range where we expect 95% of points to fall within
-    Some(Tolerance::Relative(0.1)) // Tolerate some extra noise in the data (10% of standard deviation of the data, in this case)
+    Some(Tolerance::Variance(0.1)) // Tolerate some extra noise in the data (10% of variance of the data, in this case)
 ).unwrap(); // 95% confidence band
 println!("I am 95% confident that the true value at x=50.0 is between {} and {}", confidence_band.min(), confidence_band.max());
 ```
@@ -275,7 +275,7 @@ let fit = MonomialFit::new_auto(&synthetic_data_with_outliers, DegreeBound::Cons
 // This means that they are outside the range where we expect 95% of the data to fall
 // The `Some(0.1)` means we tolerate some noise in the data, so we don't flag points that are just a little bit off
 // The noise tolerance is a fraction of the standard deviation of the data (10% in this case)
-let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Relative(0.1))).unwrap();
+let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Variance(0.1))).unwrap();
 ```
 
 <!-- cargo-rdme end -->
