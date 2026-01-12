@@ -2,7 +2,7 @@
 //! #### Because you don't need to be able to build a powerdrill to use one safely
 //!
 //! [![Crates.io](https://img.shields.io/crates/v/polyfit.svg)](https://crates.io/crates/polyfit/)
-//! [![Build Status](https://github.com/caliangroup/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/caliangroup/polyfit/actions?query=branch%3Amaster)
+//! [![Build Status](https://github.com/rscarson/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/rscarson/polyfit/actions?query=branch%3Amaster)
 //! [![docs.rs](https://img.shields.io/docsrs/polyfit)](https://docs.rs/polyfit/latest/polyfit/)
 //!
 //! Statistics is hard, and linear regression is made entirely out of footguns;
@@ -287,7 +287,7 @@
 //! // `function!` is a macro that makes it easy to define polynomials for testing
 //! // `apply_poisson_noise` is part of the `transforms` module, which provides a set of tools for manipulating data
 //! polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
+//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, false, None);
 //!
 //! //
 //! // Now we can create a curve fit to this data
@@ -336,7 +336,7 @@
 //! //
 //! // I still don't have any real data, so I'm going to make some up! Again!
 //! polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
+//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, false, None);
 //!
 //! //
 //! // Let's add some outliers
@@ -361,10 +361,11 @@
 //! ```
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::needless_range_loop)] // The worst clippy lint
-#![allow(clippy::cast_precision_loss)] // I don't care about this one
-#![allow(clippy::similar_names)] //       Clippy does not get to decide what names are similar
-#![allow(clippy::inline_always)] //       I know it doesn't do anything but it makes me feel better
+#![allow(clippy::needless_range_loop)] //   The worst clippy lint
+#![allow(clippy::cast_precision_loss)] //   I don't care about this one
+#![allow(clippy::similar_names)] //         Clippy does not get to decide what names are similar
+#![allow(clippy::inline_always)] //         I know it doesn't do anything but it makes me feel better
+#![allow(clippy::manual_is_multiple_of)] // I hate this one deep in my soul
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[macro_use]
@@ -392,5 +393,6 @@ pub use fit::*;
 pub use polynomial::Polynomial;
 
 pub use basis::monomial::MonomialPolynomial;
+pub use basis::fourier::FourierPolynomial;
 
 pub use nalgebra;

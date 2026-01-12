@@ -131,6 +131,7 @@ impl<T: Value> Basis<T> for LegendreBasis<T> {
         x: T,
         mut row: MatrixViewMut<T, R, C, RS, CS>,
     ) {
+        let x = x * self.gauss_weight(x);
         for j in start_index..row.ncols() {
             row[j] = self.solve_function(j, x);
         }
@@ -256,6 +257,10 @@ impl<T: Value> OrthogonalBasis<T> for LegendreBasis<T> {
         nodes
     }
 
+    fn gauss_weight(&self, _: T) -> T {
+        T::one()
+    }
+
     fn gauss_normalization(&self, n: usize) -> T {
         T::two() / (T::two() * T::from_positive_int(n) + T::one())
     }
@@ -264,8 +269,13 @@ impl<T: Value> OrthogonalBasis<T> for LegendreBasis<T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
-        test::basis_assertions::assert_basis_orthogonal, LegendreFit, Polynomial,
+        assert_close, assert_fits,
+        score::Aic,
+        statistics::DegreeBound,
+        test::{
+            basis_assertions::assert_basis_orthogonal,
+        },
+        LegendreFit, Polynomial,
     };
 
     use super::*;

@@ -32,6 +32,7 @@ pub trait PlotBackend {
     ///
     /// # Errors
     /// Returns an error if the plot cannot be created.
+    #[allow(clippy::too_many_arguments)]
     fn new_plot<T: Value>(
         root: &Self::Root,
         title: &str,

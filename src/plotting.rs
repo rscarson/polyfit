@@ -48,6 +48,9 @@ where
     /// Noise tolerance for the error bands on fits
     pub noise_tolerance: Option<crate::statistics::Tolerance<T>>,
 
+    /// Whether to suppress all output (for backends that print to stdout)
+    pub silent: bool,
+
     /// Whether to show the legend
     pub hide_legend: bool,
 
@@ -69,6 +72,7 @@ impl<T: crate::value::Value> Default for PlotOptions<T> {
             confidence: crate::statistics::Confidence::P95,
             noise_tolerance: None,
 
+            silent: false,
             hide_legend: false,
             x_axis_labels: None,
             y_axis_labels: None,
@@ -248,6 +252,7 @@ macro_rules! plot {
 
         let root = $crate::plotting::plotters::Root::new(&path, options.size);
 
+        let silent = options.silent;
         #[allow(unused_mut)] let mut plot = prime.plot_with_type_from::<$crate::plotting::plotters::Backend>(&root, options).expect("Failed to create plot");
 
         $(
@@ -258,7 +263,12 @@ macro_rules! plot {
         )?
 
         plot.finish().expect("Failed to finalize plot");
-        println!("Wrote plot to {}", path.display());
+        if !silent {
+            println!("Wrote plot to {}", path.display());
+        }
+
+        drop(root);
+        path
     }};
 
     ([$prime:expr $(, $($fit:expr),+ $(,)? )? ] $( , prefix = $prefix:expr )?) => {
@@ -271,6 +281,74 @@ macro_rules! plot {
 
     ($prime:expr$( , prefix = $prefix:expr )?) => {
         $crate::plot!([$prime] $(, prefix = $prefix)?);
+    };
+}
+
+/// Plot the residuals of a `CurveFit` to a PNG file.
+///
+/// Generates a filename based on the source file, line number, and timestamp.
+/// - Creates the necessary directories if they don't exist.
+/// - Prints the path of the generated file to stdout.
+/// - If prefix is specified, it is prepended to the filename.
+///
+/// # Examples
+/// ```ignore
+/// plot_residuals!(fit);
+/// plot_residuals!(fit, prefix = "custom");
+/// plot_residuals!(fit, PlotOptions<_> { title: "My Plot", ..Default::default() });
+/// plot_residuals!(fit, PlotOptions<_> { title: "My Plot", ..Default::default() }, prefix = "custom");
+#[macro_export]
+macro_rules! plot_residuals {
+    ($fit:expr, { $( $name:ident : $value:expr ),* $(,)? } $( , prefix = $prefix:expr )?) => {{
+        use $crate::plotting::WithTypeFrom;
+        use $crate::value::CoordExt;
+
+        let fit = &$fit;
+        let y_range = fit.y_range();
+        let residuals = fit.residuals();
+
+        let p = $crate::statistics::residual_normality(&residuals.y());
+        
+        #[allow(unused_mut)] let mut options = fit.options_with_type_from();
+        options.title = format!("Residuals for fit (normality p = {:.3})", p);
+        options.y_range = Some(*y_range.start()..*y_range.end()); // keep same y-range as fit for visual consistency
+        $( options.$name = $value; )*
+
+        // residual trendline
+        let residual_fit = $crate::ChebyshevFit::new_auto(
+            &residuals,
+            $crate::statistics::DegreeBound::Relaxed,
+            &$crate::score::Aic,
+        ).and_then(|f| f.as_monomial());
+
+        #[allow(unused)] let mut prefix: Option<String> = None; $( prefix = Some($prefix.to_string()); )?
+        let path = $crate::plot_filename!(prefix);
+
+        let root = $crate::plotting::plotters::Root::new(&path, options.size);
+
+        let silent = options.silent;
+        #[allow(unused_mut)] let mut plot = (&residuals, "Residuals").plot_with_type_from::<$crate::plotting::plotters::Backend>(&root, options).expect("Failed to create plot");
+
+        if let Ok(monomial) = residual_fit {
+            let data = monomial.solve_range(fit.x_range(), 1.0);
+            let equation = monomial.to_string();
+            let label = format!("Residual Trendline ({equation})");
+            (&data, label.as_str()).add_to_plot_with_type_from(&mut plot).expect("Failed to add residual trendline");
+        }
+
+        fit.add_to_plot_with_type_from(&mut plot).expect("Failed to add fit to plot");
+
+        plot.finish().expect("Failed to finalize plot");
+        if !silent {
+            println!("Wrote plot to {}", path.display());
+        }
+
+        drop(root);
+        path
+    }};
+
+    ($fit:expr$( , prefix = $prefix:expr )?) => {
+        $crate::plot_residuals!($fit, {} $(, prefix = $prefix)?);
     };
 }
 

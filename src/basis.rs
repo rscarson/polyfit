@@ -361,6 +361,11 @@ pub trait OrthogonalBasis<T: Value>: Basis<T> {
         true
     }
 
+    /// Returns the weight function value at `x` for Gauss quadrature.
+    ///
+    /// The basis is orthogonal against this weight function.
+    fn gauss_weight(&self, x: T) -> T;
+
     /// Returns the nodes and weights for Gauss quadrature.
     ///
     /// The basis is orthogonal against these nodes

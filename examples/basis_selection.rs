@@ -10,8 +10,7 @@
 //! - Performance: Some bases are faster to compute than others, like Chebyshev or Legendre.
 //!
 use polyfit::{
-    assert_r_squared, basis_select, error::Error, score::Aic, statistics::DegreeBound,
-    LogarithmicFit,
+    LogarithmicFit, assert_r_squared, basis_select, error::Error, score::Aic, statistics::{CvStrategy, DegreeBound}
 };
 
 fn main() -> Result<(), Error> {
@@ -61,9 +60,14 @@ fn main() -> Result<(), Error> {
     // Today we'll use Logarithmic because I want to show you how to use a different basis.
     //
     // I happen to know the data is a bit noisy, so I'll use k-fold cross validation to help avoid overfitting.
+    // We will use it to minimize bias in the fit - this means we care more about getting a good fit on average,
+    // rather than minimizing robustness to new data.
+    //
+    // This will be 5-fold cross validation since we are using the `MinimizeBias` strategy. 
+    //
     // 5-fold regression means I split the data into 5 parts, fit to 4/5 of it, and test on the remaining 1/5.
     // This is repeated 5 times, each time with a different 1/5 held out for testing.
-    let fit = LogarithmicFit::new_kfold_cross_validated(&data, 5, DegreeBound::Relaxed, &Aic)?;
+    let fit = LogarithmicFit::new_kfold_cross_validated(&data, CvStrategy::MinimizeBias, DegreeBound::Relaxed, &Aic)?;
 
     //
     // And of course don't forget to test!

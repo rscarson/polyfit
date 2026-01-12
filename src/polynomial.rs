@@ -1062,7 +1062,7 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> std::ops::DivAssign<T> for Po
 
 #[cfg(test)]
 mod tests {
-    use crate::{assert_all_close, assert_close, assert_y, function};
+    use crate::{assert_all_close, assert_close, assert_y};
 
     use super::*;
 

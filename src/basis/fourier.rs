@@ -1,12 +1,44 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis, OrthogonalBasis},
-    display::{self, format_coefficient, Sign, Term, DEFAULT_PRECISION},
-    error::Result,
-    statistics::DomainNormalizer,
-    value::{IntClampedCast, Value},
+    Polynomial, basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis, OrthogonalBasis}, display::{self, DEFAULT_PRECISION, Sign, Term, format_coefficient}, error::Result, statistics::DomainNormalizer, value::{IntClampedCast, Value}
 };
+
+/// Type alias for a Fourier polynomial (`Polynomial<FourierBasis, T>`).
+pub type FourierPolynomial<'a, T> = crate::Polynomial<'a, FourierBasis<T>, T>;
+impl<T: Value> FourierPolynomial<'_, T> {
+    /// Create a new Fourier polynomial with the given constant and Fourier coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which the Fourier basis is defined
+    /// - `constant`: The constant term of the polynomial
+    /// - `terms`: A slice of (`a_n`, `b_n`) pairs representing the sine and cosine coefficients
+    /// 
+    /// # Returns
+    /// A polynomial defined in the Fourier basis.
+    /// 
+    /// For example to create a Fourier polynomial:
+    /// ```math
+    /// f(x) = 3 + 2 sin(2πx) - 0.5 cos(2πx)
+    /// ```
+    /// 
+    /// ```rust
+    /// use polyfit::FourierPolynomial;
+    /// let poly = FourierPolynomial::new((-1.0, 1.0), 3.0, &[(2.0, -0.5)]);
+    /// ```
+    #[allow(clippy::missing_panics_doc, reason = "Always has valid coefficients for Fourier basis")]
+    pub fn new(x_range: (T, T), constant: T, terms: &[(T, T)]) -> Self {
+        let mut coefficients = Vec::with_capacity(1 + terms.len() * 2);
+        coefficients.push(constant);
+        for (a_n, b_n) in terms {
+            coefficients.push(*a_n); // sin term
+            coefficients.push(*b_n); // cos term
+        }
+
+        let basis = FourierBasis::new(x_range.0, x_range.1);
+        Polynomial::from_basis(basis, coefficients).expect("Failed to create Fourier polynomial")
+    }
+}
 
 /// Standard Fourier basis for periodic functions.
 ///
@@ -281,6 +313,10 @@ impl<T: Value> DifferentialBasis<T> for FourierBasis<T> {
 impl<T: Value> OrthogonalBasis<T> for FourierBasis<T> {
     fn is_orthogonal(&self) -> bool {
         self.polynomial_terms < 2
+    }
+
+    fn gauss_weight(&self, _: T) -> T {
+        T::one()
     }
 
     fn gauss_nodes(&self, n: usize) -> Vec<(T, T)> {

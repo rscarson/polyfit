@@ -1,4 +1,4 @@
-/// Asserts that the fitted curve is a good representation of the canonical curve.
+/// Asserts that the fitted curve is a good representation of a canonical curve.
 /// Compares the fit's r² value against a threshold to ensure it closely follows the expected curve.
 ///
 /// Useful if you know the underlying function but want to validate the fitting process.
@@ -25,26 +25,44 @@
 /// ```
 #[macro_export]
 macro_rules! assert_fits {
-    ($canonical:expr, $fit:expr, $r2:expr) => {{
+    ($canonical:expr, $fit:expr, $r2:expr $(, $msg:literal $(, $($args:tt),*)?)?) => {{
         let fit = &$fit;
         let poly = &$canonical;
         let threshold = $r2;
 
         let r2 = fit.r_squared_against(poly);
 
-        if r2 < threshold || !r2.is_finite() {
+        if r2 < threshold || !$crate::value::Value::is_finite(r2) {
+            #[allow(unused)] use std::fmt::Write;
+            let mut msg = format!("Fit does not meet R² threshold: {r2} < {threshold}");
+
+            // Print any seeds used in the test thread so far
+            #[cfg(feature = "transforms")]
+            {
+                let seeds = $crate::transforms::SeedSource::all_seeds();
+                if !seeds.is_empty() {
+                    write!(msg, "\nSeeds used in this test thread: {:?}", seeds).ok();
+                }
+            }
+
             // Create a failure plot
             #[cfg(feature = "plotting")]
-            $crate::plot!(
-                [fit, poly],
-                {
-                    title: format!("Polynomial Fit (R² = {r2:.4})")
-                },
-                prefix = "assert_fits"
-            );
+            {
+                let filename = $crate::plot!(
+                    [fit, poly],
+                    {
+                        title: format!("Polynomial Fit (R² = {r2:.4})"),
+                        silent: true
+                    },
+                    prefix = "assert_fits"
+                );
+                write!(msg, "\nFailure plot saved to: {}", filename.display()).ok();
+            }
 
-            // And finally, assert to end the test
-            panic!("R² = {r2} is below {threshold}");
+            $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
+
+            // And finally, panic to end the test
+            panic!("{msg}");
         }
     }};
 
@@ -64,16 +82,16 @@ macro_rules! assert_fits {
 /// General case of [`crate::assert_fits`] that does not require a known function.
 ///
 /// See [`crate::CurveFit::r_squared`] for more details.
-///
-/// # Forms
-/// - `assert_r_squared!(fit, 0.95)`
-///
-///   Asserts that the `fit` has R² ≥ 0.95. Generates a test label based on the
-///   file and line number. Produces a failure plot if the assertion fails.
-///
-/// - `assert_r_squared!(canonical, fit)`
-///
-///   Compares `fit` against a canonical dataset with a default R² threshold of 0.9.
+/// 
+/// Will generate a failure plot in `<target/test_output>` if the assertion fails.
+/// 
+/// # Syntax
+/// 
+/// `assert_r_squared!(<CurveFit>, <threshold> [, msg = <custom message>])`
+/// 
+/// - `CurveFit`: The fitted curve to test.
+/// - `threshold`: Minimum acceptable R² value (between 0.0 and 1.0). Defaults to `0.9` if omitted.
+/// - `msg`: *(optional)* Custom message to include on failure, supports formatting arguments.
 ///
 /// # Notes
 /// - Automatically handles test labeling and failure plotting.
@@ -90,14 +108,32 @@ macro_rules! assert_fits {
 /// ```
 #[macro_export]
 macro_rules! assert_r_squared {
-    ($fit:expr, $r2:expr) => {
+    ($fit:expr $(, msg = $msg:literal $(, $($args:tt),*)?)?) => {
+        $crate::assert_r_squared!(
+            $fit,
+            $crate::value::Value::try_cast(0.9)
+                .expect("Failed to cast 0.9 for assert_r_squared! threshold")
+            $(, msg = $msg $(, $($args),*)?)?
+        )
+    };
+
+    ($fit:expr, $r2:expr $(, msg = $msg:literal $(, $($args:tt),*)?)?) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
             let ref fit = $fit;
             let threshold = $r2;
-            let r2 = fit.r_squared(fit.data());
+            #[allow(unused_mut)] let mut r2 = fit.r_squared(None);
 
             if r2 <= threshold {
+                // Print any seeds used in the test thread so far
+                #[cfg(feature = "transforms")]
+                {
+                    let seeds = $crate::transforms::SeedSource::all_seeds();
+                    if !seeds.is_empty() {
+                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    }
+                }
+
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
                 $crate::plot!(
@@ -105,25 +141,168 @@ macro_rules! assert_r_squared {
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
                     prefix = "assert_r_squared"
                 );
+        
+                #[allow(unused_mut, unused_assignments)] let mut msg = format!("R² = {r2} is below {threshold}");
+                $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
                 // And finally, assert to end the test
-                panic!("R² = {r2} is below {threshold}");
+                panic!("{msg}");
             }
         }
     };
+}
 
-    ($fit:expr) => {
-        $crate::assert_r_squared!(
+/// Macro for asserting that a fitted curve meets a minimum R² threshold in tests.
+/// This is a measure of how well the curve explains how wiggly the data is.
+///
+/// See [`crate::CurveFit::adjusted_r_squared`] for more details.
+/// 
+/// Will generate a failure plot in `<target/test_output>` if the assertion fails.
+/// 
+/// # Syntax
+/// 
+/// `assert_r_squared!(<CurveFit>, <threshold> [, msg = <custom message>])`
+/// 
+/// - `CurveFit`: The fitted curve to test.
+/// - `threshold`: Minimum acceptable R² value (between 0.0 and 1.0). Defaults to `0.9` if omitted.
+/// - `msg`: *(optional)* Custom message to include on failure, supports formatting arguments.
+///
+/// # Notes
+/// - Automatically handles test labeling and failure plotting.
+/// - Panics if the R² is below the threshold, ending the test.
+///
+/// # Example
+/// ```rust
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::DegreeBound, score::Aic, function, transforms::{ApplyNoise, Strength}, assert_adjusted_r_squared};
+/// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3 );
+/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Strength::Relative(0.1), None);
+///
+/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
+/// assert_adjusted_r_squared!(fit, 0.95);
+/// ```
+#[macro_export]
+macro_rules! assert_adjusted_r_squared {
+    ($fit:expr $(, msg = $msg:literal $(, $($args:tt),*)?)?) => {
+        $crate::assert_adjusted_r_squared!(
             $fit,
             $crate::value::Value::try_cast(0.9)
-                .expect("Failed to cast 0.9 for assert_r_squared! threshold")
+                .expect("Failed to cast 0.9 for assert_adjusted_r_squared! threshold")
+            $(, msg = $msg $(, $($args),*)?)?
         )
+    };
+
+    ($fit:expr, $r2:expr $(, msg = $msg:literal $(, $($args:tt),*)?)?) => {
+        #[allow(clippy::toplevel_ref_arg)]
+        {
+            let ref fit = $fit;
+            let threshold = $r2;
+            #[allow(unused_mut)] let mut r2 = fit.adjusted_r_squared(None);
+
+            if r2 <= threshold {
+                // Print any seeds used in the test thread so far
+                #[cfg(feature = "transforms")]
+                {
+                    let seeds = $crate::transforms::SeedSource::all_seeds();
+                    if !seeds.is_empty() {
+                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    }
+                }
+
+                // Create a failure plot
+                #[cfg(feature = "plotting")]
+                $crate::plot!(
+                    fit,
+                    { title: format!("Polynomial Fit (R² = {r2:.4})") },
+                    prefix = "assert_adjusted_r_squared"
+                );
+        
+                #[allow(unused_mut, unused_assignments)] let mut msg = format!("R² = {r2} is below {threshold}");
+                $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
+
+                // And finally, assert to end the test
+                panic!("{msg}");
+            }
+        }
+    };
+}
+
+/// Macro for asserting that a fitted curve meets a minimum R² threshold in tests.
+/// This is a measure of how well the curve explains how wiggly the data is.
+///
+/// See [`crate::CurveFit::robust_r_squared`] for more details.
+/// 
+/// Will generate a failure plot in `<target/test_output>` if the assertion fails.
+/// 
+/// # Syntax
+/// 
+/// `assert_r_squared!(<CurveFit>, <threshold> [, msg = <custom message>])`
+/// 
+/// - `CurveFit`: The fitted curve to test.
+/// - `threshold`: Minimum acceptable R² value (between 0.0 and 1.0). Defaults to `0.9` if omitted.
+/// - `msg`: *(optional)* Custom message to include on failure, supports formatting arguments.
+///
+/// # Notes
+/// - Automatically handles test labeling and failure plotting.
+/// - Panics if the R² is below the threshold, ending the test.
+///
+/// # Example
+/// ```rust
+/// # use polyfit::{ChebyshevFit, MonomialPolynomial, statistics::DegreeBound, score::Aic, function, transforms::{ApplyNoise, Strength}, assert_robust_r_squared};
+/// function!(test(x) = 20.0 + 3.0 x^1 + 2.0 x^2 + 4.0 x^3);
+/// let data = test.solve_range(0.0..=1000.0, 1.0).apply_normal_noise(Strength::Relative(1.5), None);
+///
+/// let fit = ChebyshevFit::new_auto(&data, DegreeBound::Relaxed, &Aic).expect("Failed to create model");
+/// assert_robust_r_squared!(fit, 0.6);
+/// ```
+#[macro_export]
+macro_rules! assert_robust_r_squared {
+    ($fit:expr $(, msg = $msg:literal $(, $($args:tt),*)?)?) => {
+        $crate::assert_robust_r_squared!(
+            $fit,
+            $crate::value::Value::try_cast(0.9)
+                .expect("Failed to cast 0.9 for assert_robust_r_squared! threshold")
+            $(, msg = $msg $(, $($args),*)?)?
+        )
+    };
+
+    ($fit:expr, $r2:expr $(, msg = $msg:literal $(, $($args:tt),*)?)?) => {
+        #[allow(clippy::toplevel_ref_arg)]
+        {
+            let ref fit = $fit;
+            let threshold = $r2;
+            #[allow(unused_mut)] let mut r2 = fit.robust_r_squared(None);
+
+            if r2 <= threshold {
+                // Print any seeds used in the test thread so far
+                #[cfg(feature = "transforms")]
+                {
+                    let seeds = $crate::transforms::SeedSource::all_seeds();
+                    if !seeds.is_empty() {
+                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    }
+                }
+
+                // Create a failure plot
+                #[cfg(feature = "plotting")]
+                $crate::plot!(
+                    fit,
+                    { title: format!("Polynomial Fit (R² = {r2:.4})") },
+                    prefix = "assert_robust_r_squared"
+                );
+        
+                #[allow(unused_mut, unused_assignments)] let mut msg = format!("R² = {r2} is below {threshold}");
+                $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
+
+                // And finally, assert to end the test
+                panic!("{msg}");
+            }
+        }
     };
 }
 
 /// Asserts that the residuals (the differences between the observed and predicted values) of a fit are normally distributed.
 ///
-/// Think of it like making sure the errors are random, not based on some undiscovered pattern.
+/// This means the errors are likely random, not based on some undiscovered pattern.
 ///
 /// See [`crate::statistics::residual_normality`] for more details.
 /// - Results will be between 0.0 and 1.0, with values closer to 1.0 indicating a better fit.
@@ -157,11 +336,18 @@ macro_rules! assert_r_squared {
 /// ```
 #[macro_export]
 macro_rules! assert_residuals_normal {
-    ($fit:expr, $tolerance:expr $(, strict = $strict:expr)?) => {
-        #[allow(clippy::toplevel_ref_arg)]
+    ($fit:expr $(, strict = $strict:expr)?) => {
+        $crate::assert_residuals_normal!(
+            $fit,
+            $crate::value::Value::try_cast(0.1).expect("Failed to cast 0.1 for threshold in assert_residuals_normal!")
+            $(, strict = $strict)?)
+    };
+
+    ($fit:expr, $tolerance:expr $(, strict = $strict:expr)? $(, $msg:literal $(, $($args:tt),*)?)?) => {
         {
             use $crate::value::CoordExt;
 
+            #[allow(clippy::toplevel_ref_arg)]
             let ref fit = $fit;
             let tolerance = $tolerance;
 
@@ -177,80 +363,159 @@ macro_rules! assert_residuals_normal {
             let p_value = $crate::statistics::residual_normality(&residuals_y);
 
             if p_value < tolerance {
+                // Print any seeds used in the test thread so far
+                #[cfg(feature = "transforms")]
+                {
+                    let seeds = $crate::transforms::SeedSource::all_seeds();
+                    if !seeds.is_empty() {
+                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    }
+                }
+
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
-                $crate::plot!(residuals, { title: format!("Residuals not normally distributed") }, prefix = "assert_residuals_normal");
+                {
+                    fn get_cutoff<T: $crate::value::Value>(residuals: &[(T, T)], p: T) -> Option<T> {
+                        let mut sorted_residuals = residuals.to_vec();
+                        sorted_residuals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+                        let p = T::one() - ($crate::value::Value::clamp(p, T::zero(), T::one()));
+                        let n = residuals.len();
+                        let index = $crate::value::Value::ceil(T::from_usize(n)? * p).to_usize()? - 1;
+                        sorted_residuals.get(index).map(|(_, y)| y.abs())
+                    }
+
+                    // residual trendline
+                    let fit = $crate::ChebyshevFit::new_auto(
+                        &residuals,
+                        $crate::statistics::DegreeBound::Relaxed,
+                        &$crate::score::Aic,
+                    ).expect("Failed to create residual trendline fit");
+                    let fit = fit.as_monomial().expect("Failed to convert residual trendline to monomial");
+
+                    let title = format!("Residuals not normally distributed (p={:.2})", p_value);
+                    let caption = format!("Residuals ({})", fit.equation());
+
+                    // 1-p percentile
+                    let cutoff = get_cutoff(&residuals, tolerance);
+                    if let Some(cutoff) = cutoff {
+                        let cutoff_lineu = residuals.iter().map(|(x, _)| (*x, cutoff)).collect::<Vec<_>>();
+                        let cutoff_textu = format!("Upper Cutoff (p={:.2})", p_value);
+
+                        let cutoff_linel = residuals.iter().map(|(x, _)| (*x, -cutoff)).collect::<Vec<_>>();
+                        let cutoff_textl = format!("Lower Cutoff (p={:.2})", p_value);
+
+                        $crate::plot!([
+                            (&residuals, caption.as_str()), 
+                            fit,
+                            (&cutoff_lineu, cutoff_textu.as_str()), 
+                            (&cutoff_linel, cutoff_textl.as_str())
+                        ], { title: title }, prefix = "assert_residuals_normal");
+                    } else {
+                        $crate::plot!([(&residuals, caption.as_str()), fit], { title: title }, prefix = "assert_residuals_normal");
+
+                    }
+                }
 
                 let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals_y);
-                panic!(
+        
+                #[allow(unused_mut, unused_assignments)] let mut msg = format!(
                     "Residuals not normal - p={p_value:.2} - skew={skewness:.4}, kurt={kurtosis:.4}, tol={tolerance}"
                 );
+                $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
+
+                panic!("{msg}");
             }
         }
     };
-
-    ($fit:expr $(, strict = $strict:expr)?) => {
-        $crate::assert_residuals_normal!(
-            $fit,
-            $crate::value::Value::try_cast(0.1).expect("Failed to cast 0.1 for threshold in assert_residuals_normal!")
-            $(, strict = $strict)?)
-    };
 }
 
-/// Asserts that the spread of the residuals (the differences between the observed and predicted values) of a fit is below a certain threshold.
+/// Asserts that at least a certain proportion of residuals (the differences between the observed and predicted values) of a fit are below a certain threshold.
 ///
-/// This ensures that no residual is too large, i.e., the fit is sufficiently close to the data.
+/// This ensures that residuals are not too large, i.e., the fit is sufficiently close to the data.
 /// Unlike `assert_residuals_normal`, this checks **magnitude**, not distribution shape.
 ///
 /// # Parameters
 /// - `fit`: The curve fit to test.
-/// - `max`: Maximum allowed spread of residuals.
+/// - `max`: Maximum allowed residual magnitude.
+/// - `tolerance`: Proportion of residuals that must be below `max`. Defaults to `0.95` if omitted.
 ///
 /// # Panics
-/// Panics if the spread exceeds `max`. If the `plotting` feature is enabled,
+/// Panics if the proportion of residuals below `max` is less than `tolerance`. If the `plotting` feature is enabled,
 /// a failure plot is generated.
 ///
 /// # Example
 /// ```rust
-/// # use polyfit::{MonomialFit, assert_residual_spread};
+/// # use polyfit::{MonomialFit, assert_max_residual};
 /// let fit = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
-/// assert_residual_spread!(fit, 0.01);
+/// assert_max_residual!(fit, 0.01);
 /// ```
 #[macro_export]
-macro_rules! assert_residual_spread {
-    ($fit:expr, $max:expr) => {
+macro_rules! assert_max_residual {
+    ($fit:expr, $max:expr $(, $msg:literal $(, $($args:tt),*)?)?) => {
+        $crate::assert_max_residual!($fit, $max,
+            $crate::value::Value::try_cast(0.95)
+                .expect("Failed to cast 0.95 for assert_max_residual! tolerance")
+            $(, $msg $(, $($args),*)? )?
+        )
+    };
+
+    ($fit:expr, $max:expr, $tolerance:expr $(, $msg:literal $(, $($args:tt),*)?)?) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
-            use $crate::value::CoordExt;
+            fn get_cutoff<T: $crate::value::Value>(residuals: &[(T, T)], p: T) -> Option<T> {
+                let mut sorted_residuals = residuals.to_vec();
+                sorted_residuals.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                let p = $crate::value::Value::clamp(p, T::zero(), T::one() - T::epsilon());
+                let n = residuals.len();
+                let index = $crate::value::Value::ceil(T::from_usize(n)? * p).to_usize()? - 1;
+                sorted_residuals.get(index).map(|(_, y)| y).cloned()
+            }
 
             let ref fit = $fit;
-            let tolerance = $max;
+            let max = $max;
+            let tolerance = $tolerance;
 
-            let residuals = fit.residuals();
-            let spread = $crate::statistics::spread(residuals.y_iter());
-            if spread > tolerance {
+            let residuals = fit.residuals().iter().map(|(x, y)| (*x, $crate::value::Value::abs(*y))).collect::<Vec<_>>();
+            let cutoff = get_cutoff(&residuals, tolerance).unwrap_or_else(|| {
+                panic!("Failed to compute residual cutoff for assert_max_residual!");
+            });
+            
+            if cutoff > max {
+                // Print any seeds used in the test thread so far
+                #[cfg(feature = "transforms")]
+                {
+                    let seeds = $crate::transforms::SeedSource::all_seeds();
+                    if !seeds.is_empty() {
+                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    }
+                }
+
                 // Create a failure plot
                 #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Abnormal Residuals") },
-                    prefix = "assert_residual_spread"
+                    prefix = "assert_max_residual"
                 );
+        
+                #[allow(unused_mut, unused_assignments)] let mut msg = format!(
+                    "Residuals above threshold - max={cutoff:.4}/{max:.4}, tol={tolerance}"
+                );
+                $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
-                panic!("Residual spread too large - spread={spread:.4}, tol={tolerance}");
+                panic!("{msg}");
             }
         }
     };
 }
 
-/// Asserts that the residuals (the differences between the observed and predicted values) of a fit are normally distributed.
-/// Think of it like making sure the errors are random, not based on some undiscovered pattern.
-///
-/// See [`crate::statistics::residual_normality`] for more details.
-/// - Results will be between 0.0 and 1.0, with values closer to 1.0 indicating a better fit.
+/// Asserts that the derivative of a fitted curve does not change sign over its x-range, indicating monotonicity.
+/// This means the function always increases or always decreases.
 ///
 /// # Parameters
-/// - `$fit`: `CurveFit` object to test.
+/// - `$fit`: `CurveFit` or `Polynomal` object to test.
 ///
 /// # Panics
 /// Panics if derivative changes sign anywhere in the x-range.
@@ -263,7 +528,7 @@ macro_rules! assert_residual_spread {
 /// ```
 #[macro_export]
 macro_rules! assert_monotone {
-    ($fit:expr) => {
+    ($fit:expr $(, $msg:literal $(, $($args:tt),*)?)?) => {
         #[allow(clippy::toplevel_ref_arg)]
         {
             let ref fit = $fit;
@@ -271,14 +536,26 @@ macro_rules! assert_monotone {
                 .monotonicity_violations()
                 .expect("Failed to check monotonicity");
             if let Some(first) = violations.first() {
+                // Print any seeds used in the test thread so far
+                #[cfg(feature = "transforms")]
+                {
+                    let seeds = $crate::transforms::SeedSource::all_seeds();
+                    if !seeds.is_empty() {
+                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    }
+                }
+
                 #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Monotonicity Violation at x={first}") },
                     prefix = "assert_monotone"
                 );
+        
+                #[allow(unused_mut, unused_assignments)] let mut msg = format!("Fit is not monotonic - derivative changes sign at x={first}");
+                $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
-                panic!("Fit is not monotonic - derivative changes sign at x={first}");
+                panic!("{msg}");
             }
         }
     };
@@ -311,13 +588,16 @@ macro_rules! assert_monotone {
 /// ```
 #[macro_export]
 macro_rules! assert_y {
-    ($function:expr, $x:expr, $expected:expr) => {{
+    ($function:expr, $x:expr, $expected:expr $(, $msg:literal $(, $($args:tt),*)?)?) => {{
         let function = &$function;
         let function: &$crate::Polynomial<_, _> = function.as_ref();
         let x = $x;
         let expected = $expected;
+        
+        #[allow(unused_mut, unused_assignments)] let mut msg = format!("y({x}) != {expected}");
+        $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
-        $crate::assert_close!(function.y(x), expected, "y({x}) != {expected}");
+        $crate::assert_close!(function.y(x), expected, "{msg}");
     }};
 }
 
@@ -379,7 +659,7 @@ macro_rules! assert_is_derivative {
 /// ```
 #[macro_export]
 macro_rules! assert_close {
-    ($a:expr, $b:expr $(, $msg:expr $(, $($args:tt),*)?)?) => { #[allow(clippy::float_cmp)] {
+    ($a:expr, $b:expr $(, $msg:literal $(, $($args:tt),*)?)?) => { #[allow(clippy::float_cmp)] {
         #[allow(unused_imports)] use $crate::nalgebra::ComplexField;
         fn epsilon<C: $crate::nalgebra::ComplexField<RealField = T>, T: $crate::value::Value>(_: C) -> T {
             T::epsilon()
@@ -427,7 +707,7 @@ macro_rules! assert_close {
 /// ```
 #[macro_export]
 macro_rules! assert_all_close {
-    ($src:expr, $dst:expr  $(, $msg:expr $(, $($args:tt),*)?)?) => {
+    ($src:expr, $dst:expr  $(, $msg:literal $(, $($args:tt),*)?)?) => {
         #[allow(unused_assignments, unused_mut)]
         let mut msg = format!("{} elements", $src.len());
         $(
@@ -489,6 +769,9 @@ mod tests {
             .apply_normal_noise(Strength::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_r_squared!(&fit, 0.98);
+        assert_r_squared!(&fit, 0.98, msg = "test");
+        assert_r_squared!(&fit, msg = "test");
+        assert_r_squared!(&fit);
     }
 
     #[test]
@@ -502,13 +785,13 @@ mod tests {
     }
 
     #[test]
-    fn test_assert_residual_spread_macro() {
+    fn test_assert_max_residual_macro() {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Strength::Absolute(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
-        assert_residual_spread!(&fit, 80000.0);
+        assert_max_residual!(&fit, 80000.0);
     }
 
     #[test]

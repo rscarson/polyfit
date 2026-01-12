@@ -109,10 +109,28 @@ pub trait Value:
         nalgebra::RealField::max(self, other)
     }
 
+    /// Return the next value greater than self
+    #[must_use]
+    fn ceil(self) -> Self {
+        num_traits::float::FloatCore::ceil(self)
+    }
+
+    /// Return the next value less than self
+    #[must_use]
+    fn floor(self) -> Self {
+        num_traits::float::FloatCore::floor(self)
+    }
+
     /// Returns the machine epsilon for the numeric type.
     #[must_use]
     fn is_near_zero(&self) -> bool {
         self.abs() < Self::epsilon()
+    }
+
+    /// Checks if the value is finite (not NaN or infinite).
+    #[must_use]
+    fn is_finite(value: Self) -> bool {
+        num_traits::float::FloatCore::is_finite(value)
     }
 
     /// Returns the sign of the value as a numeric type

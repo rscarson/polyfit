@@ -215,6 +215,11 @@ impl<T: Value> OrthogonalBasis<T> for LaguerreBasis<T> {
         nodes
     }
 
+    fn gauss_weight(&self, x: T) -> T {
+        // w(x) = e^{-x}
+        (-x).exp()
+    }
+
     fn gauss_normalization(&self, _n: usize) -> T {
         // ∫₀^∞ e^{-x} dx = 1
         T::one()

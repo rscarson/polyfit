@@ -192,6 +192,11 @@ impl<T: Value> OrthogonalBasis<T> for PhysicistsHermiteBasis<T> {
         nodes
     }
 
+    fn gauss_weight(&self, x: T) -> T {
+        // w(x) = e^{-x²}
+        (-x * x).exp()
+    }
+
     fn gauss_normalization(&self, n: usize) -> T {
         // ∫ H_n(x)^2 e^{-x²} dx = 2^n n! √π
         (Value::powi(T::two(), n.clamped_cast::<i32>())) * T::factorial(n) * T::pi().sqrt()
@@ -357,6 +362,11 @@ impl<T: Value> OrthogonalBasis<T> for ProbabilistsHermiteBasis<T> {
         phys.into_iter()
             .map(|(x, w)| (x * sqrt2, w * sqrt2))
             .collect()
+    }
+
+    fn gauss_weight(&self, x: T) -> T {
+        // w(x) = e^{-x²/2}
+        (-x * x / T::two()).exp()
     }
 
     fn gauss_normalization(&self, n: usize) -> T {

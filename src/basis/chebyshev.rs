@@ -92,7 +92,7 @@ impl<T: Value> Basis<T> for ChebyshevBasis<T> {
                 0 => T::one(),
                 1 => x,
                 _ => T::two() * x * row[j - 1] - row[j - 2],
-            }
+            };
         }
     }
 
@@ -141,6 +141,10 @@ impl<T: Value> OrthogonalBasis<T> for ChebyshevBasis<T> {
         }
 
         nodes
+    }
+
+    fn gauss_weight(&self, x: T) -> T {
+        T::one() / (T::one() - x * x).sqrt()
     }
 
     fn gauss_normalization(&self, n: usize) -> T {
@@ -284,7 +288,7 @@ mod tests {
     use core::f64;
 
     use crate::{
-        assert_fits, function,
+        assert_fits,
         score::Aic,
         statistics::DegreeBound,
         test::basis_assertions::{

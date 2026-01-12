@@ -4,7 +4,7 @@
 #### Because you don't need to be able to build a powerdrill to use one safely
 
 [![Crates.io](https://img.shields.io/crates/v/polyfit.svg)](https://crates.io/crates/polyfit/)
-[![Build Status](https://github.com/caliangroup/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/caliangroup/polyfit/actions?query=branch%3Amaster)
+[![Build Status](https://github.com/rscarson/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/rscarson/polyfit/actions?query=branch%3Amaster)
 [![docs.rs](https://img.shields.io/docsrs/polyfit)](https://docs.rs/polyfit/latest/polyfit/)
 
 Statistics is hard, and linear regression is made entirely out of footguns;

@@ -460,11 +460,26 @@ where
 
     /// Solves the linear system using SVD.
     fn solve_matrix(xtx: DMatrix<T>, xtb: &DVector<T>) -> Result<Vec<T>> {
+        const SVD_ITER_LIMIT: (usize, usize) = (1000, 10_000);
+
         let size = xtx.shape();
 
-        // Calculate the singular value decomposition of the matrix
-        let decomp = SVD::new_unordered(xtx, true, true);
+        // This looks arbitrary, but this is what nalgebra uses internally for its default epsilon
+        // It isn't documented, but I assume it's based on empirical testing.
+        // It also matches their default behavior which is a plus here
+        let svd_eps = T::RealField::default_epsilon() * nalgebra::convert(5.0);
 
+        // Now let's get a count for how many iterations to allow
+        // We can't go by time, it is by iterations
+        // A good rule of thumb for iterations in ill-conditioned problems max(rows, cols)^2 I decided
+        // Basically - if it hasn't converged by ~10k... it probably won't
+        // And this mostly can't happen for orthogonal bases, so unless you use monomial or log basis...
+        let max_dim = size.0.max(size.1);
+        let iters = max_dim.saturating_mul(max_dim).clamp(SVD_ITER_LIMIT.0, SVD_ITER_LIMIT.1);
+
+        //
+        // Calculate the singular value decomposition of the matrix
+        let decomp = SVD::try_new_unordered(xtx, true, true, svd_eps, iters).ok_or(Error::DidNotConverge)?;
         // Calculate epsilon value
         // ~= machine_epsilon * max(size) * max_singular
         let machine_epsilon = T::epsilon();
@@ -541,6 +556,11 @@ where
     ///   [`Basis::fill_matrix_row`].
     /// - Computes `x_range` as the inclusive range of `x` values in the data.
     /// - Solves the linear system `A * x = b` to determine polynomial coefficients.
+    /// - Uses SVD to solve the system for numerical stability.
+    ///   - Will limit iterations to between 1,000 and 10,000 based on problem size.
+    ///   - Prevents infinite loops by capping iterations.
+    ///   - And if you have not converged by 10,000 iterations, you probably won't.
+    ///   - If you hit that, use an orthogonal basis like Chebyshev or Legendre for better stability.
     ///
     /// # Warning
     /// For datasets with >1,000,000 points, the basis matrix may be constructed in parallel.
@@ -581,6 +601,55 @@ where
         Self::from_raw(data, x_range, basis, coefs, degree)
     }
 
+    /// Creates a new weighted polynomial curve fit using Gauss nodes.
+    /// 
+    /// This constructor fits a polynomial to the provided sampling function
+    /// evaluated at Gauss nodes, using weights associated with those nodes.
+    /// 
+    /// # Parameters
+    /// - `sample_fn`: Function that takes an `x` value and returns the corresponding `y` value.
+    /// - `x_range`: Inclusive range of `x` values to consider for fitting.
+    /// - `degree`: Desired polynomial degree.
+    /// 
+    /// # Returns
+    /// Returns `Ok(Self)` if the fit succeeds.
+    /// 
+    /// # Errors
+    /// Returns an [`Error`] in the following cases:
+    /// - `Error::DegreeTooHigh`: `degree` is invalid for the chosen basis.
+    /// - `Error::Algebra`: the linear system could not be solved.
+    /// - `Error::CastFailed`: a numeric value could not be cast to the target type.
+    pub fn new_weighted<F>(sample_fn: F, x_range: RangeInclusive<T>, degree: usize) -> Result<Self>
+    where
+        B: OrthogonalBasis<T>,
+        F: Fn(T) -> T,
+    {
+        let basis = B::from_range(x_range.clone());
+        let k = basis.k(degree);
+        let mut data = Vec::with_capacity(k);
+        let nodes = basis.gauss_nodes(k);
+
+        for (x, _) in &nodes {
+            // Gauss nodes are in function-space (normalized), need to denormalize to data-space
+            let x = basis.denormalize_x(*x);
+            let y = sample_fn(x);
+            data.push((x, y));
+        }
+
+        let mut bigx = Self::create_bigx(&data, &basis, k);
+        let mut b = DVector::from_iterator(data.len(), data.iter().map(|&(_, y)| y));
+        for (i, (mut row, (_, w))) in bigx.row_iter_mut().zip(nodes).enumerate() {
+            let w_sqrt = w.sqrt();
+            for j in 0..k {
+                row[j] *= w_sqrt; // scale basis row
+            }
+            b[i] *= w_sqrt; // scale target
+        }
+
+        let coefs = Self::solve_matrix(bigx, &b)?;
+        Self::from_raw(Cow::Owned(data), x_range, basis, coefs, degree)
+    }
+
     /// Automatically selects the best polynomial degree and creates a curve fit.
     ///
     /// This function fits polynomials of increasing degree to the provided dataset
@@ -607,8 +676,13 @@ where
     /// # Behavior
     /// - Starts with degree 0 and iteratively fits higher degrees up to `data.len() - 1`.
     /// - Evaluates each fit using `model_score(method)`.
-    /// - Stops when the score no longer improves.
-    /// - Returns the model with the best score.
+    /// - Selects best model, where the score is within 2 of the minimum score
+    ///   - As per Burnham and Anderson, models within Δ ≤ 2 are statistically indistinguishable from the best model.
+    /// - Uses SVD to solve the system for numerical stability.
+    ///   - Will limit iterations to between 1,000 and 10,000 based on problem size.
+    ///   - Prevents infinite loops by capping iterations.
+    ///   - And if you have not converged by 10,000 iterations, you probably won't.
+    ///   - If you hit that, use an orthogonal basis like Chebyshev or Legendre for better stability.
     ///
     /// # Warning
     /// For datasets with >1,000,000 points, the basis matrix may be constructed in parallel.
@@ -728,13 +802,28 @@ where
     /// It evaluates polynomial fits of increasing degree and selects the best degree based on the specified scoring method.
     ///
     /// This method helps prevent overfitting by ensuring that the selected model generalizes well to unseen data, and is particularly useful for small datasets
-    /// or those with outliers.
+    /// or those with very extreme outliers.
     ///
     /// # Parameters
     /// - `data`: Slice of `(x, y)` points to fit.
-    /// - `folds`: Number of folds for cross-validation (must be at least 2).
+    /// - `strategy`: Cross-validation strategy defining the number of folds.
     /// - `max_degree`: Maximum polynomial degree to consider.
     /// - `method`: [`ModelScoreProvider`] to evaluate model quality.
+    /// 
+    /// # Choosing a scoring method
+    /// - Consider the size of your dataset: If you have a small dataset, prefer `AIC` as it penalizes complexity more gently.
+    /// - If your dataset is large, `BIC` may be more appropriate as it imposes a harsher penalty on complexity.
+    /// 
+    /// # Choosing number of folds (strategy)
+    /// The number of folds (k) determines how many subsets the data is split into for cross-validation. The choice of k can impact the `bias-variance trade-off`:
+    /// - Bias is how much your model's predictions differ from the actual values on average
+    /// - Variance is how much your model's predictions change when you use different training data
+    /// 
+    /// - Choose [`CvStrategy::MinimizeBias`] (e.g., k=5) with larger datasets to reduce bias. Prevents a model from being too simple to capture data patterns
+    /// - Choose [`CvStrategy::MinimizeVariance`] (e.g., k=10) with smaller datasets to reduce variance. Helps ensure the model generalizes well to unseen data.
+    /// - Choose [`CvStrategy::Balanced`] (e.g., k=7) for a compromise between bias and variance.
+    /// - Choose [`CvStrategy::LeaveOneOut`] (k=n) for very small datasets, but be aware of the high computational cost.
+    /// - Choose [`CvStrategy::Custom(k)`] to specify a custom number of folds, ensuring k >= 2 and k <= n.
     ///
     /// # Returns
     /// Returns `Ok(Self)` with the fit at the optimal degree.
@@ -759,9 +848,9 @@ where
     ///
     /// # Example
     /// ```
-    /// # use polyfit::{ChebyshevFit, statistics::DegreeBound, score::Aic};
+    /// # use polyfit::{ChebyshevFit, statistics::{CvStrategy, DegreeBound}, score::Aic};
     /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
-    /// let fit = ChebyshevFit::new_kfold_cross_validated(data, 2, DegreeBound::Relaxed, &Aic).unwrap();
+    /// let fit = ChebyshevFit::new_kfold_cross_validated(data, CvStrategy::LeaveOneOut, DegreeBound::Relaxed, &Aic).unwrap();
     /// println!("Selected degree: {}", fit.degree());
     /// ```
     #[expect(
@@ -770,14 +859,15 @@ where
     )]
     pub fn new_kfold_cross_validated(
         data: impl Into<Cow<'data, [(T, T)]>>,
-        folds: usize,
+        strategy: statistics::CvStrategy,
         max_degree: impl Into<DegreeBound>,
         method: &impl ModelScoreProvider,
     ) -> Result<Self> {
         let data: Cow<_> = data.into();
+        let folds = strategy.k(data.len());
         let fold_size = data.len() / folds;
         let max_degree = max_degree.into().max_degree(data.len());
-        if data.is_empty() || folds < 2 {
+        if data.is_empty() || folds < 2 || data.len() < folds {
             return Err(Error::NoData);
         }
 
@@ -1201,6 +1291,10 @@ where
     }
 
     /// Calculates the R-squared value for the model compared to provided data.
+    /// 
+    /// If not provided, uses the original data used to create the fit.
+    /// 
+    /// That way you can test the fit against a different dataset if desired.
     ///
     /// R-squared is a statistical measure of how well the polynomial explains
     /// the variance in the data. Values closer to 1 indicate a better fit.
@@ -1218,14 +1312,113 @@ where
     /// # use polyfit::{ChebyshevFit, CurveFit};
     /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
     /// let fit = ChebyshevFit::new(data, 2).unwrap();
-    /// let r2 = fit.r_squared(data);
+    /// let r2 = fit.r_squared(None);
     /// println!("R² = {}", r2);
     /// ```
-    pub fn r_squared(&self, data: &[(T, T)]) -> T {
+    pub fn r_squared(&self, data: Option<&[(T, T)]>) -> T {
+        let data = data.unwrap_or(self.data());
+
         let y = data.iter().map(|&(_, y)| y);
         let y_fit = self.solution().into_iter().map(|(_, y)| y);
 
         statistics::r_squared(y, y_fit)
+    }
+
+    /// Uses huber loss to compute a robust R-squared value.
+    /// - More robust to outliers than traditional R².
+    /// - Values closer to 1 indicate a better fit.
+    /// 
+    /// If Data not provided, uses the original data used to create the fit.
+    /// 
+    /// That way you can test the fit against a different dataset if desired.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// R²_robust = 1 - (Σ huber_loss(y_i - y_fit_i, delta)) / (Σ (y_i - y_fit_i)²)
+    /// where
+    ///   huber_loss(r, delta) = { 0.5 * r²                    if |r| ≤ delta
+    ///                          { delta * (|r| - 0.5 * delta) if |r| > delta
+    ///  delta = 1.345 * MAD
+    ///  MAD = median( |y_i - y_fit_i| )
+    ///  where
+    ///    y_i = observed values, y_fit_i = predicted values
+    /// ```
+    /// </div>
+    ///
+    /// # Type Parameters
+    /// - `T`: A numeric type implementing the `Value` trait.
+    ///
+    /// # Parameters
+    /// - `data`: A slice of `(x, y)` pairs to compare against the polynomial fit.
+    ///
+    /// # Returns
+    /// The robust R² as a `T`.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::{ChebyshevFit, CurveFit};
+    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
+    /// let fit = ChebyshevFit::new(data, 2).unwrap();
+    /// let r2 = fit.robust_r_squared(None);
+    /// println!("R² = {}", r2);
+    /// ```
+    pub fn robust_r_squared(&self, data: Option<&[(T, T)]>) -> T {
+        let data = data.unwrap_or(self.data());
+
+        let y = data.iter().map(|&(_, y)| y);
+        let y_fit = self.solution().into_iter().map(|(_, y)| y);
+
+        statistics::robust_r_squared(y, y_fit)
+    }
+
+    /// Computes the adjusted R-squared value.
+    ///
+    /// Adjusted R² accounts for the number of predictors in a model, penalizing
+    /// overly complex models. Use it to compare models of different degrees.
+    /// 
+    /// If Data not provided, uses the original data used to create the fit.
+    /// 
+    /// That way you can test the fit against a different dataset if desired.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// R²_adj = R² - (1 - R²) * (k / (n - k))
+    /// where
+    ///   n = number of observations, k = number of model parameters
+    /// ```
+    /// [`r_squared`] is used to compute R²
+    /// </div>
+    ///
+    /// # Type Parameters
+    /// - `T`: A numeric type implementing the `Value` trait.
+    /// 
+    /// # Parameters
+    /// - `data`: A slice of `(x, y)` pairs to compare against
+    /// 
+    /// # Returns
+    /// The adjusted R² as a `T`.
+    /// 
+    /// # Example
+    /// ```rust
+    /// # use polyfit::{ChebyshevFit, CurveFit};
+    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
+    /// let fit = ChebyshevFit::new(data, 2).unwrap();
+    /// let r2 = fit.adjusted_r_squared(None);
+    /// println!("R² = {}", r2);
+    /// ```
+    pub fn adjusted_r_squared(&self, data: Option<&[(T, T)]>) -> T {
+        let data = data.unwrap_or(self.data());
+
+        let y = data.iter().map(|&(_, y)| y);
+        let y_fit = self.solution().into_iter().map(|(_, y)| y);
+
+        statistics::adjusted_r_squared(y, y_fit, self.k)
     }
 
     /// Calculates the R-squared value for the model compared to provided function.
@@ -1260,7 +1453,35 @@ where
             .iter()
             .map(|&(x, _)| (x, function.y(x)))
             .collect();
-        self.r_squared(&data)
+        self.r_squared(Some(&data))
+    }
+
+    /// Computes the folded root mean squared error (RMSE) with uncertainty estimation.
+    /// 
+    /// This is a measure of how far the predicted values are from the actual values, on average.
+    /// 
+    /// Doing it over K-fold cross-validation (Splitting the data into K subsets, and leaving one out for testing each time)
+    /// tells us how the model performance changes as the data varies.
+    /// 
+    /// When to use each strategy:
+    /// - `MinimizeBias`: When the dataset is small and you want to avoid underfitting. Prevents a model from being too simple to capture data patterns.
+    /// - `MinimizeVariance`: When the dataset is large and you want to avoid overfitting. Helps ensure the model generalizes well to unseen data.
+    /// - `Balanced`: When you want a good trade-off between bias and variance, suitable for moderately sized datasets or when unsure.
+    /// - `Custom`: Specify your own number of folds (k) based on domain knowledge or specific requirements. Use with caution
+    /// 
+    /// The returned [`statistics::UncertainValue<T>`] includes both the mean RMSE and its uncertainty (standard deviation across folds).
+    /// 
+    /// You can use [`statistics::UncertainValue::confidence_band`] to get confidence intervals for the RMSE.
+    /// 
+    /// # Parameters
+    /// - `strategy`: The cross-validation strategy to use (e.g., K-Fold with K=5).
+    /// 
+    /// # Returns
+    /// An [`statistics::UncertainValue<T>`] representing the folded RMSE with uncertainty.
+    pub fn folded_rmse(&self, strategy: statistics::CvStrategy) -> statistics::UncertainValue<T> {
+        let y = self.data.y_iter();
+        let y_fit = self.solution().into_iter().map(|(_, y)| y);
+        statistics::folded_rmse(y, y_fit, strategy)
     }
 
     /// Returns the degree of the polynomial.
@@ -1388,11 +1609,10 @@ where
     ///     println!("x = {}, y = {}", x, y);
     /// }
     /// ```
-    #[expect(clippy::missing_panics_doc, reason = "Infallible operation")]
     pub fn solution(&self) -> Vec<(T, T)> {
         self.data()
             .iter()
-            .map(|&(x, _)| (x, self.y(x).expect("data range check")))
+            .map(|&(x, _)| (x, self.function.y(x)))
             .collect()
     }
 
@@ -1700,7 +1920,7 @@ where
                 .map(|cov| cov.coefficient_standard_errors())
                 .ok(),
             mse: self.mean_squared_error(),
-            r_squared: self.r_squared(self.data()),
+            r_squared: self.r_squared(None),
         }
     }
 }
@@ -1753,10 +1973,7 @@ pub struct FitProperties<T: Value> {
 #[cfg(feature = "transforms")]
 mod tests {
     use crate::{
-        assert_close, assert_fits, function,
-        score::Aic,
-        transforms::{ApplyNoise, Strength},
-        MonomialFit,
+        MonomialFit, assert_close, assert_fits, score::Aic, statistics::CvStrategy, transforms::{ApplyNoise, Strength}
     };
 
     use super::*;
@@ -1828,7 +2045,7 @@ mod tests {
         let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
         let fit = MonomialFit::new(data, 2).unwrap();
         let score: f64 = fit.model_score(&Aic);
-        let r2 = fit.r_squared(data);
+        let r2 = fit.r_squared(None);
         assert!(score.is_finite());
         assert_close!(r2, 1.0);
 
@@ -1837,7 +2054,7 @@ mod tests {
             .solve_range(0.0..=1000.0, 1.0)
             .apply_normal_noise(Strength::Relative(0.3), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
-        assert!(fit.r_squared(&data) < 1.0);
+        assert!(fit.r_squared(None) < 1.0);
         assert!(fit.model_score(&Aic).is_finite());
     }
 
@@ -1886,9 +2103,10 @@ mod tests {
         let data = mono
             .solve_range(0.0..=1000.0, 1.0)
             .apply_salt_pepper_noise(0.01, -10000.0, 10000.0, None)
-            .apply_poisson_noise(10.0, None);
+            .apply_poisson_noise(2.0, true, None);
+        crate::plot!([data, mono]);
         let fit =
-            MonomialFit::new_kfold_cross_validated(&data, 5, DegreeBound::Relaxed, &Aic).unwrap();
-        assert_fits!(mono, fit);
+            MonomialFit::new_kfold_cross_validated(&data, CvStrategy::MinimizeBias, DegreeBound::Relaxed, &Aic).unwrap();
+        assert_fits!(mono, fit, 0.7);
     }
 }

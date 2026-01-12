@@ -88,8 +88,8 @@
 //! See [`crate::statistics::residual_normality`] for more details.
 //! - Results will be between 0.0 and 1.0, with values closer to 1.0 indicating a better fit.
 //!
-//! ### [`crate::assert_residual_spread`]
-//! Asserts that the spread of the residuals (the differences between the observed and predicted values) of a fit is below a certain threshold.
+//! ### [`crate::assert_max_residual`]
+//! Asserts that all residuals (the differences between the observed and predicted values) of a fit are below a certain threshold.
 //! This helps to ensure that the fit is not only accurate, but also consistent.
 //! - This is an absolute measure, unlike [`crate::assert_residuals_normal`] which is a relative measure.
 
@@ -257,10 +257,11 @@ macro_rules! basis_select {
 
             name: &'static str,
             r2: f64,
-            robust_r2: f64,
+            max_r2: f64,
             p_value: f64,
             stars: f64,
             equation: String,
+            parameters: usize,
         }
 
         let num_basis = 0 $( + { let _ = stringify!($basis); 1 } )+;
@@ -274,6 +275,7 @@ macro_rules! basis_select {
 
         let mut all_normals_zero = true;
         let mut options = vec![];
+        let mut min_params = usize::MAX;
         $(
             if let Ok(fit) = $crate::CurveFit::<$basis>::new_auto($data, $degree_bound, $method) {
                 #[allow(unused_mut, unused_assignments)] let mut name = stringify!($basis); $( name = $name; )?
@@ -281,19 +283,21 @@ macro_rules! basis_select {
 
                 let model_score = fit.model_score($method);
                 let residuals = fit.filtered_residuals().y();
-                let r2 = fit.r_squared(fit.data());
-                let robust_r2 = $crate::statistics::robust_r_squared(fit.data().y_iter(), fit.solution().y_iter());
+                let r2 = fit.r_squared(None);
+                let robust_r2 = fit.robust_r_squared(None);
+                let max_r2 = $crate::value::Value::max(r2, robust_r2);
                 let p_value = $crate::statistics::residual_normality(&residuals);
-                let rating = (0.75 * robust_r2 + 0.25 * p_value).clamp(0.0, 1.0);
+                
+                let rating = (0.75 * max_r2 + 0.25 * p_value).clamp(0.0, 1.0);
+                let parameters = fit.coefficients().len();
+
+                if parameters < min_params {
+                    min_params = parameters;
+                }
 
                 if p_value > f64::EPSILON {
                     all_normals_zero = false;
                 }
-
-                //
-                // Get a star rating out of 5 based on rating
-                let normalizer = $crate::statistics::DomainNormalizer::new((0.5, 1.0), (0.0, 5.0));
-                let stars = normalizer.normalize(rating).clamp(0.0, 5.0);
 
                 #[cfg(feature = "plotting")]
                 let plot_e = fit.as_plotting_element(&[], $crate::statistics::Confidence::P95, None);
@@ -307,13 +311,25 @@ macro_rules! basis_select {
 
                     name,
                     r2,
-                    robust_r2,
+                    max_r2,
                     p_value,
-                    stars,
+                    stars: 0.0, // to be filled later
                     equation,
+                    parameters,
                 });
             }
         )+
+
+        // Give a small penalty to models with more parameters - we divide the score by `params/min_params`
+        let normalizer = $crate::statistics::DomainNormalizer::new((0.3, 1.0), (0.0, 5.0));
+        for o in options.iter_mut() {
+            let param_penalty = o.parameters as f64 / min_params as f64;
+            o.rating /= param_penalty;
+
+            //
+            // Get a star rating out of 5 based on rating
+            o.stars = normalizer.normalize(o.rating).clamp(0.0, 5.0);
+        }
 
         // Sort by f.model_score, descending
         options.sort_by(|p1, p2| p1.model_score.total_cmp(&p2.model_score));
@@ -332,17 +348,18 @@ macro_rules! basis_select {
 
         //
         // Small table first
-        let (basis, score, r2, norm, rating) = ("Basis", "Score Weight", "Fit Quality", "Normality", "Rating");
-        let sep = || { println!("--|-{:-^30}-|-{:-^12}-|-{:-^11}-|-{:-^9}-|-{:-^10}", "", "", "", "", ""); };
-        println!("# | {basis:^30} | {score:^12} | {r2:^11} | {norm:^9} | {rating}");
+        let (basis, parameters, score, r2, norm, rating) = ("Basis", "Params", "Score Weight", "Fit Quality", "Normality", "Rating");
+        let sep = || { println!("--|-{:-^30}-|-{:-^6}-|-{:-^12}-|-{:-^11}-|-{:-^9}-|-{:-^10}", "", "", "", "", "", ""); };
+        println!("# | {basis:^30} | {parameters:^6} | {score:^12} | {r2:^11} | {norm:^9} | {rating}");
         sep();
         for (i, props) in options.iter().enumerate() {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let whole_stars = props.stars.round() as usize;
 
             let name = props.name;
+            let parameters = props.parameters;
             let score = props.model_score * 100.0;
-            let r2 = props.robust_r2 * 100.0;
+            let r2 = props.max_r2 * 100.0;
             let norm = props.p_value * 100.0;
             let rating = props.rating * 100.0;
 
@@ -360,7 +377,7 @@ macro_rules! basis_select {
 
             let n = i + 1;
             println!(
-                "{n} | {name:>30} | {score:>12} | {r2:>11} | {norm:>9} | {rating} {vis_stars}",
+                "{n} | {name:>30} | {parameters:>6} | {score:>12} | {r2:>11} | {norm:>9} | {rating} {vis_stars}",
             );
 
             // Separator after best 3
@@ -374,6 +391,7 @@ macro_rules! basis_select {
         println!();
         println!("[ How to interpret the results ]");
         println!("[ Results may be misleading for small datasets (<100 points) ]");
+        println!(" - Params: Number of parameters (coefficients) in the fitted model. Less means simpler model, less risk of overfitting.");
         println!(" - Score Weight: Relative likelihood of being the best model among the options tested, based on the scoring method used.");
         println!(" - Fit Quality: Proportion of variance in the data explained by the model (uses huber loss weighted r2).");
         println!(" - Normality: How closely the residuals follow a normal distribution (useless for small datasets).");
@@ -399,15 +417,17 @@ macro_rules! basis_select {
 
 #[cfg(test)]
 #[cfg(feature = "transforms")]
-#[test]
-fn test() {
-    use crate::score::Aic;
-    use crate::statistics::DegreeBound;
-    use crate::transforms::{ApplyNoise, Strength};
+mod tests {
+    #[test]
+    fn test_bselect() {
+        use crate::score::Aic;
+        use crate::statistics::DegreeBound;
+        use crate::transforms::{ApplyNoise, Strength};
 
-    function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
-    let data = test
-        .solve_range(0.0..=1000.0, 1.0)
-        .apply_normal_noise(Strength::Relative(0.3), None);
-    basis_select!(&data, DegreeBound::Relaxed, &Aic);
+        function!(test(x) = 2.0 x^3 + 3.0 x^2 - 4.0 x + 5.0);
+        let data = test
+            .solve_range(0.0..=1000.0, 1.0)
+            .apply_normal_noise(Strength::Relative(0.3), None);
+        basis_select!(&data, DegreeBound::Relaxed, &Aic);
+    }
 }

@@ -1,7 +1,7 @@
 use rand::SeedableRng;
 use rand_distr::{Bernoulli, Beta, Distribution, Normal, Poisson, Uniform};
 
-use crate::{statistics::DomainNormalizer, transforms::Transform, value::Value};
+use crate::{statistics::DomainNormalizer, transforms::{SeedSource, Transform}, value::Value};
 
 /// Strength of noise to add
 pub enum Strength<T> {
@@ -188,7 +188,7 @@ pub enum NoiseTransform<T: Value> {
     /// **Technical Details**
     ///
     /// ```math
-    /// xₙ = x + εₙ
+    /// xₙ = x + x * εₙ
     /// where
     ///   εₙ ~ Poisson(λ), x = uncorrupted value
     /// ```
@@ -208,6 +208,11 @@ pub enum NoiseTransform<T: Value> {
         /// - Large `lambda` → smoother noise that starts to resemble Gaussian.
         lambda: f64,
 
+        /// Determines the type of scaling applied to the noise.
+        /// - false: Absolute scaling - noise is added directly.
+        /// - true: Relative scaling - noise is scaled by the absolute value of the data point.
+        proportional: bool,
+
         /// Allows you to fix the random number generator seed for reproducibility.
         /// If not provided, a system RNG will be used each run.
         seed: Option<u64>,
@@ -224,10 +229,11 @@ impl<T: Value> NoiseTransform<T> {
     }
 
     fn rng(seed: Option<u64>) -> rand::rngs::SmallRng {
-        match seed {
-            Some(s) => rand::rngs::SmallRng::seed_from_u64(s),
-            None => rand::rngs::SmallRng::from_rng(&mut rand::rng()),
-        }
+        let seed = seed.unwrap_or_else(|| {
+            SeedSource::new().seed()
+        });
+
+        rand::rngs::SmallRng::seed_from_u64(seed)
     }
 }
 impl<T: Value> Transform<T> for NoiseTransform<T>
@@ -335,13 +341,17 @@ where
                 });
             }
 
-            NoiseTransform::Poisson { lambda, .. } => {
+            NoiseTransform::Poisson { lambda, proportional, .. } => {
                 let lambda = lambda.clamp(f64::EPSILON, Poisson::MAX_LAMBDA);
                 let lambda = T::try_cast(lambda).unwrap_or(<T as num_traits::Float>::epsilon());
 
                 let poisson = Poisson::new(lambda).expect("Invalid Poisson distribution");
                 data.for_each(|v| {
-                    let noise = poisson.sample(&mut rng);
+                    let mut noise = poisson.sample(&mut rng) - lambda; // center around 0
+                    if *proportional {
+                        noise *= Value::abs(*v);
+                    }
+
                     *v += noise;
                 });
             }
@@ -504,7 +514,7 @@ where
     /// **Technical Details**
     ///
     /// ```math
-    /// xₙ = x + εₙ
+    /// xₙ = x + x * εₙ
     /// where
     ///   εₙ ~ Poisson(λ), x = uncorrupted value
     /// ```
@@ -515,6 +525,10 @@ where
     /// - `lambda`: Controls the intensity of the noise.  
     ///   - Small `lambda` → sparse, spiky noise with frequent zeros.  
     ///   - Large `lambda` → smoother noise that starts to resemble Gaussian.  
+    /// 
+    /// - `proportional`: Determines the type of scaling applied to the noise.
+    ///   - false: Absolute scaling - noise is added directly.
+    ///   - true: Relative scaling - noise is scaled by the absolute value of the data point.
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
@@ -523,10 +537,10 @@ where
     /// ```rust
     /// # use polyfit::transforms::ApplyNoise;
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_poisson_noise(2.0, None);
+    /// let noisy_data = data.apply_poisson_noise(2.0, true, None);
     /// ```
     #[must_use]
-    fn apply_poisson_noise(self, lambda: f64, seed: Option<u64>) -> Self;
+    fn apply_poisson_noise(self, lambda: f64, proportional: bool, seed: Option<u64>) -> Self;
 
     /// Adds salt-and-pepper noise to a signal or dataset.
     ///
@@ -662,8 +676,8 @@ where
         self
     }
 
-    fn apply_poisson_noise(mut self, lambda: f64, seed: Option<u64>) -> Self {
-        NoiseTransform::Poisson { lambda, seed }.apply(self.iter_mut().map(|(_, y)| y));
+    fn apply_poisson_noise(mut self, lambda: f64, proportional: bool, seed: Option<u64>) -> Self {
+        NoiseTransform::Poisson { lambda, proportional, seed }.apply(self.iter_mut().map(|(_, y)| y));
         self
     }
 
@@ -726,6 +740,7 @@ mod tests {
         let std_dev: f64 =
             (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
 
+        // Mean should be near 0, stddev near 0.1
         assert!(mean.abs() < 0.1);
         assert!((std_dev - 0.1).abs() < 0.05);
     }
@@ -744,6 +759,7 @@ mod tests {
         let std_dev: f64 =
             (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
 
+        // Mean should be near 0, stddev near 0.1/sqrt(3)
         assert!(mean.abs() < 0.1);
         assert!((std_dev - (0.1 / (3.0f64).sqrt())).abs() < 0.05);
     }
@@ -751,7 +767,7 @@ mod tests {
     #[test]
     fn test_poisson() {
         let data = vec![(1.0, 2.0); 1000];
-        let noisy_data = data.clone().apply_poisson_noise(2.0, Some(42));
+        let noisy_data = data.clone().apply_poisson_noise(2.0, false, Some(42));
 
         let mut diffs = Vec::new();
         for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
@@ -762,7 +778,8 @@ mod tests {
         let std_dev: f64 =
             (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
 
-        assert!((mean - 2.0).abs() < 0.5);
+        // Mean should be near 0, stddev near sqrt(2)
+        assert!(mean.abs() < 0.5);
         assert!((std_dev - (2.0f64).sqrt()).abs() < 0.5);
     }
 
@@ -781,6 +798,7 @@ mod tests {
             }
         }
 
+        // Approximately 10% of values should be impulses
         let impulse_ratio = f64::from(impulse_count) / data.len() as f64;
         assert!((impulse_ratio - 0.1).abs() < 0.05);
     }
@@ -800,6 +818,7 @@ mod tests {
             }
         }
 
+        // Approximately 10% of values should be impulses
         let impulse_ratio = f64::from(impulse_count) / data.len() as f64;
         assert!((impulse_ratio - 0.1).abs() < 0.05);
     }

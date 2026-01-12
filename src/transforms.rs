@@ -80,6 +80,11 @@ pub use rand_distr;
 pub trait Transform<T: Value> {
     /// Applies the transformation to the given data.
     fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>);
+    
+    /// Applies the transformation to a single data point.
+    fn apply_to(&self, point: &mut T) {
+        self.apply(std::iter::once(point));
+    }
 }
 
 /// Trait for transforming data.
@@ -90,5 +95,70 @@ pub trait Transformable<T: Value> {
 impl<T: Value> Transformable<T> for Vec<(T, T)> {
     fn transform<R: Transform<T>>(&mut self, transform: &R) {
         transform.apply(self.iter_mut().map(|(_, y)| y));
+    }
+}
+
+thread_local! {
+    // Mutexed Vec of seeds
+    static SEED_VAULT: std::sync::Mutex<Vec<u64>> = const { std::sync::Mutex::new(Vec::new()) };
+}
+
+/// Source of random seeds for debugging purposes
+///
+/// Any seeds generated will be stored in a thread-local vault and can be retrieved with [`SeedSource::all_seeds`] later
+///
+/// Every `assert_` macro in the test suite will print seeds on failure if they were generated during the test
+#[derive(Debug)]
+pub struct SeedSource {
+    rng: rand::rngs::ThreadRng,
+}
+impl Default for SeedSource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl SeedSource {
+    /// Create a new [`SeedSource`]
+    #[must_use]
+    pub fn new() -> Self {
+        Self { rng: rand::rng() }
+    }
+
+    /// Reset the seed vault, clearing all stored seeds for this thread
+    ///
+    /// # Panics
+    /// Panics if the thread-local vault cannot be locked
+    pub fn reset() {
+        SEED_VAULT.with(|vault| {
+            let mut vault = vault.lock().expect("Failed to lock SEED_VAULT");
+            vault.clear();
+        });
+    }
+
+    /// Get all seeds generated so far in this thread by any [`SeedSource`]
+    ///
+    /// # Panics
+    /// Panics if the thread-local vault cannot be locked
+    #[must_use]
+    pub fn all_seeds() -> Vec<u64> {
+        SEED_VAULT.with(|vault| {
+            let vault = vault.lock().expect("Failed to lock SEED_VAULT");
+            vault.clone()
+        })
+    }
+
+    /// Get a new random seed. This is meant for debugging purposes, to make random tests reproducible.
+    ///
+    /// Any seeds generated will be stored in a thread-local vault and can be retrieved with [`SeedSource::all_seeds`]
+    ///
+    /// # Panics
+    /// Panics if the thread-local vault cannot be locked
+    pub fn seed(&mut self) -> u64 {
+        let seed: u64 = rand::Rng::random(&mut self.rng);
+        SEED_VAULT.with(|vault| {
+            let mut vault = vault.lock().expect("Failed to lock SEED_VAULT");
+            vault.push(seed);
+        });
+        seed
     }
 }

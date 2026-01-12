@@ -24,7 +24,7 @@ fn main() -> Result<(), Error> {
     // For the purpose of the demonstration I used the least stable basis and
     // massively overfit the data to exaggerate the effect
     let fit = MonomialFit::new(&data, 15)?;
-    let r2 = fit.r_squared(&data);
+    let r2 = fit.r_squared(None);
     println!("R² with no transformations: {r2:.4}");
 
     //
@@ -46,7 +46,7 @@ fn main() -> Result<(), Error> {
 
     // Now let's see how good a fit we can get with these transformations
     let fit = MonomialFit::new(&scaled, 15)?;
-    let r2_transformed = fit.r_squared(&scaled);
+    let r2_transformed = fit.r_squared(None);
     println!("R² with transformations: {r2_transformed:.4}");
 
     // R² in practice should be identical under these transformations

@@ -196,6 +196,10 @@ impl<'root> PlotBackend for Backend<'root> {
             GREEN.into(),
             MAGENTA.into(),
             CYAN.into(),
+            YELLOW.into(),
+            BLACK.into(),
+            RGBColor(255, 165, 0).into(), // Orange
+            RGBColor(128, 0, 128).into(), // Purple
         ]);
 
         Ok(Self {

@@ -4,10 +4,7 @@
 //! prunes insignificant terms, and prints the resulting polynomial.
 //!
 use polyfit::{
-    error::Error,
-    score::Aic,
-    statistics::{Confidence, DegreeBound},
-    ChebyshevFit,
+    ChebyshevFit, error::Error, score::Aic, statistics::{Confidence, DegreeBound}, transforms::{ApplyNoise, Strength}
 };
 
 fn main() -> Result<(), Error> {
@@ -15,6 +12,20 @@ fn main() -> Result<(), Error> {
     // Load data from the sample file
     let data = include_str!("sample_data.json");
     let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
+    let data = data.apply_normal_noise(Strength::Relative(0.5), None);
+
+    let wigglyboi = polyfit::basis::FourierBasis::new_polynomial((0.0, 100.0), &[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]).unwrap();
+    let wigglydats = wigglyboi.solve_range(0.0..=100.0, 0.1).apply_normal_noise(Strength::Relative(0.1), None);
+    polyfit::basis_select!(&wigglydats, DegreeBound::Relaxed, &Aic);
+    let wigglyfit = polyfit::FourierFit::new_auto(
+        &wigglydats,
+        DegreeBound::Relaxed,
+        &Aic,
+    )?;
+    let uncertain_value = wigglyfit.folded_rmse(polyfit::statistics::CvStrategy::MinimizeBias);
+
+println!("Folded RMSE: {}", uncertain_value.confidence_band(Confidence::P95));
+    polyfit::plot_residuals!(wigglyfit, prefix = "wiggly example");
 
     //
     // Let's use a Chebyshev basis to fit this data! There might be a big range of X values,
@@ -33,7 +44,7 @@ fn main() -> Result<(), Error> {
 
     //
     // Now we can print out the polynomial and some stats about the fit
-    let r_squared = fit.r_squared(fit.data());
+    let r_squared = fit.r_squared(None);
     if r_squared < 0.9 {
         eprintln!("Warning: Low R² - noisy data or poor fit: {}", r_squared);
     }
@@ -61,6 +72,8 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
+/// So this is actually how I generated the sample data file used in all the examples.
+/// If you want to reshuffle the data or generate your own, you can run this function.
 #[allow(dead_code)]
 #[cfg(feature = "transforms")]
 fn gen_sample_data() {
@@ -70,7 +83,7 @@ fn gen_sample_data() {
     let data = y
         .solve_range(0.0..=100.0, 1.0)
         .apply_normal_noise(Strength::Relative(0.1), None)
-        .apply_poisson_noise(0.05, None);
+        .apply_poisson_noise(0.05, false, None);
 
     // data to json
     let json = serde_json::to_string(&data).unwrap();
