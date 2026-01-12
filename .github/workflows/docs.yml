@@ -34,10 +34,3 @@ jobs:
     # Test documentation generation
     - name: Test documentation
       run: cargo doc --all-features --no-deps
-
-    #
-    # Run all examples
-    #
-
-    - name: simple_fit
-      run: cargo run --example simple_fit --features "plotting"

@@ -1,0 +1,54 @@
+name: Docs
+# By a huge margin the slowest test, so we run it separately
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # Run all examples
+    #
+
+    - name: adding_noise
+      run: cargo run --example adding_noise --features "plotting,plotting"
+
+    - name: basis_selection
+      run: cargo run --example basis_selection --features "plotting,plotting"
+
+    - name: calculus
+      run: cargo run --example calculus --features "plotting,plotting"
+
+    - name: generate_logo
+      run: cargo run --example generate_logo --features "plotting,plotting"
+
+    - name: outlier_detection
+      run: cargo run --example outlier_detection --features "plotting,plotting"
+
+    - name: scaling_transforms
+      run: cargo run --example scaling_transforms --features "plotting,plotting"
+
+    - name: simple_fit
+      run: cargo run --example simple_fit --features "plotting,plotting"
+
+    - name: transforms
+      run: cargo run --example transforms --features "plotting,plotting"
+
+    - name: validating_your_choice_of_basis
+      run: cargo run --example validating_your_choice_of_basis --features "plotting,plotting"
+
+    - name: whats_an_orthogonal
+      run: cargo run --example whats_an_orthogonal --features "plotting,plotting"
