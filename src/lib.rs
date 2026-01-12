@@ -392,7 +392,7 @@ mod polynomial;
 pub use fit::*;
 pub use polynomial::Polynomial;
 
-pub use basis::monomial::MonomialPolynomial;
 pub use basis::fourier::FourierPolynomial;
+pub use basis::monomial::MonomialPolynomial;
 
 pub use nalgebra;

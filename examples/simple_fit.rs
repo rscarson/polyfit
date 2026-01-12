@@ -4,7 +4,11 @@
 //! prunes insignificant terms, and prints the resulting polynomial.
 //!
 use polyfit::{
-    ChebyshevFit, error::Error, score::Aic, statistics::{Confidence, DegreeBound}, transforms::{ApplyNoise, Strength}
+    error::Error,
+    score::Aic,
+    statistics::{Confidence, DegreeBound},
+    transforms::{ApplyNoise, Strength},
+    ChebyshevFit,
 };
 
 fn main() -> Result<(), Error> {
@@ -14,17 +18,22 @@ fn main() -> Result<(), Error> {
     let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
     let data = data.apply_normal_noise(Strength::Relative(0.5), None);
 
-    let wigglyboi = polyfit::basis::FourierBasis::new_polynomial((0.0, 100.0), &[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]).unwrap();
-    let wigglydats = wigglyboi.solve_range(0.0..=100.0, 0.1).apply_normal_noise(Strength::Relative(0.1), None);
+    let wigglyboi = polyfit::basis::FourierBasis::new_polynomial(
+        (0.0, 100.0),
+        &[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0],
+    )
+    .unwrap();
+    let wigglydats = wigglyboi
+        .solve_range(0.0..=100.0, 0.1)
+        .apply_normal_noise(Strength::Relative(0.1), None);
     polyfit::basis_select!(&wigglydats, DegreeBound::Relaxed, &Aic);
-    let wigglyfit = polyfit::FourierFit::new_auto(
-        &wigglydats,
-        DegreeBound::Relaxed,
-        &Aic,
-    )?;
+    let wigglyfit = polyfit::FourierFit::new_auto(&wigglydats, DegreeBound::Relaxed, &Aic)?;
     let uncertain_value = wigglyfit.folded_rmse(polyfit::statistics::CvStrategy::MinimizeBias);
 
-println!("Folded RMSE: {}", uncertain_value.confidence_band(Confidence::P95));
+    println!(
+        "Folded RMSE: {}",
+        uncertain_value.confidence_band(Confidence::P95)
+    );
     polyfit::plot_residuals!(wigglyfit, prefix = "wiggly example");
 
     //

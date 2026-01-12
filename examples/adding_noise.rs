@@ -8,7 +8,13 @@
 //! data for testing.
 //!
 use polyfit::{
-    FourierFit, basis::FourierBasis, error::Error, plot, score::Aic, statistics::DegreeBound, transforms::{ApplyNoise, Strength}
+    basis::FourierBasis,
+    error::Error,
+    plot,
+    score::Aic,
+    statistics::DegreeBound,
+    transforms::{ApplyNoise, Strength},
+    FourierFit,
 };
 
 fn main() -> Result<(), Error> {

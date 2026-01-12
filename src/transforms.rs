@@ -80,7 +80,7 @@ pub use rand_distr;
 pub trait Transform<T: Value> {
     /// Applies the transformation to the given data.
     fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>);
-    
+
     /// Applies the transformation to a single data point.
     fn apply_to(&self, point: &mut T) {
         self.apply(std::iter::once(point));

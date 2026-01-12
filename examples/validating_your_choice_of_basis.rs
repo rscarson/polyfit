@@ -3,13 +3,27 @@
 //! uses `basis_select!` to determine the best basis for fitting the data,
 //! fits the data using that basis,
 //! and analyzes the residuals to ensure a good fit.
-use polyfit::{FourierFit, basis_select, error::Error, plot_residuals, score::Aic, statistics::{Confidence, CvStrategy, DegreeBound}, transforms::{ApplyNoise, Strength}};
+use polyfit::{
+    basis_select,
+    error::Error,
+    plot_residuals,
+    score::Aic,
+    statistics::{Confidence, CvStrategy, DegreeBound},
+    transforms::{ApplyNoise, Strength},
+    FourierFit,
+};
 
 fn main() -> Result<(), Error> {
     // Create some sample data
     // This is a nice big complex fourier function with some noise added
-    let sample_fn = polyfit::basis::FourierBasis::new_polynomial((0.0, 100.0), &[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]).unwrap();
-    let data = sample_fn.solve_range(0.0..=100.0, 0.1).apply_normal_noise(Strength::Relative(0.1), None);
+    let sample_fn = polyfit::basis::FourierBasis::new_polynomial(
+        (0.0, 100.0),
+        &[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0],
+    )
+    .unwrap();
+    let data = sample_fn
+        .solve_range(0.0..=100.0, 0.1)
+        .apply_normal_noise(Strength::Relative(0.1), None);
 
     //
     // First let's try basis_select! to pick the best basis for this data
@@ -33,13 +47,9 @@ fn main() -> Result<(), Error> {
     // You can also see more data below, including a plot you should review to ensure the fit looks good:
     // Fourier: xₛ = T[ 0..100 -> 0..2π ], y(x) = 129.07·cos(4xₛ) + 63.64·sin(4xₛ) + 31.58·cos(3xₛ) + 16.88·sin(3xₛ) + 7.69·cos(2xₛ) + 3.83·sin(2xₛ) + 2.20·cos(xₛ) + 1.50·sin(xₛ) + 0.31
     // Fit R²: 0.9898, Residuals Normality p-value: 0.9199
-    // Wrote plot to target\plot_output\fourier_examples_validating_your_choice_of_basis.rs_line_11.png    
+    // Wrote plot to target\plot_output\fourier_examples_validating_your_choice_of_basis.rs_line_11.png
 
-    let fit = FourierFit::new_auto(
-        &data,
-        DegreeBound::Relaxed,
-        &Aic,
-    )?;
+    let fit = FourierFit::new_auto(&data, DegreeBound::Relaxed, &Aic)?;
 
     // We should also check the residuals plot to ensure there are no obvious patterns in the residuals.
     // Look for:
@@ -51,7 +61,10 @@ fn main() -> Result<(), Error> {
     // Finally we can compute the folded RMSE to get an idea of the uncertainty in our predictions
     // `MinimizeBias` will prefer better average performance over optimizing best-case performance
     let uncertain_value = fit.folded_rmse(CvStrategy::MinimizeBias);
-    println!("Folded RMSE: {}", uncertain_value.confidence_band(Confidence::P95));
+    println!(
+        "Folded RMSE: {}",
+        uncertain_value.confidence_band(Confidence::P95)
+    );
 
     // That value is small compared to the range of the data (~±150), so we can be confident in our fit!
     // And the range is small so the model will generalize well to new data within the same range.

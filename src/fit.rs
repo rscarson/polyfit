@@ -475,11 +475,14 @@ where
         // Basically - if it hasn't converged by ~10k... it probably won't
         // And this mostly can't happen for orthogonal bases, so unless you use monomial or log basis...
         let max_dim = size.0.max(size.1);
-        let iters = max_dim.saturating_mul(max_dim).clamp(SVD_ITER_LIMIT.0, SVD_ITER_LIMIT.1);
+        let iters = max_dim
+            .saturating_mul(max_dim)
+            .clamp(SVD_ITER_LIMIT.0, SVD_ITER_LIMIT.1);
 
         //
         // Calculate the singular value decomposition of the matrix
-        let decomp = SVD::try_new_unordered(xtx, true, true, svd_eps, iters).ok_or(Error::DidNotConverge)?;
+        let decomp =
+            SVD::try_new_unordered(xtx, true, true, svd_eps, iters).ok_or(Error::DidNotConverge)?;
         // Calculate epsilon value
         // ~= machine_epsilon * max(size) * max_singular
         let machine_epsilon = T::epsilon();
@@ -602,18 +605,18 @@ where
     }
 
     /// Creates a new weighted polynomial curve fit using Gauss nodes.
-    /// 
+    ///
     /// This constructor fits a polynomial to the provided sampling function
     /// evaluated at Gauss nodes, using weights associated with those nodes.
-    /// 
+    ///
     /// # Parameters
     /// - `sample_fn`: Function that takes an `x` value and returns the corresponding `y` value.
     /// - `x_range`: Inclusive range of `x` values to consider for fitting.
     /// - `degree`: Desired polynomial degree.
-    /// 
+    ///
     /// # Returns
     /// Returns `Ok(Self)` if the fit succeeds.
-    /// 
+    ///
     /// # Errors
     /// Returns an [`Error`] in the following cases:
     /// - `Error::DegreeTooHigh`: `degree` is invalid for the chosen basis.
@@ -809,16 +812,16 @@ where
     /// - `strategy`: Cross-validation strategy defining the number of folds.
     /// - `max_degree`: Maximum polynomial degree to consider.
     /// - `method`: [`ModelScoreProvider`] to evaluate model quality.
-    /// 
+    ///
     /// # Choosing a scoring method
     /// - Consider the size of your dataset: If you have a small dataset, prefer `AIC` as it penalizes complexity more gently.
     /// - If your dataset is large, `BIC` may be more appropriate as it imposes a harsher penalty on complexity.
-    /// 
+    ///
     /// # Choosing number of folds (strategy)
     /// The number of folds (k) determines how many subsets the data is split into for cross-validation. The choice of k can impact the `bias-variance trade-off`:
     /// - Bias is how much your model's predictions differ from the actual values on average
     /// - Variance is how much your model's predictions change when you use different training data
-    /// 
+    ///
     /// - Choose [`CvStrategy::MinimizeBias`] (e.g., k=5) with larger datasets to reduce bias. Prevents a model from being too simple to capture data patterns
     /// - Choose [`CvStrategy::MinimizeVariance`] (e.g., k=10) with smaller datasets to reduce variance. Helps ensure the model generalizes well to unseen data.
     /// - Choose [`CvStrategy::Balanced`] (e.g., k=7) for a compromise between bias and variance.
@@ -1291,9 +1294,9 @@ where
     }
 
     /// Calculates the R-squared value for the model compared to provided data.
-    /// 
+    ///
     /// If not provided, uses the original data used to create the fit.
-    /// 
+    ///
     /// That way you can test the fit against a different dataset if desired.
     ///
     /// R-squared is a statistical measure of how well the polynomial explains
@@ -1327,9 +1330,9 @@ where
     /// Uses huber loss to compute a robust R-squared value.
     /// - More robust to outliers than traditional R².
     /// - Values closer to 1 indicate a better fit.
-    /// 
+    ///
     /// If Data not provided, uses the original data used to create the fit.
-    /// 
+    ///
     /// That way you can test the fit against a different dataset if desired.
     ///
     /// <div class="warning">
@@ -1378,9 +1381,9 @@ where
     ///
     /// Adjusted R² accounts for the number of predictors in a model, penalizing
     /// overly complex models. Use it to compare models of different degrees.
-    /// 
+    ///
     /// If Data not provided, uses the original data used to create the fit.
-    /// 
+    ///
     /// That way you can test the fit against a different dataset if desired.
     ///
     /// <div class="warning">
@@ -1397,13 +1400,13 @@ where
     ///
     /// # Type Parameters
     /// - `T`: A numeric type implementing the `Value` trait.
-    /// 
+    ///
     /// # Parameters
     /// - `data`: A slice of `(x, y)` pairs to compare against
-    /// 
+    ///
     /// # Returns
     /// The adjusted R² as a `T`.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// # use polyfit::{ChebyshevFit, CurveFit};
@@ -1457,25 +1460,25 @@ where
     }
 
     /// Computes the folded root mean squared error (RMSE) with uncertainty estimation.
-    /// 
+    ///
     /// This is a measure of how far the predicted values are from the actual values, on average.
-    /// 
+    ///
     /// Doing it over K-fold cross-validation (Splitting the data into K subsets, and leaving one out for testing each time)
     /// tells us how the model performance changes as the data varies.
-    /// 
+    ///
     /// When to use each strategy:
     /// - `MinimizeBias`: When the dataset is small and you want to avoid underfitting. Prevents a model from being too simple to capture data patterns.
     /// - `MinimizeVariance`: When the dataset is large and you want to avoid overfitting. Helps ensure the model generalizes well to unseen data.
     /// - `Balanced`: When you want a good trade-off between bias and variance, suitable for moderately sized datasets or when unsure.
     /// - `Custom`: Specify your own number of folds (k) based on domain knowledge or specific requirements. Use with caution
-    /// 
+    ///
     /// The returned [`statistics::UncertainValue<T>`] includes both the mean RMSE and its uncertainty (standard deviation across folds).
-    /// 
+    ///
     /// You can use [`statistics::UncertainValue::confidence_band`] to get confidence intervals for the RMSE.
-    /// 
+    ///
     /// # Parameters
     /// - `strategy`: The cross-validation strategy to use (e.g., K-Fold with K=5).
-    /// 
+    ///
     /// # Returns
     /// An [`statistics::UncertainValue<T>`] representing the folded RMSE with uncertainty.
     pub fn folded_rmse(&self, strategy: statistics::CvStrategy) -> statistics::UncertainValue<T> {
@@ -1973,7 +1976,11 @@ pub struct FitProperties<T: Value> {
 #[cfg(feature = "transforms")]
 mod tests {
     use crate::{
-        MonomialFit, assert_close, assert_fits, score::Aic, statistics::CvStrategy, transforms::{ApplyNoise, Strength}
+        assert_close, assert_fits,
+        score::Aic,
+        statistics::CvStrategy,
+        transforms::{ApplyNoise, Strength},
+        MonomialFit,
     };
 
     use super::*;
@@ -2105,8 +2112,13 @@ mod tests {
             .apply_salt_pepper_noise(0.01, -10000.0, 10000.0, None)
             .apply_poisson_noise(2.0, true, None);
         crate::plot!([data, mono]);
-        let fit =
-            MonomialFit::new_kfold_cross_validated(&data, CvStrategy::MinimizeBias, DegreeBound::Relaxed, &Aic).unwrap();
+        let fit = MonomialFit::new_kfold_cross_validated(
+            &data,
+            CvStrategy::MinimizeBias,
+            DegreeBound::Relaxed,
+            &Aic,
+        )
+        .unwrap();
         assert_fits!(mono, fit, 0.7);
     }
 }

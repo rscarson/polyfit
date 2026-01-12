@@ -1580,19 +1580,19 @@ impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
 }
 
 /// Strategy for selecting the number of folds (k) in k-fold cross-validation.
-/// 
+///
 /// This determines how the data is split for training and validation during model evaluation.
 /// Different strategies balance bias and variance in the error estimates.
-/// 
+///
 /// Where:
 /// - Bias: Error due to overly simplistic models (underfitting). This is how far off average predictions are from actual values.
 /// - Variance: Error due to overly complex models (overfitting). This is how much predictions vary for different training sets.
-/// 
+///
 /// - `MinimizeBias`: Uses fewer folds (e.g., k=5) to reduce bias in error estimates, at the cost of higher variance.
 /// - `MinimizeVariance`: Uses more folds (e.g., k=10) to reduce variance in error estimates, at the cost of higher bias.
 /// - `LeaveOneOut`: Leave-One-Out cross-validation (LOOCV), where each data point is used once as a validation set.
 /// - `Balanced`: A compromise between bias and variance (e.g., k=7).
-/// 
+///
 /// When to use each strategy:
 /// - `MinimizeBias`: When the dataset is small and you want to avoid underfitting. Prevents a model from being too simple to capture data patterns.
 /// - `MinimizeVariance`: When the dataset is large and you want to avoid overfitting. Helps ensure the model generalizes well to unseen data.
@@ -1602,23 +1602,23 @@ impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CvStrategy {
     /// Uses fewer folds (e.g., k=5) to reduce bias in error estimates, at the cost of higher variance.
-    /// 
+    ///
     /// When to use: When the dataset is small and you want to avoid underfitting. Prevents a model from being too simple to capture data patterns.
-    /// 
+    ///
     /// When using this strategy, the data is split into 5 folds.
     MinimizeBias,
 
     /// Uses more folds (e.g., k=10) to reduce variance in error estimates, at the cost of higher bias.
     ///
     /// When to use: When the dataset is large and you want to avoid overfitting. Helps ensure the model generalizes well to unseen data.
-    /// 
+    ///
     /// When using this strategy, the data is split into 10 folds.
     MinimizeVariance,
 
     /// Leave-One-Out cross-validation (LOOCV), where each data point is used once as a validation set.
-    /// 
+    ///
     /// When to use: When the dataset is very small and you want to maximize training data for each fold, at the cost of high computational expense.
-    /// 
+    ///
     /// When using this strategy, the number of folds equals the number of data points.
     LeaveOneOut,
 
@@ -1648,27 +1648,24 @@ impl CvStrategy {
 }
 
 /// Splits the data into k folds for cross-validation based on the specified strategy.
-/// 
+///
 /// # Type Parameters
 /// - `T`: A numeric type implementing the `Value` trait.
-/// 
+///
 /// # Parameters
 /// - `data`: A slice of tuples containing the data points (x, y).
 /// - `strategy`: The cross-validation strategy to use. Determines the number of folds (k).
-/// 
+///
 /// # Returns
 /// A vector containing k folds, each fold is a vector of data points (x, y).
-/// 
+///
 /// # Example
 /// ```rust
 /// # use polyfit::statistics::{cross_validation_split, CvStrategy};
 /// let data = vec![(1.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 5.0), (5.0, 6.0)];
 /// let folds = cross_validation_split(&data, CvStrategy::Balanced);
 /// ```
-pub fn cross_validation_split<I: Clone>(
-    data: &[I],
-    strategy: CvStrategy,
-) -> Vec<Vec<I>> {
+pub fn cross_validation_split<I: Clone>(data: &[I], strategy: CvStrategy) -> Vec<Vec<I>> {
     let n = data.len();
     let k = strategy.k(n);
     let fold_size = n / k;
@@ -1676,11 +1673,7 @@ pub fn cross_validation_split<I: Clone>(
 
     for i in 0..k {
         let start = i * fold_size;
-        let end = if i == k - 1 {
-            n
-        } else {
-            start + fold_size
-        };
+        let end = if i == k - 1 { n } else { start + fold_size };
         folds.push(data[start..end].to_vec());
     }
 
@@ -1688,9 +1681,9 @@ pub fn cross_validation_split<I: Clone>(
 }
 
 /// Computes the Root Mean Square Error (RMSE) for the given data and model predictions, by splitting the data into folds.
-/// 
+///
 /// This gives a more robust estimate of the model's performance when data changes.
-/// 
+///
 /// Will use k-fold cross-validation based on the specified strategy to calculate the RMSE for each fold,
 /// and then returns the mean and standard deviation of the RMSEs across all folds.
 pub fn folded_rmse<T: Value>(
@@ -1698,7 +1691,7 @@ pub fn folded_rmse<T: Value>(
     y_fit: impl Iterator<Item = T>,
     strategy: CvStrategy,
 ) -> UncertainValue<T> {
-    let data : Vec<(T, T)> = y.zip(y_fit).collect();
+    let data: Vec<(T, T)> = y.zip(y_fit).collect();
     let folds = cross_validation_split(&data, strategy);
 
     // Now we try try k times, each time leaving out one fold for validation
@@ -1714,10 +1707,7 @@ pub fn folded_rmse<T: Value>(
 
         // Calculate RMSE on the training set
         let (train_y, train_y_fit): (Vec<T>, Vec<T>) = training_set.into_iter().unzip();
-        let rmse = root_mean_squared_error::<T>(
-            train_y.into_iter(),
-            train_y_fit.into_iter(),
-        );
+        let rmse = root_mean_squared_error::<T>(train_y.into_iter(), train_y_fit.into_iter());
         rmses.push(rmse);
     }
 
@@ -1759,10 +1749,10 @@ impl<T: Value> UncertainValue<T> {
     ///
     /// This computes a symmetric range around the mean based on the standard
     /// deviation. Larger confidence levels produce wider ranges.
-    /// 
+    ///
     /// # Parameters
     /// - `confidence`: The confidence level for the range calculation.
-    /// 
+    ///
     /// # Returns
     /// A tuple containing the lower and upper bounds of the range.
     pub fn range(&self, confidence: Confidence) -> (T, T) {
@@ -1773,10 +1763,10 @@ impl<T: Value> UncertainValue<T> {
 
     /// Returns a confidence band representing the likely range of values
     /// at the given confidence level.
-    /// 
+    ///
     /// # Parameters
     /// - `confidence`: The confidence level for the band calculation.
-    /// 
+    ///
     /// # Returns
     /// A `ConfidenceBand` containing the mean value and the computed range.
     pub fn confidence_band(&self, confidence: Confidence) -> ConfidenceBand<T> {

@@ -287,7 +287,7 @@ macro_rules! basis_select {
                 let robust_r2 = fit.robust_r_squared(None);
                 let max_r2 = $crate::value::Value::max(r2, robust_r2);
                 let p_value = $crate::statistics::residual_normality(&residuals);
-                
+
                 let rating = (0.75 * max_r2 + 0.25 * p_value).clamp(0.0, 1.0);
                 let parameters = fit.coefficients().len();
 

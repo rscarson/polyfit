@@ -308,7 +308,7 @@ macro_rules! plot_residuals {
         let residuals = fit.residuals();
 
         let p = $crate::statistics::residual_normality(&residuals.y());
-        
+
         #[allow(unused_mut)] let mut options = fit.options_with_type_from();
         options.title = format!("Residuals for fit (normality p = {:.3})", p);
         options.y_range = Some(*y_range.start()..*y_range.end()); // keep same y-range as fit for visual consistency

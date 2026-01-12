@@ -1,7 +1,12 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    Polynomial, basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis, OrthogonalBasis}, display::{self, DEFAULT_PRECISION, Sign, Term, format_coefficient}, error::Result, statistics::DomainNormalizer, value::{IntClampedCast, Value}
+    basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis, OrthogonalBasis},
+    display::{self, format_coefficient, Sign, Term, DEFAULT_PRECISION},
+    error::Result,
+    statistics::DomainNormalizer,
+    value::{IntClampedCast, Value},
+    Polynomial,
 };
 
 /// Type alias for a Fourier polynomial (`Polynomial<FourierBasis, T>`).
@@ -13,20 +18,23 @@ impl<T: Value> FourierPolynomial<'_, T> {
     /// - `x_range`: The range of x-values over which the Fourier basis is defined
     /// - `constant`: The constant term of the polynomial
     /// - `terms`: A slice of (`a_n`, `b_n`) pairs representing the sine and cosine coefficients
-    /// 
+    ///
     /// # Returns
     /// A polynomial defined in the Fourier basis.
-    /// 
+    ///
     /// For example to create a Fourier polynomial:
     /// ```math
     /// f(x) = 3 + 2 sin(2πx) - 0.5 cos(2πx)
     /// ```
-    /// 
+    ///
     /// ```rust
     /// use polyfit::FourierPolynomial;
     /// let poly = FourierPolynomial::new((-1.0, 1.0), 3.0, &[(2.0, -0.5)]);
     /// ```
-    #[allow(clippy::missing_panics_doc, reason = "Always has valid coefficients for Fourier basis")]
+    #[allow(
+        clippy::missing_panics_doc,
+        reason = "Always has valid coefficients for Fourier basis"
+    )]
     pub fn new(x_range: (T, T), constant: T, terms: &[(T, T)]) -> Self {
         let mut coefficients = Vec::with_capacity(1 + terms.len() * 2);
         coefficients.push(constant);

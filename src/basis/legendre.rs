@@ -269,13 +269,8 @@ impl<T: Value> OrthogonalBasis<T> for LegendreBasis<T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits,
-        score::Aic,
-        statistics::DegreeBound,
-        test::{
-            basis_assertions::assert_basis_orthogonal,
-        },
-        LegendreFit, Polynomial,
+        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
+        test::basis_assertions::assert_basis_orthogonal, LegendreFit, Polynomial,
     };
 
     use super::*;

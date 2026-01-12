@@ -1,7 +1,12 @@
-use polyfit::{plot, score::Aic, statistics::{Confidence, DegreeBound}, MonomialFit};
+use polyfit::{
+    plot,
+    score::Aic,
+    statistics::{Confidence, DegreeBound},
+    MonomialFit,
+};
 
 const DATA: &[(f64, f64)] = &[
-    (0.000998,-0.020518),
+    (0.000998, -0.020518),
     (0.001991, -0.017432),
     (0.002979, -0.019766),
     (0.003963, -0.018885),

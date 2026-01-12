@@ -1,7 +1,11 @@
 use rand::SeedableRng;
 use rand_distr::{Bernoulli, Beta, Distribution, Normal, Poisson, Uniform};
 
-use crate::{statistics::DomainNormalizer, transforms::{SeedSource, Transform}, value::Value};
+use crate::{
+    statistics::DomainNormalizer,
+    transforms::{SeedSource, Transform},
+    value::Value,
+};
 
 /// Strength of noise to add
 pub enum Strength<T> {
@@ -229,9 +233,7 @@ impl<T: Value> NoiseTransform<T> {
     }
 
     fn rng(seed: Option<u64>) -> rand::rngs::SmallRng {
-        let seed = seed.unwrap_or_else(|| {
-            SeedSource::new().seed()
-        });
+        let seed = seed.unwrap_or_else(|| SeedSource::new().seed());
 
         rand::rngs::SmallRng::seed_from_u64(seed)
     }
@@ -341,7 +343,11 @@ where
                 });
             }
 
-            NoiseTransform::Poisson { lambda, proportional, .. } => {
+            NoiseTransform::Poisson {
+                lambda,
+                proportional,
+                ..
+            } => {
                 let lambda = lambda.clamp(f64::EPSILON, Poisson::MAX_LAMBDA);
                 let lambda = T::try_cast(lambda).unwrap_or(<T as num_traits::Float>::epsilon());
 
@@ -525,7 +531,7 @@ where
     /// - `lambda`: Controls the intensity of the noise.  
     ///   - Small `lambda` → sparse, spiky noise with frequent zeros.  
     ///   - Large `lambda` → smoother noise that starts to resemble Gaussian.  
-    /// 
+    ///
     /// - `proportional`: Determines the type of scaling applied to the noise.
     ///   - false: Absolute scaling - noise is added directly.
     ///   - true: Relative scaling - noise is scaled by the absolute value of the data point.
@@ -677,7 +683,12 @@ where
     }
 
     fn apply_poisson_noise(mut self, lambda: f64, proportional: bool, seed: Option<u64>) -> Self {
-        NoiseTransform::Poisson { lambda, proportional, seed }.apply(self.iter_mut().map(|(_, y)| y));
+        NoiseTransform::Poisson {
+            lambda,
+            proportional,
+            seed,
+        }
+        .apply(self.iter_mut().map(|(_, y)| y));
         self
     }
 

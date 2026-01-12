@@ -82,13 +82,13 @@ macro_rules! assert_fits {
 /// General case of [`crate::assert_fits`] that does not require a known function.
 ///
 /// See [`crate::CurveFit::r_squared`] for more details.
-/// 
+///
 /// Will generate a failure plot in `<target/test_output>` if the assertion fails.
-/// 
+///
 /// # Syntax
-/// 
+///
 /// `assert_r_squared!(<CurveFit>, <threshold> [, msg = <custom message>])`
-/// 
+///
 /// - `CurveFit`: The fitted curve to test.
 /// - `threshold`: Minimum acceptable R² value (between 0.0 and 1.0). Defaults to `0.9` if omitted.
 /// - `msg`: *(optional)* Custom message to include on failure, supports formatting arguments.
@@ -141,7 +141,7 @@ macro_rules! assert_r_squared {
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
                     prefix = "assert_r_squared"
                 );
-        
+
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!("R² = {r2} is below {threshold}");
                 $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
@@ -156,13 +156,13 @@ macro_rules! assert_r_squared {
 /// This is a measure of how well the curve explains how wiggly the data is.
 ///
 /// See [`crate::CurveFit::adjusted_r_squared`] for more details.
-/// 
+///
 /// Will generate a failure plot in `<target/test_output>` if the assertion fails.
-/// 
+///
 /// # Syntax
-/// 
+///
 /// `assert_r_squared!(<CurveFit>, <threshold> [, msg = <custom message>])`
-/// 
+///
 /// - `CurveFit`: The fitted curve to test.
 /// - `threshold`: Minimum acceptable R² value (between 0.0 and 1.0). Defaults to `0.9` if omitted.
 /// - `msg`: *(optional)* Custom message to include on failure, supports formatting arguments.
@@ -215,7 +215,7 @@ macro_rules! assert_adjusted_r_squared {
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
                     prefix = "assert_adjusted_r_squared"
                 );
-        
+
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!("R² = {r2} is below {threshold}");
                 $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
@@ -230,13 +230,13 @@ macro_rules! assert_adjusted_r_squared {
 /// This is a measure of how well the curve explains how wiggly the data is.
 ///
 /// See [`crate::CurveFit::robust_r_squared`] for more details.
-/// 
+///
 /// Will generate a failure plot in `<target/test_output>` if the assertion fails.
-/// 
+///
 /// # Syntax
-/// 
+///
 /// `assert_r_squared!(<CurveFit>, <threshold> [, msg = <custom message>])`
-/// 
+///
 /// - `CurveFit`: The fitted curve to test.
 /// - `threshold`: Minimum acceptable R² value (between 0.0 and 1.0). Defaults to `0.9` if omitted.
 /// - `msg`: *(optional)* Custom message to include on failure, supports formatting arguments.
@@ -289,7 +289,7 @@ macro_rules! assert_robust_r_squared {
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
                     prefix = "assert_robust_r_squared"
                 );
-        
+
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!("R² = {r2} is below {threshold}");
                 $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
@@ -406,9 +406,9 @@ macro_rules! assert_residuals_normal {
                         let cutoff_textl = format!("Lower Cutoff (p={:.2})", p_value);
 
                         $crate::plot!([
-                            (&residuals, caption.as_str()), 
+                            (&residuals, caption.as_str()),
                             fit,
-                            (&cutoff_lineu, cutoff_textu.as_str()), 
+                            (&cutoff_lineu, cutoff_textu.as_str()),
                             (&cutoff_linel, cutoff_textl.as_str())
                         ], { title: title }, prefix = "assert_residuals_normal");
                     } else {
@@ -418,7 +418,7 @@ macro_rules! assert_residuals_normal {
                 }
 
                 let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals_y);
-        
+
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!(
                     "Residuals not normal - p={p_value:.2} - skew={skewness:.4}, kurt={kurtosis:.4}, tol={tolerance}"
                 );
@@ -481,7 +481,7 @@ macro_rules! assert_max_residual {
             let cutoff = get_cutoff(&residuals, tolerance).unwrap_or_else(|| {
                 panic!("Failed to compute residual cutoff for assert_max_residual!");
             });
-            
+
             if cutoff > max {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
@@ -499,7 +499,7 @@ macro_rules! assert_max_residual {
                     { title: format!("Abnormal Residuals") },
                     prefix = "assert_max_residual"
                 );
-        
+
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!(
                     "Residuals above threshold - max={cutoff:.4}/{max:.4}, tol={tolerance}"
                 );
@@ -551,7 +551,7 @@ macro_rules! assert_monotone {
                     { title: format!("Monotonicity Violation at x={first}") },
                     prefix = "assert_monotone"
                 );
-        
+
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!("Fit is not monotonic - derivative changes sign at x={first}");
                 $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
@@ -593,7 +593,7 @@ macro_rules! assert_y {
         let function: &$crate::Polynomial<_, _> = function.as_ref();
         let x = $x;
         let expected = $expected;
-        
+
         #[allow(unused_mut, unused_assignments)] let mut msg = format!("y({x}) != {expected}");
         $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 

@@ -347,7 +347,7 @@ impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{transforms::ApplyScale};
+    use crate::transforms::ApplyScale;
 
     #[test]
     fn test_shift_scale() {
