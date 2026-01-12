@@ -16,9 +16,40 @@ D'Agostino, or what on earth a kurtosis is
 I provide a set a tools designed to help you:
 - Select the right kind (basis) of polynomial for your data
 - Automatically determine the optimal degree of the polynomial
-- Make predictions and get confidence values based on it
+- Make predictions, detect outliers, and get confidence values based on it
 - Write easy to understand tests to confirm function
   - Tests even plot the data and functions for you on failure! (`plotting` feature)
+
+I support:
+- Functions and fits generic over floating point type and 11 choices of polynomial basis
+  - Monomial
+  - Orthogonal bases: Chebyshev (1st, 2nd, and 3rd forms), Legendre, Hermite (Physicists' and Probabilists'), Laguerre
+  - Fourier
+  - Logarithmic
+- Human-readable display of polynomial euations
+- Symbolic calculus (differentiation, integration, critical points) for most bases
+- Orthogonal basis specific tools (smoothness, coefficient energies, spectral energy truncation, orthogonal projection)
+- A suite of statistical tests to validate fit quality (`test` module).
+  - Tests include r², residual normality, homoscedasticity, autocorrelation, and more
+  - All tests generate plots on failure if the `plotting` feature is enabled
+- Data transformation tools (`transforms` module) to add noise, scale, shift, and normalize data
+- A library of statistical tools (`statistics` module) to help you understand your data
+- Comprehensive engineering-focused documentation with examples and explanations, so you don't need a statistics degree to understand it
+
+
+**Crate features:**
+- **`plotting`** - (default: NO) Enables plotting support using `plotters`
+  - All `assert_*` macros in the testing library will generate plots on failure
+  - The [`plot!`] macro is available to generate plots of fits and polynomials
+  - The [`plotting::Plot`] type is available for more customized plots
+- **`transforms`** - (default: YES) Enables data transformation tools
+  - The [`transforms`] module is available, which includes tools to add noise, scale, shift, and normalize data
+  - The [`transforms::ApplyNoise`] trait is available to add noise to data (Gaussian, Poisson, Impulse, Correlated, Salt & Pepper)
+  - The [`transforms::ApplyScale`] trait is available to scale data (Shift, Linear, Quadratic, Cubic)
+  - The [`transforms::ApplyNormalization`] trait is available to normalize data (Domain, Clip, Mean, zscore)
+- **`parallel`** - (default: NO) Enables parallel processing using `rayon`
+  - [`CurveFit::new_auto`] uses parallel processing to speed up fitting when this feature is enabled
+  - All curve fits can use a faster solver for large enough datasets when this feature is enabled
 
 -----
 
@@ -102,11 +133,33 @@ This table gives hints at which basis to choose based on the characteristics of 
 | Fourier    | Fair                | Yes                | No                  | Poor         | Periodic signals         |
 | Logarithmic| Fair                | No                 | Yes                 | Yes          | Logarithmic growth       |
 
+The orthogonal bases (Chebyshev, Legendre, Hermite, Laguerre) are generally more numerically stable than monomials,
+and can often provide better fits for higher-degree polynomials.
+
+They also unlock a few analytical tools that are not available other bases:
+- [`CurveFit::smoothness`] - A measure of how "wiggly" the curve is; useful for regularization and model selection
+- [`CurveFit::coefficient_energies`] - A measure of how much each basis function contributes to the overall curve; useful for understanding the shape of the curve
+- [`Polynomial::spectral_energy_truncation`] - A way to de-noise the curve by removing high-frequency components the don't contribute enough; useful for smoothing noisy data
+- [`Polynomial::project_orthogonal`] - A way to project any function onto an orthogonal basis
+  - I like to use this to convert Fourier fits into Chebyshev fits for noisy periodic data (see `examples/whats_an_orthogonal.rs`)
+
 ### Calculus Support
-All built-in bases support differentiation and integration in some way, including built-in methods for definite integrals, and finding critical points.
+Most built-in bases support differentiation and integration in some way, including built-in methods for definite integrals, and finding critical points.
 - Many basis options implement calculus directly
 - A few bases implement `IntoMonomialBasis`, which allows them to be converted into a monomial basis for calculus operations
 - For logarithmic series, use [`Polynomial::project`], which can be a good way to approximate over certain ranges
+
+| Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
+|---------------------------|--------------------|-----------------|-----------------------|-------------|
+| **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
+| **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
+| **Chebyshev (2nd/3rd)**   | Yes                | Yes             | Yes                   | No          |
+| **Legendre**              | No                 | Yes             | No                    | Yes         |
+| **Laguerre**              | No                 | Yes             | No                    | Yes         |
+| **Hermite**               | No                 | Yes             | No                    | Yes         |
+| **Fourier (sin/cos)**     | No                 | Yes             | Yes                   | No          |
+| **Exponential (e^{λx})**  | No                 | Yes             | Yes                   | No          |
+| **Logarithmic (ln^n x)**  | No                 | No              | No                    | No          |
 
 ### Testing Library
 The crate includes a set of macros designed to make it easy to write unit tests to validate fit quality.
@@ -140,17 +193,20 @@ The crate includes a set of tools to help you display polynomials in a human rea
 The crate is designed to be fast and efficient, and includes benchmarks to help test that performance is linear with respect to
 the number of data points and polynomial degree.
 
-A 3rd degree fit (1,000 points, Chebyshev basis) takes about 28µs in my benchmarks. Going up to 100,000 goes to about 6ms,
+A 3rd degree fit (1,000 points, Chebyshev basis) takes about 23µs in my benchmarks. Going up to 100,000 goes to about 4ms,
 which is roughly 100x the time for 1,000 points, as expected.
 
-The same linear scaling can be seen with polynomial degree (1,000 points, Chebyshev basis); 15µs for degree 1, up to 47µs for degree 5.
+With parallelization turned on, a 100 million point fit for a 3rd degree Chebyshev took about 1.18s on my machine (8 cores @ 2.2GHz, 32GB RAM).
+
+The same linear scaling can be seen with polynomial degree (1,000 points, Chebyshev basis); 11µs for degree 1, up to 44µs for degree 5.
+
+Auto-fit is also reasonably fast; 1,000 points, Chebyshev basis, and 9 candidate degrees takes about 330µs, or 600µs with parallelization disabled.
 
 There are also performance differences between bases;
-1 - Chebyshev and Laguerre are the fastest, due to the stability of the matrix and the recurrence I use (~30µs for degree 3, 1,000 points)
-2 - Hermite is slightly slower (~37µs for degree 3, 1,000 points)
-3 - Monomials perform worse than more stable bases (~45µs for degree 3, 1,000 points)
-4 - Fourier is slower still, due to the trigonometric calculations (~60µs for degree 3, 1,000 points)
-5 - Legendre is the slowest (~100µs for degree 3, 1,000 points)
+1 - Chebyshev is the fastest, due to the stability of the matrix and the recurrence I use (~24µs for degree 3, 1,000 points)
+2 - Hermite, Legendre, and Laguerre are fairly close to that (~30µs for degree 3, 1,000 points)
+3 - Monomials perform worse than more stable bases (~53µs for degree 3, 1,000 points)
+4 - Fourier and Logarithmic are around the same due to the trigonometric/logarithmic calculations (~57µs for degree 3, 1,000 points)
 
 The benchmarks actually use my library to test that the scaling is linear - which I think is a pretty cool use-case:
 ```rust
@@ -162,23 +218,40 @@ polyfit::assert_r_squared!(linear_fit);       // Assert that the linear fit expl
 
 Raw benchmark results:
 ```text
-fit_vs_basis/Monomial   time:   [44.814 µs 45.559 µs 46.448 µs]
-fit_vs_basis/Chebyshev  time:   [32.959 µs 34.042 µs 35.275 µs]
-fit_vs_basis/Legendre   time:   [99.216 µs 103.56 µs 108.96 µs]
-fit_vs_basis/Hermite    time:   [37.158 µs 38.235 µs 39.488 µs]
-fit_vs_basis/Laguerre   time:   [34.082 µs 34.920 µs 36.090 µs]
-fit_vs_basis/Fourier    time:   [58.909 µs 59.444 µs 60.120 µs]
+Benchmarking fit vs n (Chebyshev, Degree=3)
+fit_vs_n/n=100                  [3.3817 µs 3.4070 µs 3.4363 µs]
+fit_vs_n/n=1_000                [23.791 µs 23.926 µs 24.098 µs]
+fit_vs_n/n=10_000               [302.99 µs 304.40 µs 306.01 µs]
+fit_vs_n/n=100_000              [4.5086 ms 4.5224 ms 4.5376 ms]
+fit_vs_n/n=1_000_000            [12.471 ms 12.592 ms 12.725 ms]
+fit_vs_n/n=10_000_000           [115.49 ms 116.76 ms 118.07 ms]
+fit_vs_n/n=100_000_000          [1.1768 s 1.1838 s 1.1908 s]
 
-fit_vs_n/n=100          time:   [3.2912 µs 3.3102 µs 3.3335 µs]
-fit_vs_n/n=1000         time:   [27.705 µs 28.337 µs 29.258 µs]
-fit_vs_n/n=10000        time:   [332.07 µs 334.00 µs 336.60 µs]
-fit_vs_n/n=100000       time:   [6.0164 ms 6.0707 ms 6.1309 ms]
+Benchmarking fit vs degree (Chebyshev, n=1000)
+fit_vs_degree/Degree=1          [11.587 µs 11.691 µs 11.802 µs]
+fit_vs_degree/Degree=2          [18.109 µs 18.306 µs 18.505 µs]
+fit_vs_degree/Degree=3          [24.672 µs 24.954 µs 25.269 µs]
+fit_vs_degree/Degree=4          [33.074 µs 33.206 µs 33.368 µs]
+fit_vs_degree/Degree=5          [44.399 µs 44.887 µs 45.401 µs]
+fit_vs_degree/Degree=10         [126.07 µs 127.26 µs 128.62 µs]
+fit_vs_degree/Degree=20         [420.20 µs 423.44 µs 426.93 µs]
 
-fit_vs_degree/Degree=1  time:   [15.847 µs 16.571 µs 17.491 µs]
-fit_vs_degree/Degree=2  time:   [23.200 µs 24.230 µs 25.875 µs]
-fit_vs_degree/Degree=3  time:   [30.084 µs 30.839 µs 31.718 µs]
-fit_vs_degree/Degree=4  time:   [36.895 µs 37.137 µs 37.435 µs]
-fit_vs_degree/Degree=5  time:   [47.132 µs 47.441 µs 47.807 µs]
+Benchmarking fit vs basis (Degree=3, n=1000)
+fit_vs_basis/Monomial           [53.513 µs 53.980 µs 54.450 µs]
+fit_vs_basis/Chebyshev          [24.307 µs 24.504 µs 24.710 µs]
+fit_vs_basis/Legendre           [27.577 µs 80.104 µs 80.714 µs]
+fit_vs_basis/Hermite            [30.496 µs 30.872 µs 31.321 µs]
+fit_vs_basis/Laguerre           [31.146 µs 31.428 µs 31.734 µs]
+fit_vs_basis/Fourier            [56.421 µs 56.985 µs 57.612 µs]
+
+Benchmarking auto fit vs basis (n=1000, Candidates=9)
+auto_fit_vs_basis/Monomial      [497.33 µs 500.27 µs 503.30 µs]
+auto_fit_vs_basis/Chebyshev     [327.75 µs 329.67 µs 331.76 µs]
+auto_fit_vs_basis/Legendre      [1.6993 ms 1.7061 ms 1.7128 ms]
+auto_fit_vs_basis/Hermite       [337.65 µs 339.90 µs 342.44 µs]
+auto_fit_vs_basis/Laguerre      [428.36 µs 431.26 µs 434.09 µs]
+auto_fit_vs_basis/Fourier       [710.46 µs 713.07 µs 715.85 µs]
+auto_fit_vs_basis/Logarithmic   [525.36 µs 528.21 µs 531.10 µs]
 ```
 
 For transparency I ran the same benchmarks in numpy (`benches/numpy_bench.py`):
@@ -209,7 +282,7 @@ Oh no! I have some data but I need to try and predict some other value!
 // `function!` is a macro that makes it easy to define polynomials for testing
 // `apply_poisson_noise` is part of the `transforms` module, which provides a set of tools for manipulating data
 polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
+let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, false, None);
 
 //
 // Now we can create a curve fit to this data
@@ -257,7 +330,7 @@ Oh dear! I sure do wish I could find which pieces of data are outliers!
 //
 // I still don't have any real data, so I'm going to make some up! Again!
 polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, None);
+let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, false, None);
 
 //
 // Let's add some outliers
@@ -274,7 +347,10 @@ let fit = MonomialFit::new_auto(&synthetic_data_with_outliers, DegreeBound::Cons
 // These are the points that fall outside the 95% confidence interval
 // This means that they are outside the range where we expect 95% of the data to fall
 // The `Some(0.1)` means we tolerate some noise in the data, so we don't flag points that are just a little bit off
-// The noise tolerance is a fraction of the standard deviation of the data (10% in this case)
+// The noise tolerance is a fraction of the variance of the data (10% in this case)
+//
+// If we had a sensor that specified a tolerance of ±5 units, we could use `Some(Tolerance::Absolute(5.0))` instead
+// If we had a sensor that specified a tolerance of 10% of the reading, we could use `Some(Tolerance::Measurement(0.1))` instead
 let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Variance(0.1))).unwrap();
 ```
 

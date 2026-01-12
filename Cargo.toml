@@ -16,7 +16,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["transforms", "parallel", "plotting"]
+default = []
 transforms = ["rand", "rand_distr"]
 plotting = ["plotters"]
 parallel = ["rayon"]
@@ -51,3 +51,39 @@ harness = false
 [[bin]]
 name = "basis_select"
 path = "src/bin/basis_select.rs"
+
+[[example]]
+name = "whats_an_orthogonal"
+required-features = ["transforms", "plotting"]
+
+[[example]]
+name = "validating_your_choice_of_basis"
+required-features = ["transforms", "plotting"]
+
+[[example]]
+name = "transforms"
+required-features = ["transforms", "plotting"]
+
+[[example]]
+name = "simple_fit"
+required-features = ["transforms"]
+
+[[example]]
+name = "scaling_transforms"
+required-features = ["transforms", "plotting"]
+
+[[example]]
+name = "outlier_detection"
+required-features = ["plotting"]
+
+[[example]]
+name = "generate_logo"
+required-features = ["plotting"]
+
+[[example]]
+name = "calculus"
+required-features = ["plotting"]
+
+[[example]]
+name = "adding_noise"
+required-features = ["transforms", "plotting"]

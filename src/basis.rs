@@ -298,6 +298,7 @@ impl<T: Value> std::fmt::Display for CriticalPoint<T> {
 }
 impl<T: Value> CriticalPoint<T> {
     /// Converts a slice of critical points into a `PlottingElement` for visualization.
+    #[cfg(feature = "plotting")]
     pub fn as_plotting_element(points: &[Self]) -> crate::plotting::PlottingElement<T> {
         crate::plotting::PlottingElement::from_markers(points.iter().map(|p| {
             let (x, y) = p.coords();

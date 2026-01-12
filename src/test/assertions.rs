@@ -34,7 +34,7 @@ macro_rules! assert_fits {
 
         if r2 < threshold || !$crate::value::Value::is_finite(r2) {
             #[allow(unused)] use std::fmt::Write;
-            let mut msg = format!("Fit does not meet R² threshold: {r2} < {threshold}");
+            #[allow(unused)] let mut msg = format!("Fit does not meet R² threshold: {r2} < {threshold}");
 
             // Print any seeds used in the test thread so far
             #[cfg(feature = "transforms")]
