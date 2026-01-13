@@ -16,7 +16,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = []
+default = ["transforms", "plotting"]
 transforms = ["rand", "rand_distr"]
 plotting = ["plotters"]
 parallel = ["rayon"]
