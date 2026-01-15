@@ -1,6 +1,13 @@
 //!
 //! This example shows a few ways to use polyfit for plotting beyond the basic examples used elsewhere.
-use polyfit::{ChebyshevFit, error::Error, plot, plot_filename, plot_residuals, plotting::{self, PlottingElement}, score::Aic, statistics::DegreeBound};
+use polyfit::{
+    error::Error,
+    plot, plot_filename, plot_residuals,
+    plotting::{self, PlottingElement},
+    score::Aic,
+    statistics::DegreeBound,
+    ChebyshevFit,
+};
 
 fn main() -> Result<(), Error> {
     //
@@ -22,7 +29,7 @@ fn main() -> Result<(), Error> {
     // It takes in some options - see [`crate::plotting::PlotOptions`] for the full set
     //
     // The options are prefix are optional
-    plot!(fit, { 
+    plot!(fit, {
         title: "Chebyshev Fit to Sample Data".to_string(),
         x_label: Some("X Axis".to_string()),
         y_label: Some("Y Axis".to_string()),
@@ -37,18 +44,24 @@ fn main() -> Result<(), Error> {
     let path = plot_filename!(Some("optional_prefix"));
     let options = plotting::PlotOptions::<_>::default();
     let root = plotting::plotters::Root::new(&path, options.size);
-    let mut plot = plotting::Plot::<plotting::plotters::Backend, _>::new(&root, options, &fit).unwrap();
+    let mut plot =
+        plotting::Plot::<plotting::plotters::Backend, _>::new(&root, options, &fit).unwrap();
 
     //
     // You can add lots of stuff to a plot:
     plot.with_element(
         // Label markers at specific points
-        &PlottingElement::Markers(vec![(25.0, 20_000.0, Some("OoogaBooga".to_string()))])
-    ).unwrap();
+        &PlottingElement::Markers(vec![(25.0, 20_000.0, Some("OoogaBooga".to_string()))]),
+    )
+    .unwrap();
     plot.with_element(
         // Other data sets
-        &PlottingElement::Data(vec![(10.0, 20.0), (20.0, 5.0), (30.0, 15.0)], Some("My neat data".to_string()))
-    ).unwrap();
+        &PlottingElement::Data(
+            vec![(10.0, 20.0), (20.0, 5.0), (30.0, 15.0)],
+            Some("My neat data".to_string()),
+        ),
+    )
+    .unwrap();
 
     // Finally, finish the plot and write it to disk
     plot.finish().unwrap();
@@ -64,7 +77,7 @@ fn main() -> Result<(), Error> {
     plot_residuals!(fit);
 
     //
-    // The last part I want to show is 
+    // The last part I want to show is
 
     Ok(())
 }

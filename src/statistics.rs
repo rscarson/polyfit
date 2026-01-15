@@ -1248,7 +1248,7 @@ impl Confidence {
     ///
     /// For very large degrees of freedom, the T-score approaches the Z-score.
     /// Also approximates using T-score for custom confidence levels.
-    /// 
+    ///
     /// Ref: <https://www.sjsu.edu/faculty/gerstman/StatPrimer/t-table.pdf>
     #[must_use]
     pub fn t_score(self, df: usize) -> f64 {
@@ -1272,9 +1272,9 @@ impl Confidence {
     }
 
     /// Returns the Z-score associated with the confidence level.
-    /// 
+    ///
     /// The Z-score a measure of how many standard deviations an element is from the mean in a standard normal distribution.
-    /// 
+    ///
     /// Ref: <https://en.wikipedia.org/wiki/Normal_distribution>, 'Quantile function' section.
     #[must_use]
     pub fn z_score(self) -> f64 {

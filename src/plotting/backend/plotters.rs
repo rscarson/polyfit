@@ -9,12 +9,12 @@
 use std::{ops::Range, path::Path};
 
 use plotters::{
-    coord::{ReverseCoordTranslate, Shift, types::RangedCoordf64},
+    coord::{types::RangedCoordf64, ReverseCoordTranslate, Shift},
     prelude::*,
 };
 
 use crate::{
-    plotting::{PlotBackend, palette::ColorSource},
+    plotting::{palette::ColorSource, PlotBackend},
     statistics::ConfidenceBand,
     value::{CoordExt, IntClampedCast, Value},
 };
@@ -267,7 +267,11 @@ impl<'root> PlotBackend for Backend<'root> {
             };
 
             let text_style = ("sans-serif", 10).into_font().color(&BLACK);
-            let width = self.context.plotting_area().estimate_text_size(&label, &text_style)?.0;
+            let width = self
+                .context
+                .plotting_area()
+                .estimate_text_size(&label, &text_style)?
+                .0;
             let end_pix = self.context.plotting_area().get_pixel_range().0;
 
             // X-distance should be ~5% of the total x-range
@@ -278,7 +282,12 @@ impl<'root> PlotBackend for Backend<'root> {
             // However if the label would go off the right edge, move it to the left side
             let (text_end_pix, y_pix) = self.context.as_coord_spec().translate(&(x, y));
             if text_end_pix + width.clamped_cast::<i32>() > end_pix.end {
-                let c_width = self.context.as_coord_spec().reverse_translate((width.clamped_cast(), y_pix)).unwrap_or_default().0;
+                let c_width = self
+                    .context
+                    .as_coord_spec()
+                    .reverse_translate((width.clamped_cast(), y_pix))
+                    .unwrap_or_default()
+                    .0;
                 x_dist = -(x_dist + 2.0 * c_width);
             }
 

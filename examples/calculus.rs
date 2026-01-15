@@ -8,7 +8,7 @@ fn main() -> Result<(), Error> {
     let data = include_str!("sample_data.json");
     let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
     let data = &data[..30]; // To simplify let's just use the first 30 points
-    
+
     let fit = FourierFit::new_auto(data, DegreeBound::Relaxed, &Aic)?;
     println!("Fourier fit:\n{fit}\n");
 
