@@ -40,6 +40,9 @@ jobs:
     - name: scaling_transforms
       run: cargo run --example scaling_transforms --features="transforms plotting"
 
+    - name: fits_for_generating_graphs
+      run: cargo run --example fits_for_generating_graphs --features="transforms plotting"
+
     - name: simple_fit
       run: cargo run --example simple_fit --features="transforms plotting"
 

@@ -9,14 +9,14 @@
 use std::{ops::Range, path::Path};
 
 use plotters::{
-    coord::{types::RangedCoordf64, Shift},
+    coord::{ReverseCoordTranslate, Shift, types::RangedCoordf64},
     prelude::*,
 };
 
 use crate::{
-    plotting::{palette::ColorSource, PlotBackend},
+    plotting::{PlotBackend, palette::ColorSource},
     statistics::ConfidenceBand,
-    value::{CoordExt, Value},
+    value::{CoordExt, IntClampedCast, Value},
 };
 
 const FONT_BYTES: &[u8] = include_bytes!("DejaVuSans.ttf");
@@ -174,7 +174,7 @@ impl<'root> PlotBackend for Backend<'root> {
         context
             .margin(5)
             .x_label_area_size(30)
-            .y_label_area_size(50);
+            .y_label_area_size(60);
 
         if !title.is_empty() {
             context.caption(title, (FontFamily::SansSerif, 16).into_font());
@@ -266,10 +266,26 @@ impl<'root> PlotBackend for Backend<'root> {
                 label.to_string()
             };
 
+            let text_style = ("sans-serif", 10).into_font().color(&BLACK);
+            let width = self.context.plotting_area().estimate_text_size(&label, &text_style)?.0;
+            let end_pix = self.context.plotting_area().get_pixel_range().0;
+
+            // X-distance should be ~5% of the total x-range
+            let mut x_dist = (self.context.as_coord_spec().get_x_range().end
+                - self.context.as_coord_spec().get_x_range().start)
+                * 0.05;
+
+            // However if the label would go off the right edge, move it to the left side
+            let (text_end_pix, y_pix) = self.context.as_coord_spec().translate(&(x, y));
+            if text_end_pix + width.clamped_cast::<i32>() > end_pix.end {
+                let c_width = self.context.as_coord_spec().reverse_translate((width.clamped_cast(), y_pix)).unwrap_or_default().0;
+                x_dist = -(x_dist + 2.0 * c_width);
+            }
+
             self.context.draw_series(std::iter::once(Text::new(
                 label,
-                (x + 5.0, y - 1.0),
-                ("sans-serif", 10).into_font().color(&BLACK),
+                (x + x_dist, y - 1.0),
+                text_style,
             )))?;
         }
 

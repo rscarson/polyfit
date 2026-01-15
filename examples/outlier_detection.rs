@@ -26,6 +26,15 @@ fn main() -> Result<(), Error> {
     )?;
 
     //
+    // The main way to control outlier detection is via the confidence band used
+    // The confidence level is a measure of how much we trust the fit to represent the data
+    // A higher confidence level means we want more insurance against a fit not representing the data well!
+    //
+    // The larger the confidence level, the wider the band, and the fewer outliers will be detected
+    plot!(fit, { title: "Narrow Confidence Band".to_string(), confidence: Confidence::P80 });
+    plot!(fit, { title: "Wide Confidence Band".to_string(), confidence: Confidence::P99 });
+
+    //
     // Get the outliers - a covariance object can give us outliers based on a confidence band
     //
     // For this example let's say we used a sensor that has a known error of +- 10%
