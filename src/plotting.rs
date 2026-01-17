@@ -352,6 +352,14 @@ macro_rules! plot_residuals {
     };
 }
 
+/// Get a filename inside the directory where plots are saved: `target/plot_output/`
+pub fn plot_directory(filename: impl AsRef<std::path::Path>) -> std::path::PathBuf {
+    let target_dir = std::env::var("TARGET_DIR").unwrap_or_else(|_| "target".into());
+    let plots_dir = std::path::Path::new(&target_dir).join("plot_output");
+    let _ = std::fs::create_dir_all(&plots_dir);
+    plots_dir.join(filename)
+}
+
 /// Generate a filename for a plot: `target/plot_output/{file}_line_{line}_{datetime}.png`
 ///
 /// Creates the necessary directories if they don't exist.
@@ -369,12 +377,7 @@ macro_rules! plot_filename {
         let file = file!().replace(['/', '\\'], "_");
         let line = line!();
 
-        let target_dir = ::std::env::var("TARGET_DIR").unwrap_or_else(|_| "target".into());
-        let plots_dir = ::std::path::Path::new(&target_dir).join("plot_output");
-        let _ = std::fs::create_dir_all(&plots_dir);
-
         let filename = format!("{prefix}{file}_line_{line}.png");
-
-        plots_dir.join(filename)
+        $crate::plotting::plot_directory(filename)
     }};
 }

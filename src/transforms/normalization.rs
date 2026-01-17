@@ -11,7 +11,7 @@ pub enum NormalizationTransform<T: Value> {
     /// Each element is linearly scaled to fit within `[min, max]`. Useful for
     /// mapping values to a standard range before further processing or ML workflows.
     ///
-    /// ![Domain example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/domain_example.png)
+    /// ![Domain example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/domain_normalization_example.png)
     ///
     /// <div class="warning">
     ///
@@ -41,7 +41,7 @@ pub enum NormalizationTransform<T: Value> {
     /// Any element smaller than `min` is set to `min`, and any element larger than
     /// `max` is set to `max`. Useful for bounding outliers or enforcing hard limits.
     ///
-    /// ![Clip example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/clip_example.png)
+    /// ![Clip example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/clip_normalization_example.png)
     ///
     /// <div class="warning">
     ///
@@ -92,7 +92,7 @@ pub enum NormalizationTransform<T: Value> {
     /// dividing with the standard deviation. This is a common preprocessing step
     /// in statistics and machine learning to make features comparable.
     ///
-    /// ![Z-Score example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/zscore_example.png)
+    /// ![Z-Score example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/z_score_normalization_example.png)
     ///
     /// <div class="warning">
     ///
@@ -153,7 +153,7 @@ pub trait ApplyNormalization<T: Value> {
     /// Each element is linearly scaled to fit within `[min, max]`. Useful for
     /// mapping values to a standard range before further processing or ML workflows.
     ///
-    /// ![Domain example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/domain_example.png)
+    /// ![Domain example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/domain_normalization_example.png)
     ///
     /// <div class="warning">
     ///
@@ -185,7 +185,7 @@ pub trait ApplyNormalization<T: Value> {
     /// Any element smaller than `min` is set to `min`, and any element larger than
     /// `max` is set to `max`. Useful for bounding outliers or enforcing hard limits.
     ///
-    /// ![Clip example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/clip_example.png)
+    /// ![Clip example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/clip_normalization_example.png)
     ///
     /// <div class="warning">
     ///
@@ -246,7 +246,7 @@ pub trait ApplyNormalization<T: Value> {
     /// dividing with the standard deviation. This is a common preprocessing step
     /// in statistics and machine learning to make features comparable.
     ///
-    /// ![Z-Score example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/zscore_example.png)
+    /// ![Z-Score example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/z_score_normalization_example.png)
     ///
     /// <div class="warning">
     ///

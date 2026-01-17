@@ -91,6 +91,17 @@ pub trait Transform<T: Value> {
 pub trait Transformable<T: Value> {
     /// Transforms the data in place.
     fn transform<R: Transform<T>>(&mut self, transform: &R);
+
+    /// Returns a transformed copy of the data.
+    #[must_use]
+    fn transformed<R: Transform<T>>(&self, transform: &R) -> Self
+    where
+        Self: Sized + Clone,
+    {
+        let mut new_data = self.clone();
+        new_data.transform(transform);
+        new_data
+    }
 }
 impl<T: Value> Transformable<T> for Vec<(T, T)> {
     fn transform<R: Transform<T>>(&mut self, transform: &R) {

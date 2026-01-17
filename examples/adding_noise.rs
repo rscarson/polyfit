@@ -36,13 +36,18 @@ fn main() -> Result<(), Error> {
 
     //
     // Now we need some events in the data - poisson spikes are a good model for this
-    let with_events = with_bg_noise.apply_poisson_noise(0.3, true, None);
+    let with_events = with_bg_noise.apply_poisson_noise(Strength::Relative(0.3), None);
     plot!(with_events, { title: "With events".to_string() });
 
     //
     // Now some salt and pepper noise to simulate random glitches
     // This will randomly replace about 5% of the data with -50 and 50
-    let with_glitches = with_events.apply_salt_pepper_noise(0.01, -50.0, 50.0, None);
+    let with_glitches = with_events.apply_salt_pepper_noise(
+        0.01,
+        Strength::Absolute(-50.0),
+        Strength::Absolute(50.0),
+        None,
+    );
     plot!(with_glitches, { title: "With glitches".to_string() });
 
     //

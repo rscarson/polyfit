@@ -92,7 +92,7 @@ fn gen_sample_data() {
     let data = y
         .solve_range(0.0..=100.0, 1.0)
         .apply_normal_noise(Strength::Relative(0.1), None)
-        .apply_poisson_noise(0.05, false, None);
+        .apply_poisson_noise(Strength::Absolute(0.05), None);
 
     // data to json
     let json = serde_json::to_string(&data).unwrap();

@@ -31,7 +31,7 @@ fn main() -> Result<(), Error> {
     let data = clean_data
         .clone()
         .apply_normal_noise(Strength::Relative(5.0), Some(SEED))
-        .apply_poisson_noise(5.0, true, Some(SEED));
+        .apply_poisson_noise(Strength::Relative(5.0), Some(SEED));
 
     //
     // Let's do a chebyshev fit first, just to see how bad it is

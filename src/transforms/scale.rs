@@ -106,6 +106,19 @@ pub enum ScaleTransform<T: Value> {
     /// - `degree`: The exponent to which each element is raised.
     /// - `factor`: The multiplier applied after exponentiation.
     Exponential(T, T),
+
+    /// Applies a logarithmic scaling to each element of a dataset.
+    ///
+    /// Each element is transformed using the logarithm with the specified base
+    /// and then multiplied by the specified factor.
+    /// Useful for compressing wide-ranging data or modeling logarithmic relationships.
+    ///
+    /// ![Logarithmic example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/logarithmic_example.png)
+    ///
+    /// # Parameters
+    /// - `base`: The base of the logarithm.
+    /// - `factor`: The multiplier applied after logarithmic transformation.
+    Logarithmic(T, T),
 }
 impl<T: Value> Transform<T> for ScaleTransform<T> {
     fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
@@ -133,6 +146,11 @@ impl<T: Value> Transform<T> for ScaleTransform<T> {
             ScaleTransform::Exponential(degree, coef) => {
                 for value in data {
                     *value = value.powf(*degree) * *coef;
+                }
+            }
+            ScaleTransform::Logarithmic(base, coef) => {
+                for value in data {
+                    *value = Value::max(*value, T::epsilon()).log(*base) * *coef;
                 }
             }
         }
@@ -305,6 +323,24 @@ pub trait ApplyScale<T: Value> {
         self,
         polynomial: &Polynomial<B, T>,
     ) -> Self;
+
+    /// Applies a logarithmic scaling to each element of a dataset.
+    ///
+    /// Each element is transformed using the logarithm with the specified base
+    /// and then multiplied by the specified factor.
+    /// Useful for compressing wide-ranging data or modeling logarithmic relationships.
+    ///
+    /// # Parameters
+    /// - `base`: The base of the logarithm.
+    /// - `factor`: The multiplier applied after logarithmic transformation.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::transforms::ApplyScale;
+    /// let data = vec![(1.0, 10.0), (10.0, 100.0)].apply_logarithmic_scale(10.0, 2.0);
+    /// ```
+    #[must_use]
+    fn apply_logarithmic_scale(self, base: T, factor: T) -> Self;
 }
 impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
     fn apply_shift_scale(mut self, amount: T) -> Self {
@@ -343,6 +379,11 @@ impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
 
         self
     }
+
+    fn apply_logarithmic_scale(mut self, base: T, factor: T) -> Self {
+        ScaleTransform::Logarithmic(base, factor).apply(self.iter_mut().map(|(_, y)| y));
+        self
+    }
 }
 
 #[cfg(test)]
@@ -378,5 +419,11 @@ mod tests {
         function!(y(x) = 2 x^2 - 3 x + 4);
         let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_polynomial_scale(&y);
         assert_eq!(data, vec![(1.0, 6.0), (2.0, 13.0)]);
+    }
+
+    #[test]
+    fn test_logarithmic_scale() {
+        let data = vec![(1.0, 10.0), (10.0, 100.0)].apply_logarithmic_scale(10.0, 2.0);
+        assert_eq!(data, vec![(1.0, 0.0), (10.0, 4.0)]);
     }
 }

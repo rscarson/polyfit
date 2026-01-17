@@ -2109,8 +2109,13 @@ mod tests {
         function!(mono(x) = 5 x^5 - 3 x^3 + 2 x^2 + 1.0);
         let data = mono
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_salt_pepper_noise(0.01, -10000.0, 10000.0, None)
-            .apply_poisson_noise(2.0, true, None);
+            .apply_salt_pepper_noise(
+                0.01,
+                Strength::Absolute(-10000.0),
+                Strength::Absolute(10000.0),
+                None,
+            )
+            .apply_poisson_noise(Strength::Relative(2.0), None);
         crate::plot!([data, mono]);
         let fit = MonomialFit::new_kfold_cross_validated(
             &data,
