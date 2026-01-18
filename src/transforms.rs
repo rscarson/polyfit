@@ -119,8 +119,13 @@ thread_local! {
 /// Any seeds generated will be stored in a thread-local vault and can be retrieved with [`SeedSource::all_seeds`] later
 ///
 /// Every `assert_` macro in the test suite will print seeds on failure if they were generated during the test
+///
+/// You can use a custom [`SeedSource`] to replay those seeds for debugging purposes, by using [`SeedSource::from_seeds`]
 #[derive(Debug)]
 pub struct SeedSource {
+    #[cfg(test)]
+    replay: Vec<u64>,
+
     rng: rand::rngs::ThreadRng,
 }
 impl Default for SeedSource {
@@ -132,7 +137,24 @@ impl SeedSource {
     /// Create a new [`SeedSource`]
     #[must_use]
     pub fn new() -> Self {
-        Self { rng: rand::rng() }
+        Self {
+            #[cfg(test)]
+            replay: Vec::new(),
+
+            rng: rand::rng(),
+        }
+    }
+
+    /// Create a new [`SeedSource`] that will replay the given seeds
+    ///
+    /// Not for production use
+    #[cfg(test)]
+    #[must_use]
+    pub fn from_seeds(seeds: Vec<u64>) -> Self {
+        Self {
+            replay: seeds,
+            rng: rand::rng(),
+        }
     }
 
     /// Reset the seed vault, clearing all stored seeds for this thread
@@ -165,6 +187,13 @@ impl SeedSource {
     /// # Panics
     /// Panics if the thread-local vault cannot be locked
     pub fn seed(&mut self) -> u64 {
+        #[cfg(test)]
+        {
+            if !self.replay.is_empty() {
+                return self.replay.remove(0);
+            }
+        }
+
         let seed: u64 = rand::Rng::random(&mut self.rng);
         SEED_VAULT.with(|vault| {
             let mut vault = vault.lock().expect("Failed to lock SEED_VAULT");

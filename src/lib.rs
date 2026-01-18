@@ -280,14 +280,14 @@
 //! Oh no! I have some data but I need to try and predict some other value!
 //!
 //! ```rust
-//! # use polyfit::{MonomialFit, transforms::ApplyNoise, score::Aic, statistics::{DegreeBound, Confidence, Tolerance}, assert_r_squared};
+//! # use polyfit::{MonomialFit, transforms::{ApplyNoise, Strength}, score::Aic, statistics::{DegreeBound, Confidence, Tolerance}, assert_r_squared};
 //!
 //! //
 //! // I don't have any real data, so I'm still going to make some up!
 //! // `function!` is a macro that makes it easy to define polynomials for testing
 //! // `apply_poisson_noise` is part of the `transforms` module, which provides a set of tools for manipulating data
 //! polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, false, None);
+//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(Strength::Absolute(0.1), None);
 //!
 //! //
 //! // Now we can create a curve fit to this data
@@ -331,18 +331,18 @@
 //! Oh dear! I sure do wish I could find which pieces of data are outliers!
 //!
 //! ```rust
-//! # use polyfit::{MonomialFit, transforms::ApplyNoise, score::Aic, statistics::{DegreeBound, Confidence, Tolerance}, assert_r_squared};
+//! # use polyfit::{MonomialFit, transforms::{ApplyNoise, Strength}, score::Aic, statistics::{DegreeBound, Confidence, Tolerance}, assert_r_squared};
 //!
 //! //
 //! // I still don't have any real data, so I'm going to make some up! Again!
 //! polyfit::function!(f(x) = 2 x^2 + 3 x - 5);
-//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(0.1, false, None);
+//! let synthetic_data = f.solve_range(0.0..=100.0, 1.0).apply_poisson_noise(Strength::Absolute(0.1), None);
 //!
 //! //
 //! // Let's add some outliers
 //! // Salt and pepper noise is a simple way to do this; She's good n' spiky
 //! // We will get nice big jumps of +/- 50 in 5% of the data points
-//! let synthetic_data_with_outliers = synthetic_data.apply_salt_pepper_noise(0.05, -50.0, 50.0, None);
+//! let synthetic_data_with_outliers = synthetic_data.apply_salt_pepper_noise(0.05, Strength::Absolute(-50.0), Strength::Absolute(50.0), None);
 //!
 //! //
 //! // Now we can create a curve fit to this data, like before

@@ -2111,8 +2111,8 @@ mod tests {
             .solve_range(0.0..=1000.0, 1.0)
             .apply_salt_pepper_noise(
                 0.01,
-                Strength::Absolute(-10000.0),
-                Strength::Absolute(10000.0),
+                Strength::Absolute(-1000.0),
+                Strength::Absolute(1000.0),
                 None,
             )
             .apply_poisson_noise(Strength::Relative(2.0), None);

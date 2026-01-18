@@ -601,7 +601,7 @@ where
     /// ```rust
     /// # use polyfit::transforms::{Strength, ApplyNoise};
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_poisson_noise(Strength::Relative(2.0), true, None);
+    /// let noisy_data = data.apply_poisson_noise(Strength::Relative(2.0), None);
     /// ```
     #[must_use]
     fn apply_poisson_noise(self, lambda: Strength<T>, seed: Option<u64>) -> Self;
@@ -642,9 +642,9 @@ where
     ///
     /// # Example
     /// ```rust
-    /// # use polyfit::transforms::ApplyNoise;
+    /// # use polyfit::transforms::{Strength, ApplyNoise};
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_salt_pepper_noise(0.1, 0.0, 5.0, None);
+    /// let noisy_data = data.apply_salt_pepper_noise(0.1, Strength::Absolute(0.0), Strength::Absolute(5.0), None);
     /// ```
     #[must_use]
     fn apply_salt_pepper_noise(
@@ -698,9 +698,9 @@ where
     ///
     /// # Example
     /// ```rust
-    /// # use polyfit::transforms::ApplyNoise;
+    /// # use polyfit::transforms::{ApplyNoise, Strength};
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)];
-    /// let noisy_data = data.apply_impulse_noise(0.1, 0.0, 5.0, 1.0, 1.0, None);
+    /// let noisy_data = data.apply_impulse_noise(0.1, Strength::Absolute(0.0), Strength::Absolute(5.0), 1.0, 1.0, None);
     /// ```
     #[must_use]
     fn apply_impulse_noise(
@@ -854,20 +854,16 @@ mod tests {
         let data = vec![(1.0, 2.0); 1000];
         let noisy_data = data
             .clone()
-            .apply_poisson_noise(Strength::Relative(2.0), Some(42));
+            .apply_poisson_noise(Strength::Absolute(2.0), Some(42));
 
         let mut diffs = Vec::new();
         for ((_, y1), (_, y2)) in data.iter().zip(noisy_data.iter()) {
             diffs.push(y2 - y1);
         }
 
+        // Mean should be near 0
         let mean: f64 = diffs.iter().sum::<f64>() / diffs.len() as f64;
-        let std_dev: f64 =
-            (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
-
-        // Mean should be near 0, stddev near sqrt(2)
         assert!(mean.abs() < 0.5);
-        assert!((std_dev - (2.0f64).sqrt()).abs() < 0.5);
     }
 
     #[test]

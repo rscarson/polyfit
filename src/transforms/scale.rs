@@ -424,6 +424,6 @@ mod tests {
     #[test]
     fn test_logarithmic_scale() {
         let data = vec![(1.0, 10.0), (10.0, 100.0)].apply_logarithmic_scale(10.0, 2.0);
-        assert_eq!(data, vec![(1.0, 0.0), (10.0, 4.0)]);
+        assert_eq!(data, vec![(1.0, 2.0), (10.0, 4.0)]);
     }
 }
