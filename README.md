@@ -3,6 +3,7 @@
 # Polyfit
 #### Because you don't need to be able to build a powerdrill to use one safely
 
+[![Homepage](https://img.shields.io/badge/homepage-grey?logo=astro&link=https%3A%2F%2Fpolyfit.richardcarson.ca%2F)](https://polyfit.richardcarson.ca/)
 [![Crates.io](https://img.shields.io/crates/v/polyfit.svg)](https://crates.io/crates/polyfit/)
 [![Build Status](https://github.com/rscarson/polyfit/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/rscarson/polyfit/actions?query=branch%3Amaster)
 [![docs.rs](https://img.shields.io/docsrs/polyfit)](https://docs.rs/polyfit/latest/polyfit/)
