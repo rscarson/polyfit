@@ -7,7 +7,7 @@
 ///
 /// This enum represents the common failure modes when constructing or
 /// evaluating polynomial fits.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// Cannot perform curve fitting because there is no data.
     #[error("No data available for fitting")]

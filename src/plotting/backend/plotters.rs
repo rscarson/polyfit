@@ -159,6 +159,7 @@ impl<'root> PlotBackend for Backend<'root> {
         x_range: Range<T>,
         y_range: Range<T>,
         hide_legend: bool,
+        margins: Option<i32>,
         x_axis_labels: Option<usize>,
         y_axis_labels: Option<usize>,
     ) -> Result<Self, Self::Error>
@@ -172,7 +173,7 @@ impl<'root> PlotBackend for Backend<'root> {
 
         let mut context = ChartBuilder::on(root.as_ref());
         context
-            .margin(5)
+            .margin(margins.unwrap_or(5))
             .x_label_area_size(30)
             .y_label_area_size(60);
 

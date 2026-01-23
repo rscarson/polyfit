@@ -19,5 +19,16 @@ fn main() -> Result<(), Error> {
         y_axis_labels: Some(0),
     }, prefix = "logo");
 
+    plot!([ddx, dx], {
+        title: "".to_string(),
+        size: (16, 16),
+        margins: Some(1),
+        x_range: Some(0.0..100.0),
+
+        hide_legend: true,
+        x_axis_labels: Some(0),
+        y_axis_labels: Some(0),
+    }, prefix = "icon");
+
     Ok(())
 }

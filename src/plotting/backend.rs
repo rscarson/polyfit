@@ -41,6 +41,7 @@ pub trait PlotBackend {
         x_range: Range<T>,
         y_range: Range<T>,
         hide_legend: bool,
+        margins: Option<i32>,
         x_axis_labels: Option<usize>,
         y_axis_labels: Option<usize>,
     ) -> Result<Self, Self::Error>

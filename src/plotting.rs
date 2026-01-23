@@ -54,6 +54,10 @@ where
     /// Whether to show the legend
     pub hide_legend: bool,
 
+    /// Margins around the plot area (if supported by the backend)
+    /// The backend may choose a default value if `None` is provided
+    pub margins: Option<i32>,
+
     /// Number of labels to show on the x-axis (if supported by the backend)
     pub x_axis_labels: Option<usize>,
 
@@ -74,6 +78,7 @@ impl<T: crate::value::Value> Default for PlotOptions<T> {
 
             silent: false,
             hide_legend: false,
+            margins: None,
             x_axis_labels: None,
             y_axis_labels: None,
         }
@@ -189,6 +194,7 @@ where
             x_range,
             y_range,
             options.hide_legend,
+            options.margins,
             options.x_axis_labels,
             options.y_axis_labels,
         )?;
