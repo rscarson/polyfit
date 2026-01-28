@@ -22,6 +22,9 @@ use crate::{
 const FONT_BYTES: &[u8] = include_bytes!("DejaVuSans.ttf");
 const MAX_LBL_WIDTH: usize = 120;
 
+/// Plot type for the plotters backend
+pub type Plot<'root, T> = crate::plotting::Plot<Backend<'root>, T>;
+
 /// Register the built-in font with plotters
 ///
 /// # Panics

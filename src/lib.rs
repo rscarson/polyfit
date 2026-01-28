@@ -139,7 +139,7 @@
 //! They also unlock a few analytical tools that are not available other bases:
 //! - [`CurveFit::smoothness`] - A measure of how "wiggly" the curve is; useful for regularization and model selection
 //! - [`CurveFit::coefficient_energies`] - A measure of how much each basis function contributes to the overall curve; useful for understanding the shape of the curve
-//! - [`Polynomial::spectral_energy_truncation`] - A way to de-noise the curve by removing high-frequency components the don't contribute enough; useful for smoothing noisy data
+//! - [`Polynomial::spectral_energy_filter`] - A way to de-noise the curve by removing high-frequency components the don't contribute enough; useful for smoothing noisy data
 //! - [`Polynomial::project_orthogonal`] - A way to project any function onto an orthogonal basis
 //!   - I like to use this to convert Fourier fits into Chebyshev fits for noisy periodic data (see `examples/whats_an_orthogonal.rs`)
 //!
@@ -176,7 +176,7 @@
 //! - If enabled, failed assertions in the testing library will automatically generate plots showing what went wrong
 //! - ![Example plot](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/example_fail.png)
 //!
-//! See [`mod@plot`] for more details
+//! See [`mod@plotting`] for more details
 //!
 //! ### Transforms
 //! If the `transforms` feature is enabled, you can use the tools in the [`transforms`] module to manipulate your data.

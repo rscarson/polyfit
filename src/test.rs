@@ -134,7 +134,7 @@ mod assertions;
 /// ```
 #[macro_export]
 macro_rules! function {
-    ($( $(+)? $c0:literal $(x $( ^ $d0:literal )?)? )+) => { {
+    ($( $(+)? $c0:literal $($x:ident $( ^ $d0:literal )?)? )+) => { {
         const LEN: usize = {
             let mut degree = 0; $(
                 let d2 = 1 $(+ 1 $(* $d0 as usize)?)?;
@@ -153,15 +153,15 @@ macro_rules! function {
         $crate::MonomialPolynomial::borrowed(&COEFS)
     }};
 
-    ($name:ident (x) = $($rest:tt)+ ) => {
+    ($name:ident ($x:ident) = $($rest:tt)+ ) => {
         let $name: $crate::MonomialPolynomial = $crate::function!($($rest)+);
     };
 
-    (const $name:ident (x) = $($rest:tt)+ ) => {
+    (const $name:ident ($x:ident) = $($rest:tt)+ ) => {
         const $name: $crate::MonomialPolynomial<'static> = $crate::function!($($rest)+);
     };
 
-    (static $name:ident (x) = $($rest:tt)+ ) => {
+    (static $name:ident ($x:ident) = $($rest:tt)+ ) => {
         static $name: $crate::MonomialPolynomial<'static> = $crate::function!($($rest)+);
     };
 }

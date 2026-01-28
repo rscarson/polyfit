@@ -123,7 +123,6 @@ thread_local! {
 /// You can use a custom [`SeedSource`] to replay those seeds for debugging purposes, by using [`SeedSource::from_seeds`]
 #[derive(Debug)]
 pub struct SeedSource {
-    #[cfg(test)]
     replay: Vec<u64>,
 
     rng: rand::rngs::ThreadRng,
@@ -138,17 +137,17 @@ impl SeedSource {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            #[cfg(test)]
             replay: Vec::new(),
-
             rng: rand::rng(),
         }
     }
 
     /// Create a new [`SeedSource`] that will replay the given seeds
     ///
-    /// Not for production use
-    #[cfg(test)]
+    /// Debug/testing use only. Not intended for production use.
+    ///
+    /// This function will override any random seed generation and return the given seeds in order
+    /// until they are exhausted, at which point it will revert to random generation.
     #[must_use]
     pub fn from_seeds(seeds: Vec<u64>) -> Self {
         Self {
@@ -187,11 +186,8 @@ impl SeedSource {
     /// # Panics
     /// Panics if the thread-local vault cannot be locked
     pub fn seed(&mut self) -> u64 {
-        #[cfg(test)]
-        {
-            if !self.replay.is_empty() {
-                return self.replay.remove(0);
-            }
+        if !self.replay.is_empty() {
+            return self.replay.remove(0);
         }
 
         let seed: u64 = rand::Rng::random(&mut self.rng);

@@ -88,8 +88,7 @@ pub enum ScaleTransform<T: Value> {
 
     /// Applies an exponential scaling to each element of a dataset.
     ///
-    /// Each element is raised to the specified degree and then multiplied by the specified factor.
-    /// Useful for modeling exponential growth or decay.
+    /// Each element is transformed using exponentiation with the specified base
     ///
     /// ![Exponential example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/exponential_example.png)
     ///
@@ -98,12 +97,12 @@ pub enum ScaleTransform<T: Value> {
     /// **Technical Details**
     ///
     /// ```math
-    /// xₙ = factor * x^degree
+    /// xₙ = factor * base^x
     /// ```
     /// </div>
     ///
     /// # Parameters
-    /// - `degree`: The exponent to which each element is raised.
+    /// - `base`: The exponent to which each element is raised.
     /// - `factor`: The multiplier applied after exponentiation.
     Exponential(T, T),
 
@@ -143,9 +142,9 @@ impl<T: Value> Transform<T> for ScaleTransform<T> {
                     *value = *value * *value * *value * *coef;
                 }
             }
-            ScaleTransform::Exponential(degree, coef) => {
+            ScaleTransform::Exponential(base, coef) => {
                 for value in data {
-                    *value = value.powf(*degree) * *coef;
+                    *value = base.powf(*value) * *coef;
                 }
             }
             ScaleTransform::Logarithmic(base, coef) => {
@@ -274,8 +273,7 @@ pub trait ApplyScale<T: Value> {
 
     /// Applies an exponential scaling to each element of a dataset.
     ///
-    /// Each element is raised to the specified degree and then multiplied by the specified factor.
-    /// Useful for modeling exponential growth or decay.
+    /// Each element is transformed using exponentiation with the specified base
     ///
     /// ![Exponential example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/exponential_example.png)
     ///
@@ -284,12 +282,12 @@ pub trait ApplyScale<T: Value> {
     /// **Technical Details**
     ///
     /// ```math
-    /// xₙ = factor * x^degree
+    /// xₙ = factor * base^x
     /// ```
     /// </div>
     ///
     /// # Parameters
-    /// - `degree`: The exponent to which each element is raised.
+    /// - `base`: The base of the exponentiation.
     /// - `factor`: The multiplier applied after exponentiation.
     ///
     /// # Example
@@ -298,7 +296,7 @@ pub trait ApplyScale<T: Value> {
     /// let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_exponential_scale(2.0, 3.0);
     /// ```
     #[must_use]
-    fn apply_exponential_scale(self, degree: T, factor: T) -> Self;
+    fn apply_exponential_scale(self, base: T, factor: T) -> Self;
 
     /// Applies a polynomial series as a transformation to each element of a dataset.
     ///

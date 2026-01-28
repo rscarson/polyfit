@@ -9,7 +9,7 @@ use crate::{
     display::PolynomialDisplay,
     error::{Error, Result},
     score::ModelScoreProvider,
-    statistics::{self, Confidence, ConfidenceBand, DegreeBound, Tolerance},
+    statistics::{self, Confidence, ConfidenceBand, CvStrategy, DegreeBound, Tolerance},
     value::{CoordExt, SteppedValues, Value},
     MonomialPolynomial, Polynomial,
 };
@@ -862,7 +862,7 @@ where
     )]
     pub fn new_kfold_cross_validated(
         data: impl Into<Cow<'data, [(T, T)]>>,
-        strategy: statistics::CvStrategy,
+        strategy: CvStrategy,
         max_degree: impl Into<DegreeBound>,
         method: &impl ModelScoreProvider,
     ) -> Result<Self> {

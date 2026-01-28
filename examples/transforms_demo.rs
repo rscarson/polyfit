@@ -261,13 +261,15 @@ fn main() -> Result<(), String> {
     //
     // Exponential
     let data = SourceSampleType::GrowingSlow(false).generate();
-    let half_coeff = ScaleTransform::Exponential(0.5, 0.8);
-    let double_coeff = ScaleTransform::Exponential(2.0, 1.2);
+    let base2_1 = ScaleTransform::Exponential(2.0, 1.0);
+    let basee = ScaleTransform::Exponential(2.0, 0.5);
+    let tiny_coeff = ScaleTransform::Exponential(std::f64::consts::E, 0.01);
     generate_plot(
         data.clone(),
         vec![
-            ("Exponential exp=0.5, coef=0.8", data.transformed(&half_coeff)),
-            ("Exponential exp=2.0, coef=1.2", data.transformed(&double_coeff)),
+            ("Exponential base=2, factor=1.0", data.transformed(&base2_1)),
+            ("Exponential base=2, factor=0.5", data.transformed(&basee)),
+            ("Exponential base=e, factor=0.01", data.transformed(&tiny_coeff)),
         ],
         false,
         "Exponential Transform",

@@ -19,12 +19,12 @@ fn main() -> Result<(), Error> {
         y_axis_labels: Some(0),
     }, prefix = "logo");
 
-    plot!([ddx, dx], {
+    plot!([ddx, dx, fancy_curve], {
         title: "".to_string(),
-        size: (16, 16),
-        margins: Some(1),
+        size: (32, 32),
         x_range: Some(0.0..100.0),
 
+        margins: Some(1),
         hide_legend: true,
         x_axis_labels: Some(0),
         y_axis_labels: Some(0),
