@@ -1,0 +1,39 @@
+# Contributing to polyfit
+
+Thank you for considering contributing to polyfit! Please read the following guidelines before you begin
+
+## How to Contribute
+
+1. All new functionality should be covered by tests
+2. New features should include examples in the `examples/` directory
+3. Consider also updating the tutorials on [https://github.com/rscarson/polyfit-docs]
+
+## API Guidelines
+
+The API is written with the following principles in mind:
+
+### Don't ask the user for a numeric parameter without context
+If you ask for a random number, you'll get a random number. Instead, provide contextual clues.
+For examples, see `DegreeBound`, or `CvStrategy`.
+
+### Never ask the user for a parameter where you can find an objectively best choice
+If there is an objectively best choice for a parameter, use that choice internally, and provide an advanced API for users who want to override it.
+For example, see how `k` is chosen in `Polynomial::spectral_energy_filter`.
+
+### The user should not need to understand the how to use the library
+- All formulas and algorithms used should be explained in a `Technical Details` section of the docblock
+- Examples should be provided for all public functions and methods
+- All functions should include a brief 'why' of what it's useful for, and when to avoid using it
+- Documentation and names alone should be sufficient to allow a user with 0 mathematical background to use the library effectively
+
+## Code Style
+
+- Follow Rust's standard formatting (`cargo fmt`)
+- keep the readme up to date with any changes (`cargo rdme`)
+
+## Reporting Issues
+
+- Use the issue tracker to report bugs or request features.
+- Provide as much detail as possible.
+
+Thank you for helping improve polyfit!
