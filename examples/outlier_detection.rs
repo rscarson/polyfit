@@ -2,15 +2,17 @@
 //! This example shows how to detect outliers in data using a polynomial fit.
 //!
 use polyfit::{
-    error::Error,
-    plot,
-    plotting::PlottingElement,
+    plot, plot_filename,
+    plotting::{
+        plotters::{Plot, Root, Split},
+        PlotOptions, PlottingElement,
+    },
     score::Aic,
     statistics::{Confidence, DegreeBound, Tolerance},
     ChebyshevFit,
 };
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // Load data from the sample file
     let data = include_str!("sample_data.json");
@@ -31,8 +33,24 @@ fn main() -> Result<(), Error> {
     // A higher confidence level means we want more insurance against a fit not representing the data well!
     //
     // The larger the confidence level, the wider the band, and the fewer outliers will be detected
-    plot!(fit, { title: "Narrow Confidence Band".to_string(), confidence: Confidence::P80 });
-    plot!(fit, { title: "Wide Confidence Band".to_string(), confidence: Confidence::P99 });
+    let filename = plot_filename!(Some("outlier_detection_confidence_bands"));
+    let root = Root::new_split(&filename, (1280, 480), Split::Horizontal(2));
+    Plot::new(
+        &root[0],
+        PlotOptions::default()
+            .with_confidence(Confidence::P80)
+            .with_title("Narrow Confidence Band (80%)"),
+        &fit,
+    )?
+    .finish()?;
+    Plot::new(
+        &root[1],
+        PlotOptions::default()
+            .with_confidence(Confidence::P999)
+            .with_title("Wide Confidence Band (99.9%)"),
+        &fit,
+    )?
+    .finish()?;
 
     //
     // Get the outliers - a covariance object can give us outliers based on a confidence band

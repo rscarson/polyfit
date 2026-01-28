@@ -4,7 +4,6 @@
 //! I also show how to use transformations without the convenience traits.
 //!
 use polyfit::{
-    error::Error,
     function, plot, plot_filename,
     plotting::{
         plotters::{Plot, Root, Split},
@@ -13,7 +12,7 @@ use polyfit::{
     transforms::{ApplyScale, ScaleTransform, Transform},
 };
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // Let's grab our sample data again
     let data = include_str!("sample_data.json");
@@ -48,27 +47,32 @@ fn main() -> Result<(), Error> {
     //
     // Let's plot these side-by-side
     // First we need to create a split root
-    let mut options = PlotOptions {
-        title: "Voltage over Time".to_string(),
-        size: (1280, 480),
-        ..Default::default()
-    };
     let filename = plot_filename!(Some("voltage_time_comparison"));
-    let root = Root::new_split(&filename, options.size, Split::Horizontal(2));
+    let root = Root::new_split(&filename, (1280, 480), Split::Horizontal(2));
 
     //
     // Plot the left side
-    options.x_label = Some("Time (min)".to_string());
-    options.y_label = Some("Voltage (kV)".to_string());
-    let plot = Plot::new(&root[0], options.clone(), &voltage_data).unwrap();
-    plot.finish().unwrap();
+    let plot = Plot::new(
+        &root[0],
+        PlotOptions::default()
+            .with_title("Voltage over Time")
+            .with_x_label("Time (min)")
+            .with_y_label("Voltage (kV)"),
+        &voltage_data,
+    )?;
+    plot.finish()?;
 
     //
     // And now the right side
-    options.x_label = Some("Time (s)".to_string());
-    options.y_label = Some("Voltage (V)".to_string());
-    let plot = Plot::new(&root[1], options, &data).unwrap();
-    plot.finish().unwrap();
+    let plot = Plot::new(
+        &root[1],
+        PlotOptions::default()
+            .with_title("Voltage over Time")
+            .with_x_label("Time (sec)")
+            .with_y_label("Voltage (V)"),
+        &data,
+    )?;
+    plot.finish()?;
 
     Ok(())
 }

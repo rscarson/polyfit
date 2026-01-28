@@ -14,7 +14,7 @@ use plotters::{
 };
 
 use crate::{
-    plotting::{palette::ColorSource, PlotBackend},
+    plotting::{palette::ColorSource, PlotBackend, PlotOptions},
     statistics::ConfidenceBand,
     value::{CoordExt, IntClampedCast, Value},
 };
@@ -47,19 +47,17 @@ pub fn register_font() {
 ///
 /// # Errors
 /// Returns an error if the plot could not be created or drawn
-pub fn plot_data<'a, T: Value>(
-    root: &Root<'a>,
+pub fn plot_data<T: Value>(
+    root: &Root,
     data: &[(T, T)],
     x_range: Range<T>,
     caption: &str,
-) -> Result<(), Error<'a>> {
+) -> Result<(), Error> {
     crate::plotting::Plot::<Backend, _>::new(
         root,
-        crate::plotting::PlotOptions {
-            title: caption.to_string(),
-            x_range: Some(x_range),
-            ..Default::default()
-        },
+        PlotOptions::default()
+            .with_title(caption)
+            .with_x_range(x_range),
         &data,
     )?
     .finish()
@@ -140,7 +138,7 @@ pub struct Backend<'root> {
     y_axis_labels: Option<usize>,
 }
 impl<'root> PlotBackend for Backend<'root> {
-    type Error = Error<'root>;
+    type Error = Error;
     type Color = RGBAColor;
     type Root = Root<'root>;
 
@@ -423,18 +421,43 @@ impl<'root> PlotBackend for Backend<'root> {
     }
 }
 
-fn cast<'root, T: Value>(value: T) -> Result<f64, Error<'root>> {
+fn cast<T: Value>(value: T) -> Result<f64, Error> {
     num_traits::cast(value).ok_or(Error::Cast)
 }
 
 /// Error occurring during plotting
 #[derive(Debug, thiserror::Error)]
-pub enum Error<'root> {
-    /// Error drawing the plot
+pub enum Error {
+    /// The underlying plotting backend returned an error
+    ///
+    /// Reduced to string to eliminate generic lifetime
     #[error("Error drawing plot: {0}")]
-    Draw(#[from] DrawingAreaErrorKind<<BitMapBackend<'root> as DrawingBackend>::ErrorType>),
+    BackendError(String),
+
+    /// We are not able to get the mutable reference of the backend,
+    /// which indicates the drawing backend is current used by other
+    /// drawing operation
+    #[error("Error drawing plot: backend is already borrowed")]
+    SharingError,
+
+    /// Error creating layout for the plot
+    #[error("Error creating plot layout")]
+    LayoutError,
 
     /// Error casting a value
     #[error("A value could not be represented as f64")]
     Cast,
+}
+impl<'root> From<DrawingAreaErrorKind<<BitMapBackend<'root> as DrawingBackend>::ErrorType>>
+    for Error
+{
+    fn from(
+        value: DrawingAreaErrorKind<<BitMapBackend<'root> as DrawingBackend>::ErrorType>,
+    ) -> Self {
+        match value {
+            DrawingAreaErrorKind::BackendError(e) => Error::BackendError(format!("{e}")),
+            DrawingAreaErrorKind::SharingError => Error::SharingError,
+            DrawingAreaErrorKind::LayoutError => Error::LayoutError,
+        }
+    }
 }

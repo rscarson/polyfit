@@ -1,14 +1,15 @@
 //!
 //! This is the example that I used to generate the graphs for the documentation on transforms.
 
-use polyfit::plotting;
+use polyfit::plotting::plotters::{Plot, Root};
+use polyfit::plotting::{self, PlotOptions, PlottingElement};
 use polyfit::transforms::{
     ApplyNoise, ApplyScale, NoiseTransform, NormalizationTransform, ScaleTransform, Strength,
     Transformable,
 };
 
 #[rustfmt::skip]
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     //
     // Noises
@@ -345,7 +346,7 @@ fn generate_plot(
     shift: bool,
     title: &str,
     filename: &str,
-) -> Result<(), String> {
+) -> Result<(), plotting::plotters::Error> {
     const SHIFT_BY: f64 = 0.5;
 
     //
@@ -387,31 +388,23 @@ fn generate_plot(
     //
     // Now we can create the plot
     let filename = plotting::plot_directory(filename);
-    let options = plotting::PlotOptions {
-        title: title.to_string(),
-        x_range: None,
-        y_range: Some(y_min..y_max),
-        ..Default::default()
-    };
-    let root = plotting::plotters::Root::new(&filename, options.size);
-    let element =
-        plotting::PlottingElement::Data(og_data.clone(), Some("Original Data".to_string()));
-    let mut plot: plotting::Plot<plotting::plotters::Backend, _> =
-        plotting::Plot::new(&root, options, &element)
-            .map_err(|e: plotting::plotters::Error<'_>| e.to_string())?;
+    let root = Root::new(&filename, PlotOptions::<f64>::DEFAULT_SIZE);
+    let element = PlottingElement::Data(og_data.clone(), Some("Original Data".to_string()));
+    let mut plot = Plot::new(
+        &root,
+        PlotOptions::default()
+            .with_title(title)
+            .with_y_range(y_min..y_max),
+        &element,
+    )?;
 
     //
     // Add each transformed dataset
     for (label, dataset) in samples {
-        plot.with_element(&plotting::PlottingElement::Data(
-            dataset,
-            Some(label.to_string()),
-        ))
-        .map_err(|e: plotting::plotters::Error<'_>| e.to_string())?;
+        plot.with_element(&PlottingElement::Data(dataset, Some(label.to_string())))?;
     }
 
-    plot.finish()
-        .map_err(|e: plotting::plotters::Error<'_>| e.to_string())?;
+    plot.finish()?;
     drop(root);
     Ok(())
 }

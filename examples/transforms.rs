@@ -1,11 +1,9 @@
 //!
 //! Example showing data transformations.
 //!
-use polyfit::{
-    error::Error, plot_filename, plotting::plotters, transforms::ApplyNormalization, MonomialFit,
-};
+use polyfit::{plot_filename, plotting::plotters, transforms::ApplyNormalization, MonomialFit};
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // We'll make some plots to show the effect of different transformations on data.
     // Let's start with somewhere to put em
@@ -17,7 +15,7 @@ fn main() -> Result<(), Error> {
     // This time we'll just plot the raw data first
     let data = include_str!("sample_data.json");
     let data: Vec<(f64, f64)> = serde_json::from_str(data).unwrap();
-    plotters::plot_data(&roots[0], &data, 0.0..100.0, "Original Data").unwrap();
+    plotters::plot_data(&roots[0], &data, 0.0..100.0, "Original Data")?;
 
     //
     // To start let's see how good a fit we can get with no transformations
@@ -36,13 +34,13 @@ fn main() -> Result<(), Error> {
     // This is sometimes called "Z-score normalization" or "standardization",
     // since it makes the data have a "standard" normal distribution.
     let regularized = data.apply_z_score_normalization();
-    plotters::plot_data(&roots[1], &regularized, 0.0..100.0, "Z-score Normalization").unwrap();
+    plotters::plot_data(&roots[1], &regularized, 0.0..100.0, "Z-score Normalization")?;
 
     //
     // Let's also scale the x values to [0, 1] range.
     // This can help with numerical stability when fitting.
     let scaled = regularized.apply_domain_normalization(0.0, 1.0);
-    plotters::plot_data(&roots[2], &scaled, 0.0..1.0, "Domain Normalization [0, 1]").unwrap();
+    plotters::plot_data(&roots[2], &scaled, 0.0..1.0, "Domain Normalization [0, 1]")?;
 
     // Now let's see how good a fit we can get with these transformations
     let fit = MonomialFit::new(&scaled, 15)?;

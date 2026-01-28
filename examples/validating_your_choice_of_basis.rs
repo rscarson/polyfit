@@ -19,8 +19,7 @@ fn main() -> Result<(), Error> {
     let sample_fn = polyfit::basis::FourierBasis::new_polynomial(
         (0.0, 100.0),
         &[0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0],
-    )
-    .unwrap();
+    )?;
     let data = sample_fn
         .solve_range(0.0..=100.0, 0.1)
         .apply_normal_noise(Strength::Relative(0.1), None);

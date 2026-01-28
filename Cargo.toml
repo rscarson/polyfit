@@ -4,8 +4,9 @@ authors = ["@rscarson"]
 description = "Because you don't need to be able to build a powerdrill to use one safely"
 edition = "2021"
 license = "MIT"
-version = "0.10.1"
+version = "0.10.2"
 repository = "https://github.com/rscarson/polyfit"
+homepage = "https://polyfit.richardcarson.ca"
 
 keywords = ["polynomial", "fitting", "regression", "numerical", "approximation"]
 categories = ["algorithms", "data-structures", "mathematics", "science", "visualization"]

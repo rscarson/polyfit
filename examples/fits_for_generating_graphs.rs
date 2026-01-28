@@ -1,7 +1,6 @@
 //!
 //! This example shows a few ways to use polyfit for plotting beyond the basic examples used elsewhere.
 use polyfit::{
-    error::Error,
     plot, plot_filename, plot_residuals,
     plotting::{self, PlottingElement},
     score::Aic,
@@ -9,7 +8,7 @@ use polyfit::{
     ChebyshevFit,
 };
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // Load data from the sample file
     let data = include_str!("sample_data.json");
@@ -39,32 +38,27 @@ fn main() -> Result<(), Error> {
     // But this is just a macro around the underlying plotting functions
     // You can use those directly if you want more control
     // You can even implement your own backend if you want to use a different plotting library or a UI framework
-    //
-    // Probably have this live in a different function and don't unwrap normally
     let path = plot_filename!(Some("optional_prefix"));
     let options = plotting::PlotOptions::<_>::default();
     let root = plotting::plotters::Root::new(&path, options.size);
-    let mut plot =
-        plotting::Plot::<plotting::plotters::Backend, _>::new(&root, options, &fit).unwrap();
+    let mut plot = plotting::Plot::<plotting::plotters::Backend, _>::new(&root, options, &fit)?;
 
     //
     // You can add lots of stuff to a plot:
     plot.with_element(
         // Label markers at specific points
         &PlottingElement::Markers(vec![(25.0, 20_000.0, Some("OoogaBooga".to_string()))]),
-    )
-    .unwrap();
+    )?;
     plot.with_element(
         // Other data sets
         &PlottingElement::Data(
             vec![(10.0, 20.0), (20.0, 5.0), (30.0, 15.0)],
             Some("My neat data".to_string()),
         ),
-    )
-    .unwrap();
+    )?;
 
     // Finally, finish the plot and write it to disk
-    plot.finish().unwrap();
+    plot.finish()?;
     drop(root); // For good luck
 
     //

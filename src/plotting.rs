@@ -64,13 +64,115 @@ where
     /// Number of labels to show on the y-axis (if supported by the backend)
     pub y_axis_labels: Option<usize>,
 }
+impl<T: crate::value::Value> PlotOptions<T> {
+    /// Default size for plots
+    pub const DEFAULT_SIZE: (u32, u32) = (640, 480);
+
+    /// Default title for plots
+    pub const DEFAULT_TITLE: &'static str = "Graph Output";
+
+    /// Set the title of the plot
+    #[must_use]
+    pub fn with_title(self, title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            ..self
+        }
+    }
+
+    /// Set the x-axis label
+    #[must_use]
+    pub fn with_x_label(mut self, x_label: impl Into<String>) -> Self {
+        self.x_label = Some(x_label.into());
+        self
+    }
+
+    /// Set the y-axis label
+    #[must_use]
+    pub fn with_y_label(mut self, y_label: impl Into<String>) -> Self {
+        self.y_label = Some(y_label.into());
+        self
+    }
+
+    /// Set the size of the output image in pixels
+    #[must_use]
+    pub fn with_size(mut self, size: (u32, u32)) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Set the x-axis range
+    #[must_use]
+    pub fn with_x_range(mut self, x_range: std::ops::Range<T>) -> Self {
+        self.x_range = Some(x_range);
+        self
+    }
+
+    /// Set the y-axis range
+    #[must_use]
+    pub fn with_y_range(mut self, y_range: std::ops::Range<T>) -> Self {
+        self.y_range = Some(y_range);
+        self
+    }
+
+    /// Set the noise tolerance for the error bands on fits
+    #[must_use]
+    pub fn with_noise_tolerance(
+        mut self,
+        noise_tolerance: crate::statistics::Tolerance<T>,
+    ) -> Self {
+        self.noise_tolerance = Some(noise_tolerance);
+        self
+    }
+
+    /// Suppress all output (for backends that print to stdout)
+    #[must_use]
+    pub fn silent(mut self, silent: bool) -> Self {
+        self.silent = silent;
+        self
+    }
+
+    /// Hide or show the legend
+    #[must_use]
+    pub fn hide_legend(mut self, hide: bool) -> Self {
+        self.hide_legend = hide;
+        self
+    }
+
+    /// Set the margins around the plot area
+    #[must_use]
+    pub fn with_margins(mut self, margins: i32) -> Self {
+        self.margins = Some(margins);
+        self
+    }
+
+    /// Set the number of labels to show on the x-axis
+    #[must_use]
+    pub fn with_x_axis_labels(mut self, count: usize) -> Self {
+        self.x_axis_labels = Some(count);
+        self
+    }
+
+    /// Set the number of labels to show on the y-axis
+    #[must_use]
+    pub fn with_y_axis_labels(mut self, count: usize) -> Self {
+        self.y_axis_labels = Some(count);
+        self
+    }
+
+    /// Set the confidence level for the plot
+    #[must_use]
+    pub fn with_confidence(self, confidence: crate::statistics::Confidence) -> Self {
+        Self { confidence, ..self }
+    }
+}
 impl<T: crate::value::Value> Default for PlotOptions<T> {
     fn default() -> Self {
         Self {
-            title: "Graph Output".into(),
+            title: Self::DEFAULT_TITLE.into(),
             x_label: None,
             y_label: None,
-            size: (640, 480),
+            size: Self::DEFAULT_SIZE,
             x_range: None,
             y_range: None,
             confidence: crate::statistics::Confidence::P95,
