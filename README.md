@@ -1,4 +1,8 @@
+![Polyfit Logo](https://raw.githubusercontent.com/rscarson/polyfit/refs/heads/master/.github/assets/logo.png)
+
 <!-- cargo-rdme start -->
+
+
 
 # Polyfit
 #### Because you don't need to be able to build a powerdrill to use one safely
@@ -175,7 +179,7 @@ If the `plotting` feature is enabled, you can use the [`plot!`] macro to generat
 - Plots are saved as PNG files
 - Fits include source data, confidence bands, and residuals
 - If enabled, failed assertions in the testing library will automatically generate plots showing what went wrong
-- ![Example plot](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/example_fail.png)
+- ![Example plot](https://raw.githubusercontent.com/rscarson/polyfit/refs/heads/master/.github/assets/example_fail.png)
 
 See [`mod@plotting`] for more details
 
