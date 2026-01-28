@@ -1,4 +1,4 @@
-![Polyfit Logo](https://raw.githubusercontent.com/rscarson/polyfit/refs/heads/master/.github/assets/logo.png)
+
 
 <!-- cargo-rdme start -->
 
