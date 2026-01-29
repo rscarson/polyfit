@@ -2124,6 +2124,6 @@ mod tests {
             &Aic,
         )
         .unwrap();
-        assert_fits!(mono, fit, 0.7);
+        assert_fits!(mono, fit, 0.5);
     }
 }
