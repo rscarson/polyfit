@@ -1,5 +1,5 @@
-//! # Polyfit
-//! #### Because you don't need to be able to build a powerdrill to use one safely
+//! ## Easy Polynomial Fitting for Rust
+//! **Because you don't need to be able to build a powerdrill to use one safely**
 //!
 //! [![Homepage](https://img.shields.io/badge/homepage-grey?logo=astro&link=https%3A%2F%2Fpolyfit.richardcarson.ca%2F)](https://polyfit.richardcarson.ca/)
 //! [![Crates.io](https://img.shields.io/crates/v/polyfit.svg)](https://crates.io/crates/polyfit/)
@@ -10,53 +10,207 @@
 //! Curve fitting might be simple in theory, but there sure is a LOT of theory.
 //!
 //! This library is designed for developers who need to make use of the plotting or predictive powers of a curve fit without needing to worry about Huber loss,
-//! D'Agostino, or what on earth a kurtosis is
+//! D'Agostino, or what on earth a kurtosis is.
 //!
-//! I provide a set a tools designed to help you:
-//! - Select the right kind (basis) of polynomial for your data
-//! - Automatically determine the optimal degree of the polynomial
-//! - Make predictions, detect outliers, and get confidence values based on it
-//! - Write easy to understand tests to confirm function
-//!   - Tests even plot the data and functions for you on failure! (`plotting` feature)
+//! ## Built for developers, not statisticians
+//! The crate is designed to be easy to use for developers who need to make use of curve fitting without needing to understand all the underlying statistics.
+//! - Sensible defaults are provided for all parameters
+//! - The most common use-cases are covered by simple functions and macros
+//! - All documentation includes examples, explanations of parameters, and assumes zero prior knowledge of statistics
+//! - API is designed to guide towards best practices, while being flexible enough to allow advanced users to customize behavior as needed
+//! - Includes a suite of testing tools to bridge the gap between statistical rigour and engineering pragmatism
 //!
-//! I support:
-//! - Functions and fits generic over floating point type and 11 choices of polynomial basis
-//!   - Monomial
-//!   - Orthogonal bases: Chebyshev (1st, 2nd, and 3rd forms), Legendre, Hermite (Physicists' and Probabilists'), Laguerre
-//!   - Fourier
-//!   - Logarithmic
-//! - Human-readable display of polynomial euations
-//! - Symbolic calculus (differentiation, integration, critical points) for most bases
-//! - Orthogonal basis specific tools (smoothness, coefficient energies, spectral energy truncation, orthogonal projection)
-//! - A suite of statistical tests to validate fit quality (`test` module).
-//!   - Tests include r², residual normality, homoscedasticity, autocorrelation, and more
-//!   - All tests generate plots on failure if the `plotting` feature is enabled
-//! - Data transformation tools (`transforms` module) to add noise, scale, shift, and normalize data
-//! - A library of statistical tools (`statistics` module) to help you understand your data
-//! - Comprehensive engineering-focused documentation with examples and explanations, so you don't need a statistics degree to understand it
+//! ## Features & Capabilities
+//!
+//! ### Polynomial Fitting
+//!
+//! [ [More Information](<https://polyfit.richardcarson.ca/api/#fitting>) ] [ [Example](<https://polyfit.richardcarson.ca/tutorials/#getting-started>) ]
+//!
+//! As a curve fitting library, Polyfit does curve fitting. What's more interesting is that I do it a way that avoids most common footguns to make it intuitive and safe even with //! zero knowledge of statistics.
+//!
+//! - Functions and fits generic over floating point type
+//! - Human readable polynomial equation display
+//! - Cross-validation based scoring for very noisy data
+//! - Robust degree selection strategies that avoid overfitting
+//! - Built in outlier detection strategies
+//! - Lots of metrics, examples, and explanations to help you understand your data
+//!
+//! **Human Readable Equation Display**
+//!
+//! The crate includes a set of tools to help you display polynomials in a human readable format
+//! - See the [`display`](crate::display) module for more details
+//! - All built-in basis options implement [`display::PolynomialDisplay`](crate::display::PolynomialDisplay) to give you a nicely formatted equation like:
+//!  - `y(x) = 1.81x³ + 26.87x² - 1.00e3x + 9.03e3`
 //!
 //!
-//! **Crate features:**
-//! - **`plotting`** - (default: NO) Enables plotting support using `plotters`
-//!   - All `assert_*` macros in the testing library will generate plots on failure
-//!   - The [`plot!`] macro is available to generate plots of fits and polynomials
-//!   - The [`plotting::Plot`] type is available for more customized plots
-//! - **`transforms`** - (default: YES) Enables data transformation tools
-//!   - The [`transforms`] module is available, which includes tools to add noise, scale, shift, and normalize data
-//!   - The [`transforms::ApplyNoise`] trait is available to add noise to data (Gaussian, Poisson, Impulse, Correlated, Salt & Pepper)
-//!   - The [`transforms::ApplyScale`] trait is available to scale data (Shift, Linear, Quadratic, Cubic)
-//!   - The [`transforms::ApplyNormalization`] trait is available to normalize data (Domain, Clip, Mean, zscore)
-//! - **`parallel`** - (default: NO) Enables parallel processing using `rayon`
-//!   - [`CurveFit::new_auto`] uses parallel processing to speed up fitting when this feature is enabled
-//!   - All curve fits can use a faster solver for large enough datasets when this feature is enabled
+//! **11 Choices of Polynomial Basis**
+//! [ [How do I Choose ](<https://polyfit.richardcarson.ca/tutorials/#basis-selection>) ] [ [How Do I Check I Chose Well](<https://polyfit.richardcarson.ca/testing#validating-your-choice-of-basis>) ]
 //!
-//! -----
+//! A polynomial basis is a type of mathematical function used to represent polynomials.
+//!
+//! The crate includes a variety of polynomial bases to choose from, each with their own strengths and weaknesses.
+//! [`Polynomial`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html) and [`CurveFit`](https://docs.rs/polyfit/latest/polyfit/struct.CurveFit.html) are generic over the basis, so you can easily swap them out to see which works best for your data.
+//!
+//! The choice of polynomial basis has massive implications for the shape of the curve, the numerical stability of the fit, and how well it fits!
+//! - Use the links above to help you choose the best basis for your data
+//! - This table gives hints at which basis to choose based on the characteristics of your data:
+//!
+//! I also include [`basis_select!`](https://docs.rs/polyfit/latest/polyfit/macro.basis_select.html), a macro that will help you choose the best basis for your data.
+//! - It does an automatic fit for each basis I support, and scores them using the method of your choice.
+//! - It will show and plot out the best 3
+//! - Use it a few times will real data and see which basis seems to consistently come out on top for your use-case
+//!
+//! | Basis Name | Handles Curves Well | Repeating Patterns | Extremes / Outliers | Growth/Decay | Best Data Shape / Domain |
+//! | ---------- | ------------------- | ------------------ | ------------------- | ------------ | ------------------------ |
+//! | Monomial   | Poor                | No                 | No                  | Poor         | Any simple trend         |
+//! | Chebyshev  | Good                | No                 | No                  | Poor         | Smooth curves, bounded   |
+//! | Legendre   | Fair                | No                 | No                  | Poor         | Smooth curves, bounded   |
+//! | Hermite    | Good                | No                 | Yes                 | Yes          | Bell-shaped, any range   |
+//! | Laguerre   | Good                | No                 | Yes                 | Yes          | Decaying, positive-only  |
+//! | Fourier    | Fair                | Yes                | No                  | Poor         | Periodic signals         |
+//! | Logarithmic| Fair                | No                 | Yes                 | Yes          | Logarithmic growth       |
+//!
+//!
+//! ### Plotting & Data Visualization
+//!
+//! [ [More Information](<https://polyfit.richardcarson.ca/api/#plotting>) ] [ [Example](<https://polyfit.richardcarson.ca/tutorials/#fits-for-generating-graphs>) ]
+//!
+//! After I built this library I realized that debugging curve fits is a pain without visualization. So I added some plotting utilities, and made my whole test suite generate //! plots on failure.
+//!
+//! Use the [`plot!`](https://docs.rs/polyfit/latest/polyfit/macro.plot.html) macro to create plots from data and fits.
+//! - You can plot data, functions, and multiple things at once, and theres a lot of customization available
+//!
+//! ### Symbolic Calculus
+//!
+//! [ [More Information](<https://polyfit.richardcarson.ca/api/#calculus>) ] [ [Example](<https://polyfit.richardcarson.ca/tutorials/#using-calculus>) ]
+//!
+//! Polyfit supports indefinite integration and differentiation in many bases, as well as root finding for all bases:
+//!
+//! *Note: Exact root finding is a faster method only available for some bases*
+//!
+//! | Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
+//! |---------------------------|--------------------|-----------------|-----------------------|-------------|
+//! | **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
+//! | **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
+//! | **Chebyshev (2nd form)**  | Yes                | Yes             | Yes                   | No          |
+//! | **Chebyshev (3rd form)**  | Yes                | No              | Yes                   | No          |
+//! | **Legendre**              | No                 | Yes             | No                    | Yes         |
+//! | **Laguerre**              | No                 | Yes             | No                    | Yes         |
+//! | **Hermite (Both kinds)**  | No                 | Yes             | No                    | Yes         |
+//! | **Fourier (sin/cos)**     | No                 | Yes             | Yes                   | No          |
+//! | **Exponential (e^{λx})**  | No                 | Yes             | Yes                   | No          |
+//! | **Logarithmic (ln^n x)**  | No                 | No              | No                    | No          |
+//!
+//! **Monomial Conversions for Calculus**
+//! Most bases without calculus support implement [`IntoMonomialBasis`](https://docs.rs/polyfit/latest/polyfit/basis/trait.IntoMonomialBasis.html), which allows them to be converted into a monomial for calculus operations, or for the recognizable //! formula (for example `y(x) = 3x³ + 2x² + 1`).
+//!
+//! The exception is logarithmic series, which cannot be converted into monomials; For those, use [`Polynomial::project`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.project), which can be a good way to approximate over certain //! ranges.
+//!
+//! **Derivatives for Trend Analysis**
+//! The derivative describes the rate of change at specific points in a dataset; For example the derivative of position with respect to time is velocity, and the derivative of //! velocity with respect to time is acceleration.
+//!
+//! - Find local minimums and maximums
+//! - Discover if a function changes direction
+//! - Analyze rates of change in your data
+//!
+//! **Integrals for Total Values**
+//! The integral represents the accumulation of quantities, such as total distance traveled or total growth over time.
+//!
+//! - Calculate total accumulated values
+//! - Calculate area under curves
+//!
+//! ### Analysis & Mathematics
+//!
+//! [ [More Information](<https://polyfit.richardcarson.ca/api/#analysis>) ] [ [Example](<https://polyfit.richardcarson.ca/tutorials/#understanding-your-data>) ]
+//!
+//! - A suite of statistical tests to validate fit quality - [`statistics`](crate::statistics) module
+//!     - r², residual normality, homoscedasticity, autocorrelation, and more
+//!     - Comprehensive documentation on what all those words mean and when to use each test
+//!
+//! - Orthogonal-basis-specific tools:
+//!     - Spectral energy filtering for advanced smoothing and de-noising ([`Polynomial::spectral_energy_filter`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.spectral_energy_filter))
+//!       - Smoothness metric for regularization and model selection ([`Polynomial::smoothness`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.smoothness))
+//!     - Coefficient energy breakdown for understanding curve shape ([`Polynomial::coefficient_energies`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.coefficient_energies))
+//!       - Orthogonal projection for converting functions between bases ([`Polynomial::project_orthogonal`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.project_orthogonal))
+//!
+//! ### Testing & Validation
+//!
+//! [ [More Information](<https://polyfit.richardcarson.ca/api/#testing>) ] [ [Example](<https://polyfit.richardcarson.ca/testing/>) ]
+//!
+//! Being able to use a fitting library without stats knowledge isn't very useful if you can't test and validate your fits.
+//!
+//! To that end I built in a testing framework to make it easy to validate your fits and make sure everything is working as expected.
+//!
+//! - Generate synthetic datasets with configurable noise and transforms
+//! - Macros that generate a plot of your fit and data on test failure for easy debugging
+//! - Built-in assertions for common fit properties and more complex statistical tests
+//! - Sane auto-defaults so you don't need to guess parameters
+//! - Seed management! Any random transforms log seeds used so you can reproduce failures easily
+//! - I even added [`transforms::SeedSource::from_seeds`](crate::transforms::SeedSource::from_seeds) to replay tests with the same random data every time after a failure
+//!
+//! ### Data Manipulation
+//!
+//! [ [More Information](<https://polyfit.richardcarson.ca/api/#transforms>) ] [ [Example](<https://polyfit.richardcarson.ca/testing/#simulating-noisy-data-for-testing>) ] [ [Another Example](<https://polyfit.richardcarson.ca/tutorials/#scaling-and-normalization-transforms>) ]
+//!
+//! I built in an optional [`transforms`](crate::transforms) feature with 3 different classes of transforms:
+//!
+//! **Normalization Transforms**
+//!
+//! Choose from Domain, Clipping, Mean Subtraction, or Z-score normalization to preprocess your data before fitting.
+//! - Great for improving numerical stability and fit quality, especially for high degree polynomials or large ranges of data.
+//!
+//! **Noise Transforms**
+//!
+//! Generate synthetic noisy datasets by adding one of several types of configurable noise
+//! - Each option has a plot showing its characteristics and the effect of each parameter.
+//!
+//! **Scaling Transforms**
+//!
+//! Transform data by applying scaling functions. Can improve fit quality or be used for data conversions
+//! - Shift
+//! - Linear Scale
+//! - Quadratic Scale
+//! - Cubic Scale
+//! - Exponential Scale
+//! - Logarithmic Scale
+//! - Or polynomial scale where you just give a function or fit to apply
+//!
+//! ---
+//!
+//! ## Crate Features
+//! The parts of the library that require extra dependencies are behind feature flags, so you can keep your binary size down if you don't need them:
+//!
+//! ### `plotting`
+//! - Active by default
+//! - All testing macros in the [`test`](crate::test) module will generate plots on failure
+//! - Enables the [`plotting`](crate::plotting) module for generating plots of fits and polynomials
+//! - Includes the [`plot!`](https://docs.rs/polyfit/latest/polyfit/macro.plot.html) macro for easy plotting
+//! - Includes the [`plotting::Plot`](crate::plotting::Plot) type for more customized plots
+//!
+//! ### `transforms`
+//! - Active by default
+//! - Enables the [`transforms`](crate::transforms) module for data transformation tools
+//!     - Add noise to data (Gaussian, Poisson, Impulse, Correlated, Salt & Pepper)
+//!     - Scale data (Shift, Linear, Quadratic, Cubic)
+//!     - Normalize data (Domain, Clip, Mean, zscore)
+//!
+//! ### `parallel`
+//! - Inactive by default
+//! - Enables parallel processing using `rayon`
+//!     - [`CurveFit::new_auto`](https://docs.rs/polyfit/latest/polyfit/struct.CurveFit.html#method.new_auto) uses parallel processing to speed up fitting when this feature is enabled
+//!     - All curve fits can use a faster solver for large enough datasets when this feature is enabled
+//!     - May significantly speed up fitting for very large datasets on multi-core systems
+//!     - **Don't worry your data is tested to make sure the data set is stable enough to benefit from parallelization before using it**
+//!
+//! ---
+//!
+//! ## Basic Example
 //!
 //! The simplest use-case is to find a mathematical function to help approximate a set of data:
 //!
 //! ```rust
-//! # use polyfit::{ChebyshevFit, transforms::ApplyNoise, statistics::{DegreeBound}, score::Aic, assert_r_squared, assert_residuals_normal};
-//!
+//! # use polyfit::{error::Error, ChebyshevFit, assert_r_squared, assert_residuals_normal, statistics::DegreeBound, score::Aic};
+//! # fn main() -> Result<(), Error> {
 //! //
 //! // Load data from a file
 //! let data = include_str!("../examples/sample_data.json");
@@ -72,7 +226,7 @@
 //!     &data,                 // The data to fit to
 //!     DegreeBound::Relaxed,  // How picky we are about the degree of the polynomial (See [`statistics::DegreeBound`])
 //!     &Aic                   // The method used to score the fit quality (See [`crate::score`])
-//! ).expect("Failed to create fit");
+//! )?;
 //!
 //! //
 //! // Of course if we don't test our code, how do we know it works - please don't assume I remembered all the edge cases
@@ -86,110 +240,13 @@
 //! // Here we check that the residuals (the difference between the data and the fit) are normally distributed
 //! // Think of it like making sure the errors are random, not based on some undiscovered pattern
 //! assert_residuals_normal!(fit);
+//! # Ok(())
+//! # }
 //! ```
 //!
-//! -----
+//! ---
 //!
-//! ## Features
-//!
-//! ### Built for developers, not statisticians
-//! The crate is designed to be easy to use for developers who need to make use of curve fitting without needing to understand all the underlying statistics.
-//! - Sensible defaults are provided for all parameters
-//! - The most common use-cases are covered by simple functions and macros
-//! - All documentation includes examples, explanations of parameters, and assumes zero prior knowledge of statistics
-//! - API is designed to guide towards best practices, while being flexible enough to allow advanced users to customize behavior as needed
-//! - Includes a suite of testing tools to bridge the gap between statistical rigour and engineering pragmatism
-//!
-//! ### Hot-swappable Polynomial Basis
-//! A polynomial basis is a sum of solving a function, called a basis function, multiplied by a coefficient:
-//! - `y(x) = c1*b1(x) + c2*b2(x) + ... + cn*bn(x)`
-//!
-//! The basis determines what the basis functions `b1`, `b2`, ..., `bn` are. The choice of basis has massive implications for the shape of the curve,
-//! the numerical stability of the fit, and how well it fits!
-//!
-//! The crate includes a variety of polynomial bases to choose from, each with their own strengths and weaknesses.
-//! [`Polynomial`] and [`CurveFit`] are generic over the basis, so you can easily swap them out to see which works best for your data:
-//! - Monomial - Simple and intuitive, but can be numerically unstable for high degrees or wide x-ranges
-//! - Chebyshev - More numerically stable than monomials, and can provide better fits for certain types of data
-//! - Legendre - Orthogonal polynomials that can provide good fits for certain types of data
-//! - Hermite (Physicists' and Probabilists') - Useful for data that is normally distributed
-//! - Laguerre - Useful for data that is exponentially distributed
-//! - Fourier - Useful for periodic data
-//!
-//! I also include [`basis_select!`], a macro that will help you choose the best basis for your data.
-//! - It does an automatic fit for each basis I support, and scores them using the method of your choice.
-//! - It will show and plot out the best 3
-//! - Use it a few times will real data and see which basis seems to consistently come out on top for your use-case
-//!
-//! This table gives hints at which basis to choose based on the characteristics of your data:
-//!
-//! | Basis Name | Handles Curves Well | Repeating Patterns | Extremes / Outliers | Growth/Decay | Best Data Shape / Domain |
-//! | ---------- | ------------------- | ------------------ | ------------------- | ------------ | ------------------------ |
-//! | Monomial   | Poor                | No                 | No                  | Poor         | Any simple trend         |
-//! | Chebyshev  | Good                | No                 | No                  | Poor         | Smooth curves, bounded   |
-//! | Legendre   | Fair                | No                 | No                  | Poor         | Smooth curves, bounded   |
-//! | Hermite    | Good                | No                 | Yes                 | Yes          | Bell-shaped, any range   |
-//! | Laguerre   | Good                | No                 | Yes                 | Yes          | Decaying, positive-only  |
-//! | Fourier    | Fair                | Yes                | No                  | Poor         | Periodic signals         |
-//! | Logarithmic| Fair                | No                 | Yes                 | Yes          | Logarithmic growth       |
-//!
-//! The orthogonal bases (Chebyshev, Legendre, Hermite, Laguerre) are generally more numerically stable than monomials,
-//! and can often provide better fits for higher-degree polynomials.
-//!
-//! They also unlock a few analytical tools that are not available other bases:
-//! - [`CurveFit::smoothness`] - A measure of how "wiggly" the curve is; useful for regularization and model selection
-//! - [`CurveFit::coefficient_energies`] - A measure of how much each basis function contributes to the overall curve; useful for understanding the shape of the curve
-//! - [`Polynomial::spectral_energy_filter`] - A way to de-noise the curve by removing high-frequency components the don't contribute enough; useful for smoothing noisy data
-//! - [`Polynomial::project_orthogonal`] - A way to project any function onto an orthogonal basis
-//!   - I like to use this to convert Fourier fits into Chebyshev fits for noisy periodic data (see `examples/whats_an_orthogonal.rs`)
-//!
-//! ### Calculus Support
-//! Most built-in bases support differentiation and integration in some way, including built-in methods for definite integrals, and finding critical points.
-//! - Many basis options implement calculus directly
-//! - A few bases implement `IntoMonomialBasis`, which allows them to be converted into a monomial basis for calculus operations
-//! - For logarithmic series, use [`Polynomial::project`], which can be a good way to approximate over certain ranges
-//!
-//! | Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
-//! |---------------------------|--------------------|-----------------|-----------------------|-------------|
-//! | **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
-//! | **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
-//! | **Chebyshev (2nd/3rd)**   | Yes                | Yes             | Yes                   | No          |
-//! | **Legendre**              | No                 | Yes             | No                    | Yes         |
-//! | **Laguerre**              | No                 | Yes             | No                    | Yes         |
-//! | **Hermite**               | No                 | Yes             | No                    | Yes         |
-//! | **Fourier (sin/cos)**     | No                 | Yes             | Yes                   | No          |
-//! | **Exponential (e^{λx})**  | No                 | Yes             | Yes                   | No          |
-//! | **Logarithmic (ln^n x)**  | No                 | No              | No                    | No          |
-//!
-//! ### Testing Library
-//! The crate includes a set of macros designed to make it easy to write unit tests to validate fit quality.
-//! There are a variety of assertions available, from simple r² checks to ensuring that residuals are normally distributed.
-//!
-//! If the `plotting` feature is enabled, any failed assertion will generate a plot showing you exactly what went wrong.
-//!
-//! See [`mod@test`] for more details on all included tests
-//!
-//! ### Plotting
-//! If the `plotting` feature is enabled, you can use the [`plot!`] macro to generate plots of your fits and polynomials.
-//! - Plots are saved as PNG files
-//! - Fits include source data, confidence bands, and residuals
-//! - If enabled, failed assertions in the testing library will automatically generate plots showing what went wrong
-//! - ![Example plot](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/example_fail.png)
-//!
-//! See [`mod@plotting`] for more details
-//!
-//! ### Transforms
-//! If the `transforms` feature is enabled, you can use the tools in the [`transforms`] module to manipulate your data.
-//! - Add noise for testing purposes
-//! - Scale, shift, or normalize data
-//!
-//! ### Human Readable Display
-//! The crate includes a set of tools to help you display polynomials in a human readable format
-//! - See the [`display`] module for more details
-//! - All built-in basis options implement `PolynomialDisplay` to give you a nicely formatted equation like:
-//!  - `y(x) = 1.81x³ + 26.87x² - 1.00e3x + 9.03e3`
-//!
-//! ### Performance
+//! ## Performance
 //! The crate is designed to be fast and efficient, and includes benchmarks to help test that performance is linear with respect to
 //! the number of data points and polynomial degree.
 //!
@@ -210,9 +267,9 @@
 //!
 //! The benchmarks actually use my library to test that the scaling is linear - which I think is a pretty cool use-case:
 //! ```rust
-//! # use polyfit::{MonomialFit, assert_r_squared, error::Result};
-//! # fn main() -> Result<()> {
-//! # let data = vec![(0.0, 1.0), (1.0, 9.0), (2.0, 25.0), (3.0, 49.0), (4.0, 81.0)];
+//! # use polyfit::{error::Error, MonomialFit, assert_r_squared};
+//! # fn main() -> Result<(), Error> {
+//! # let data: Vec<(f64, f64)> = vec![(0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 3.0)]; // Example data
 //! let linear_fit = MonomialFit::new(&data, 1)?; // Create a linear fit (degree=1)
 //! polyfit::assert_r_squared!(linear_fit);       // Assert that the linear fit explains the data well (r² > 0.9)
 //!
@@ -274,14 +331,16 @@
 //! fit_vs_degree/degree=5 [510.57µs]
 //! ```
 //!
-//! -----
+//! ---
 //!
 //! ## More Examples
 //!
 //! Oh no! I have some data but I need to try and predict some other value!
 //!
 //! ```rust
-//! # use polyfit::{MonomialFit, transforms::{ApplyNoise, Strength}, score::Aic, statistics::{DegreeBound, Confidence, Tolerance}, assert_r_squared};
+//! # use polyfit::{error::Error, MonomialFit, statistics::{DegreeBound, Confidence, Tolerance}, score::Aic, transforms::Strength};
+//! # use polyfit::transforms::ApplyNoise;
+//! # fn main() -> Result<(), Error> {
 //!
 //! //
 //! // I don't have any real data, so I'm still going to make some up!
@@ -325,6 +384,9 @@
 //!     Some(Tolerance::Variance(0.1)) // Tolerate some extra noise in the data (10% of variance of the data, in this case)
 //! ).unwrap(); // 95% confidence band
 //! println!("I am 95% confident that the true value at x=50.0 is between {} and {}", confidence_band.min(), confidence_band.max());
+//!
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! -----
@@ -332,7 +394,9 @@
 //! Oh dear! I sure do wish I could find which pieces of data are outliers!
 //!
 //! ```rust
-//! # use polyfit::{MonomialFit, transforms::{ApplyNoise, Strength}, score::Aic, statistics::{DegreeBound, Confidence, Tolerance}, assert_r_squared};
+//! # use polyfit::{error::Error, MonomialFit, statistics::{DegreeBound, Confidence, Tolerance}, score::Aic, transforms::Strength};
+//! # use polyfit::transforms::ApplyNoise;
+//! # fn main() -> Result<(), Error> {
 //!
 //! //
 //! // I still don't have any real data, so I'm going to make some up! Again!
@@ -359,7 +423,11 @@
 //! // If we had a sensor that specified a tolerance of ±5 units, we could use `Some(Tolerance::Absolute(5.0))` instead
 //! // If we had a sensor that specified a tolerance of 10% of the reading, we could use `Some(Tolerance::Measurement(0.1))` instead
 //! let outliers = fit.covariance().unwrap().outliers(Confidence::P95, Some(Tolerance::Variance(0.1))).unwrap();
+//!
+//! # Ok(())
+//! # }
 //! ```
+//!
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::needless_range_loop)] //   The worst clippy lint
