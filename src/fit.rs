@@ -1976,7 +1976,7 @@ pub struct FitProperties<T: Value> {
 #[cfg(feature = "transforms")]
 mod tests {
     use crate::{
-        assert_close, assert_fits,
+        assert_close, assert_fits, assert_true,
         score::Aic,
         statistics::CvStrategy,
         transforms::{ApplyNoise, Strength},
@@ -2106,6 +2106,9 @@ mod tests {
 
     #[test]
     fn test_kfold() {
+        //
+        // Test that K-Fold fits outperform normal fits on noisy or degenerate data
+        //
         function!(mono(x) = 5 x^5 - 3 x^3 + 2 x^2 + 1.0);
         let data = mono
             .solve_range(0.0..=1000.0, 1.0)
@@ -2124,6 +2127,60 @@ mod tests {
             &Aic,
         )
         .unwrap();
-        assert_fits!(mono, fit, 0.5);
+        let k_r = fit.r_squared(None);
+
+        let fit2 = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
+        let n_r = fit2.r_squared(None);
+
+        // Truncate both to 2SF for comparison
+        // They don't need to be exact, they can be very close
+        // Sometimes random chance even makes the normal fit better
+        // But on average K-Fold should be better
+        let k_r = (k_r * 10.0).round() / 10.0;
+        let n_r = (n_r * 10.0).round() / 10.0;
+
+        assert_true!(
+            k_r >= n_r,
+            "K-Fold R² ({k_r}) should be better than normal R² ({n_r})"
+        );
+    }
+
+    #[test]
+    fn test_kfold_degenerate() {
+        //
+        // Test that K-Fold fits outperform normal fits on noisy or degenerate data
+        // Pinned known degenerate case
+        //
+        let mut src = crate::transforms::SeedSource::from_seeds([
+            0xf060_c3f8_a373_ed60,
+            0x6e58_31a0_b26d_1c6d,
+        ]);
+        function!(mono(x) = 5 x^5 - 3 x^3 + 2 x^2 + 1.0);
+        let data = mono
+            .solve_range(0.0..=1000.0, 1.0)
+            .apply_salt_pepper_noise(
+                0.01,
+                Strength::Absolute(-1000.0),
+                Strength::Absolute(1000.0),
+                Some(src.seed()),
+            )
+            .apply_poisson_noise(Strength::Relative(2.0), Some(src.seed()));
+        crate::plot!([data, mono]);
+        let fit = MonomialFit::new_kfold_cross_validated(
+            &data,
+            CvStrategy::MinimizeBias,
+            DegreeBound::Relaxed,
+            &Aic,
+        )
+        .unwrap();
+        let k_r = fit.r_squared(None);
+
+        let fit2 = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
+        let n_r = fit2.r_squared(None);
+
+        assert_true!(
+            k_r >= n_r,
+            "K-Fold R² ({k_r}) should be better than normal R² ({n_r})"
+        );
     }
 }

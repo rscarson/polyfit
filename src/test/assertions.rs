@@ -39,9 +39,8 @@ macro_rules! assert_fits {
             // Print any seeds used in the test thread so far
             #[cfg(feature = "transforms")]
             {
-                let seeds = $crate::transforms::SeedSource::all_seeds();
-                if !seeds.is_empty() {
-                    write!(msg, "\nSeeds used in this test thread: {:?}", seeds).ok();
+                if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                    writeln!(msg, "\n\n{seeds}").ok();
                 }
             }
 
@@ -128,9 +127,8 @@ macro_rules! assert_r_squared {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
                 {
-                    let seeds = $crate::transforms::SeedSource::all_seeds();
-                    if !seeds.is_empty() {
-                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                        eprintln!("\n\n{seeds}");
                     }
                 }
 
@@ -202,9 +200,8 @@ macro_rules! assert_adjusted_r_squared {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
                 {
-                    let seeds = $crate::transforms::SeedSource::all_seeds();
-                    if !seeds.is_empty() {
-                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                        eprintln!("\n\n{seeds}");
                     }
                 }
 
@@ -276,9 +273,8 @@ macro_rules! assert_robust_r_squared {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
                 {
-                    let seeds = $crate::transforms::SeedSource::all_seeds();
-                    if !seeds.is_empty() {
-                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                        eprintln!("\n\n{seeds}");
                     }
                 }
 
@@ -366,9 +362,8 @@ macro_rules! assert_residuals_normal {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
                 {
-                    let seeds = $crate::transforms::SeedSource::all_seeds();
-                    if !seeds.is_empty() {
-                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                        eprintln!("\n\n{seeds}");
                     }
                 }
 
@@ -486,9 +481,8 @@ macro_rules! assert_max_residual {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
                 {
-                    let seeds = $crate::transforms::SeedSource::all_seeds();
-                    if !seeds.is_empty() {
-                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                        eprintln!("\n\n{seeds}");
                     }
                 }
 
@@ -539,9 +533,8 @@ macro_rules! assert_monotone {
                 // Print any seeds used in the test thread so far
                 #[cfg(feature = "transforms")]
                 {
-                    let seeds = $crate::transforms::SeedSource::all_seeds();
-                    if !seeds.is_empty() {
-                        eprintln!("Seeds used in this test thread: {:?}", seeds);
+                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                        eprintln!("\n\n{seeds}");
                     }
                 }
 
@@ -636,6 +629,51 @@ macro_rules! assert_is_derivative {
     };
 }
 
+/// Asserts that a given condition is true.
+///
+/// This macro is similar to the standard `assert!` macro but links to the seed printing feature
+/// in case of failure, which can help with debugging tests that involve randomness.
+///
+/// # Parameters
+/// - `$condition`: The boolean condition to assert.
+/// - `$msg`: *(optional)* Custom failure message. Supports formatting arguments.
+///
+/// # Panics
+/// Panics if the condition is false, printing any seeds used in the test thread so far
+///
+/// # Examples
+/// ```
+/// # use polyfit::assert_true;
+/// assert_true!(1 + 1 == 2, "Math is broken!");
+/// ```
+#[macro_export]
+macro_rules! assert_true {
+    ($condition:expr) => {
+        // Print any seeds used in the test thread so far
+        #[cfg(feature = "transforms")]
+        {
+            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                eprintln!("\n\n{seeds}");
+            }
+        }
+
+        assert!($condition);
+    };
+
+    ($condition:expr, $rest:tt) => {
+        // Print any seeds used in the test thread so far
+        #[cfg(feature = "transforms")]
+        {
+            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                eprintln!("\n\n{seeds}");
+            }
+        }
+
+        // Let the assert macro eat the rest of the tokens
+        assert!($condition, $rest);
+    };
+}
+
 /// Asserts that two floating-point values are approximately equal within a small tolerance (epsilon).
 ///
 /// Also works for complex numbers.
@@ -663,6 +701,14 @@ macro_rules! assert_close {
         #[allow(unused_imports)] use $crate::nalgebra::ComplexField;
         fn epsilon<C: $crate::nalgebra::ComplexField<RealField = T>, T: $crate::value::Value>(_: C) -> T {
             T::epsilon()
+        }
+
+        // Print any seeds used in the test thread so far
+        #[cfg(feature = "transforms")]
+        {
+            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                eprintln!("\n\n{seeds}");
+            }
         }
 
         #[allow(unused_mut, unused_assignments)] let mut msg = "Values not close".to_string();
@@ -713,6 +759,14 @@ macro_rules! assert_all_close {
         $(
             msg = format!($msg, $($($args)?)?);
         )?
+
+        // Print any seeds used in the test thread so far
+        #[cfg(feature = "transforms")]
+        {
+            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
+                eprintln!("\n\n{seeds}");
+            }
+        }
 
         assert_eq!($src.len(), $dst.len(), "{msg} - length mismatch");
 

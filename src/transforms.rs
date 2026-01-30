@@ -149,9 +149,9 @@ impl SeedSource {
     /// This function will override any random seed generation and return the given seeds in order
     /// until they are exhausted, at which point it will revert to random generation.
     #[must_use]
-    pub fn from_seeds(seeds: Vec<u64>) -> Self {
+    pub fn from_seeds(seeds: impl Into<Vec<u64>>) -> Self {
         Self {
-            replay: seeds,
+            replay: seeds.into(),
             rng: rand::rng(),
         }
     }
@@ -186,15 +186,45 @@ impl SeedSource {
     /// # Panics
     /// Panics if the thread-local vault cannot be locked
     pub fn seed(&mut self) -> u64 {
-        if !self.replay.is_empty() {
-            return self.replay.remove(0);
-        }
+        let seed: u64 = if self.replay.is_empty() {
+            rand::Rng::random(&mut self.rng)
+        } else {
+            self.replay.remove(0)
+        };
 
-        let seed: u64 = rand::Rng::random(&mut self.rng);
         SEED_VAULT.with(|vault| {
             let mut vault = vault.lock().expect("Failed to lock SEED_VAULT");
             vault.push(seed);
         });
         seed
+    }
+
+    /// Print the seeds used in this test thread so far, formatted for easy replaying
+    ///
+    /// This is meant for debugging purposes, to make random tests reproducible.
+    /// Any seeds generated will be stored in a thread-local vault and can be retrieved with [`SeedSource::all_seeds`]
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn print_seeds() -> Option<String> {
+        use std::fmt::Write;
+
+        let mut out = String::new();
+        let seeds = Self::all_seeds();
+        if seeds.is_empty() {
+            return None;
+        }
+
+        let seeds = seeds
+            .iter()
+            .map(|s| format!("0x{s:x}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(out, "Seeds used in this test thread: [{seeds}]").ok()?;
+
+        writeln!(out, "You can replay this test with:").ok()?;
+        writeln!(out, "    let mut src = polyfit::transforms::SeedSource::from_seeds([{seeds}]);").ok()?;
+        writeln!(out, "    data.apply_poisson_noise(Strength::Absolute(0.1), Some(src.seed()); // Poisson used for example").ok()?;
+
+        Some(out)
     }
 }
