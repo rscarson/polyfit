@@ -26,7 +26,7 @@
 //!
 //! [ [More Information](<https://polyfit.richardcarson.ca/api/#fitting>) ] [ [Example](<https://polyfit.richardcarson.ca/tutorials/#getting-started>) ]
 //!
-//! As a curve fitting library, Polyfit does curve fitting. What's more interesting is that I do it a way that avoids most common footguns to make it intuitive and safe even with //! zero knowledge of statistics.
+//! As a curve fitting library, Polyfit does curve fitting. What's more interesting is that I do it a way that avoids most common footguns to make it intuitive and safe even with zero knowledge of statistics.
 //!
 //! - Functions and fits generic over floating point type
 //! - Human readable polynomial equation display
@@ -75,7 +75,7 @@
 //!
 //! [ [More Information](<https://polyfit.richardcarson.ca/api/#plotting>) ] [ [Example](<https://polyfit.richardcarson.ca/tutorials/#fits-for-generating-graphs>) ]
 //!
-//! After I built this library I realized that debugging curve fits is a pain without visualization. So I added some plotting utilities, and made my whole test suite generate //! plots on failure.
+//! After I built this library I realized that debugging curve fits is a pain without visualization. So I added some plotting utilities, and made my whole test suite generate plots on failure.
 //!
 //! Use the [`plot!`](https://docs.rs/polyfit/latest/polyfit/macro.plot.html) macro to create plots from data and fits.
 //! - You can plot data, functions, and multiple things at once, and theres a lot of customization available
@@ -102,12 +102,12 @@
 //! | **Logarithmic (ln^n x)**  | No                 | No              | No                    | No          |
 //!
 //! **Monomial Conversions for Calculus**
-//! Most bases without calculus support implement [`IntoMonomialBasis`](https://docs.rs/polyfit/latest/polyfit/basis/trait.IntoMonomialBasis.html), which allows them to be converted into a monomial for calculus operations, or for the recognizable //! formula (for example `y(x) = 3x³ + 2x² + 1`).
+//! Most bases without calculus support implement [`IntoMonomialBasis`](https://docs.rs/polyfit/latest/polyfit/basis/trait.IntoMonomialBasis.html), which allows them to be converted into a monomial for calculus operations, or for the recognizable formula (for example `y(x) = 3x³ + 2x² + 1`).
 //!
-//! The exception is logarithmic series, which cannot be converted into monomials; For those, use [`Polynomial::project`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.project), which can be a good way to approximate over certain //! ranges.
+//! The exception is logarithmic series, which cannot be converted into monomials; For those, use [`Polynomial::project`](https://docs.rs/polyfit/latest/polyfit/struct.Polynomial.html#method.project), which can be a good way to approximate over certain ranges.
 //!
 //! **Derivatives for Trend Analysis**
-//! The derivative describes the rate of change at specific points in a dataset; For example the derivative of position with respect to time is velocity, and the derivative of //! velocity with respect to time is acceleration.
+//! The derivative describes the rate of change at specific points in a dataset; For example the derivative of position with respect to time is velocity, and the derivative of velocity with respect to time is acceleration.
 //!
 //! - Find local minimums and maximums
 //! - Discover if a function changes direction
@@ -250,20 +250,29 @@
 //! The crate is designed to be fast and efficient, and includes benchmarks to help test that performance is linear with respect to
 //! the number of data points and polynomial degree.
 //!
-//! A 3rd degree fit (1,000 points, Chebyshev basis) takes about 23µs in my benchmarks. Going up to 100,000 goes to about 4ms,
-//! which is roughly 100x the time for 1,000 points, as expected.
+//! Key Characteristics:
+//! - A 3rd degree fit (1,000 points, Chebyshev basis) takes about 23µs in my benchmarks
+//! - Going up to 100 million points takes about 1.18s with parallelization enabled on my machine (8 cores @ 2.2GHz, 32GB RAM)
+//! - Scales linearly with degree, and better than linearly with number of data points (with parallelization enabled)
 //!
-//! With parallelization turned on, a 100 million point fit for a 3rd degree Chebyshev took about 1.18s on my machine (8 cores @ 2.2GHz, 32GB RAM).
+//! Auto-fit is also reasonably fast; `new_auto` needs to build all candidate models but can do so in parallel:
+//! - 1,000 points, Chebyshev basis, and 9 candidate degrees takes about 330µs
+//! - If you disable parallelization, it takes about 600µs
 //!
-//! The same linear scaling can be seen with polynomial degree (1,000 points, Chebyshev basis); 11µs for degree 1, up to 44µs for degree 5.
+//! There are also performance differences between bases
 //!
-//! Auto-fit is also reasonably fast; 1,000 points, Chebyshev basis, and 9 candidate degrees takes about 330µs, or 600µs with parallelization disabled.
+//! Below are median times for fitting a 3rd degree polynomial to 1,000 data points using different bases:
 //!
-//! There are also performance differences between bases;
-//! 1 - Chebyshev is the fastest, due to the stability of the matrix and the recurrence I use (~24µs for degree 3, 1,000 points)
-//! 2 - Hermite, Legendre, and Laguerre are fairly close to that (~30µs for degree 3, 1,000 points)
-//! 3 - Monomials perform worse than more stable bases (~53µs for degree 3, 1,000 points)
-//! 4 - Fourier and Logarithmic are around the same due to the trigonometric/logarithmic calculations (~57µs for degree 3, 1,000 points)
+//! | Basis       | Median Time (µs)| Notes / Reason                               |
+//! |-------------|-----------------|----------------------------------------------|
+//! | Chebyshev   | 24.5            | Fastest; stable matrix and recurrence        |
+//! | Legendre    | 29.7            | Comparable; stable polynomial basis          |
+//! | Hermite     | 30.9            | Comparable; stable polynomial basis          |
+//! | Laguerre    | 31.4            | Comparable; stable polynomial basis          |
+//! | Monomial    | 54.0            | Poor conditioning; slower                    |
+//! | Fourier     | 57.0            | Trigonometric ops; slower                    |
+//! | Logarithmic | 57.0            | Logarithmic ops; slower                      |
+
 //!
 //! The benchmarks actually use my library to test that the scaling is linear - which I think is a pretty cool use-case:
 //! ```rust
@@ -301,7 +310,7 @@
 //! Benchmarking fit vs basis (Degree=3, n=1000)
 //! fit_vs_basis/Monomial           [53.513 µs 53.980 µs 54.450 µs]
 //! fit_vs_basis/Chebyshev          [24.307 µs 24.504 µs 24.710 µs]
-//! fit_vs_basis/Legendre           [27.577 µs 80.104 µs 80.714 µs]
+//! fit_vs_basis/Legendre           [29.325 µs 29.716 µs 30.160 µs]
 //! fit_vs_basis/Hermite            [30.496 µs 30.872 µs 31.321 µs]
 //! fit_vs_basis/Laguerre           [31.146 µs 31.428 µs 31.734 µs]
 //! fit_vs_basis/Fourier            [56.421 µs 56.985 µs 57.612 µs]
@@ -309,7 +318,7 @@
 //! Benchmarking auto fit vs basis (n=1000, Candidates=9)
 //! auto_fit_vs_basis/Monomial      [497.33 µs 500.27 µs 503.30 µs]
 //! auto_fit_vs_basis/Chebyshev     [327.75 µs 329.67 µs 331.76 µs]
-//! auto_fit_vs_basis/Legendre      [1.6993 ms 1.7061 ms 1.7128 ms]
+//! auto_fit_vs_basis/Legendre      [331.41 µs 330.56 µs 339.52 µs]
 //! auto_fit_vs_basis/Hermite       [337.65 µs 339.90 µs 342.44 µs]
 //! auto_fit_vs_basis/Laguerre      [428.36 µs 431.26 µs 434.09 µs]
 //! auto_fit_vs_basis/Fourier       [710.46 µs 713.07 µs 715.85 µs]
@@ -317,18 +326,27 @@
 //! ```
 //!
 //! For transparency I ran the same benchmarks in numpy (`benches/numpy_bench.py`):
-//! - They use 1,000points and Chebyshev basis for comparison. n tests are with degree 3
+//! - Comparing rust to python is not exactly fair, but it gives a rough idea of how things compare
+//! - Numpy is highly optimized C code under the hood, so it should be an ok comparison
+//! - If you want a different library benchmarked, please open an issue or PR
 //! ```text
-//! fit_vs_n/n=100         [465.15µs]
-//! fit_vs_n/n=1000        [204.68µs]
-//! fit_vs_n/n=10000       [953.67µs]
-//! fit_vs_n/n=100000      [9847.16µs]
+//! Fit vs n (degree=3, Chebyshev):
+//! fit_vs_n/n=100 [186.56µs]
+//! fit_vs_n/n=1000 [203.37µs]
+//! fit_vs_n/n=10000 [803.47µs]
+//! fit_vs_n/n=100000 [8672.95µs]
+//! fit_vs_n/n=1000000 [92372.89µs]
+//! fit_vs_n/n=10000000 [924808.74µs]
+//! fit_vs_n/n=100000000 [10059782.74µs]
 //!
-//! fit_vs_degree/degree=1 [122.67µs]
-//! fit_vs_degree/degree=2 [158.31µs]
-//! fit_vs_degree/degree=3 [198.84µs]
-//! fit_vs_degree/degree=4 [243.07µs]
-//! fit_vs_degree/degree=5 [510.57µs]
+//! Fit vs degree (n=1000, Chebyshev):
+//! fit_vs_degree/degree=1 [177.74µs]
+//! fit_vs_degree/degree=2 [141.38µs]
+//! fit_vs_degree/degree=3 [190.26µs]
+//! fit_vs_degree/degree=4 [221.97µs]
+//! fit_vs_degree/degree=5 [222.56µs]
+//! fit_vs_degree/degree=10 [501.99µs]
+//! fit_vs_degree/degree=20 [2053.02µs]
 //! ```
 //!
 //! ---

@@ -7,8 +7,8 @@ def f(x):
     return np.sin(x) + 0.1 * np.random.randn(*x.shape)
 
 # Settings
-points_list = [100, 1000, 10000, 100000]
-degree_list = [1, 2, 3, 4, 5]
+points_list = [100, 1000, 10000, 100000, 1000000, 10000000, 100000000]
+degree_list = [1, 2, 3, 4, 5, 10, 20]
 repeats = 10  # number of repetitions for median timing
 
 def median_time(func, *args):
