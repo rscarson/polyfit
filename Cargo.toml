@@ -88,3 +88,11 @@ required-features = ["plotting"]
 [[example]]
 name = "adding_noise"
 required-features = ["transforms", "plotting"]
+
+[[example]]
+name = "fits_for_generating_graphs"
+required-features = ["transforms", "plotting"]
+
+[[example]]
+name = "transforms_demo"
+required-features = ["transforms", "plotting"]

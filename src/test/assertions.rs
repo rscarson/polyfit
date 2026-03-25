@@ -1,3 +1,13 @@
+#[doc(hidden)]
+pub fn print_thread_seeds() {
+    #[cfg(feature = "transforms")]
+    {
+        if let Some(seeds) = crate::transforms::SeedSource::print_seeds() {
+            eprintln!("\n\n{seeds}");
+        }
+    }
+}
+
 /// Asserts that the fitted curve is a good representation of a canonical curve.
 /// Compares the fit's r² value against a threshold to ensure it closely follows the expected curve.
 ///
@@ -37,26 +47,16 @@ macro_rules! assert_fits {
             #[allow(unused)] let mut msg = format!("Fit does not meet R² threshold: {r2} < {threshold}");
 
             // Print any seeds used in the test thread so far
-            #[cfg(feature = "transforms")]
-            {
-                if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                    writeln!(msg, "\n\n{seeds}").ok();
-                }
-            }
+            $crate::test::assertions::print_thread_seeds();
 
             // Create a failure plot
-            #[cfg(feature = "plotting")]
-            {
-                let filename = $crate::plot!(
-                    [fit, poly],
-                    {
-                        title: format!("Polynomial Fit (R² = {r2:.4})"),
-                        silent: true
-                    },
-                    prefix = "assert_fits"
-                );
-                write!(msg, "\nFailure plot saved to: {}", filename.display()).ok();
-            }
+            $crate::plot!(
+                [fit, poly],
+                {
+                    title: format!("Polynomial Fit (R² = {r2:.4})"),
+                },
+                prefix = "assert_fits"
+            );
 
             $( msg = format!("{msg}: {}", format!($msg, $($($args)?)?)); )?
 
@@ -125,15 +125,9 @@ macro_rules! assert_r_squared {
 
             if r2 <= threshold {
                 // Print any seeds used in the test thread so far
-                #[cfg(feature = "transforms")]
-                {
-                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                        eprintln!("\n\n{seeds}");
-                    }
-                }
+                $crate::test::assertions::print_thread_seeds();
 
                 // Create a failure plot
-                #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
@@ -198,15 +192,9 @@ macro_rules! assert_adjusted_r_squared {
 
             if r2 <= threshold {
                 // Print any seeds used in the test thread so far
-                #[cfg(feature = "transforms")]
-                {
-                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                        eprintln!("\n\n{seeds}");
-                    }
-                }
+                $crate::test::assertions::print_thread_seeds();
 
                 // Create a failure plot
-                #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
@@ -271,15 +259,9 @@ macro_rules! assert_robust_r_squared {
 
             if r2 <= threshold {
                 // Print any seeds used in the test thread so far
-                #[cfg(feature = "transforms")]
-                {
-                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                        eprintln!("\n\n{seeds}");
-                    }
-                }
+                $crate::test::assertions::print_thread_seeds();
 
                 // Create a failure plot
-                #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Polynomial Fit (R² = {r2:.4})") },
@@ -360,15 +342,10 @@ macro_rules! assert_residuals_normal {
 
             if p_value < tolerance {
                 // Print any seeds used in the test thread so far
-                #[cfg(feature = "transforms")]
-                {
-                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                        eprintln!("\n\n{seeds}");
-                    }
-                }
+                $crate::test::assertions::print_thread_seeds();
 
                 // Create a failure plot
-                #[cfg(feature = "plotting")]
+                #[allow(unused)]
                 {
                     fn get_cutoff<T: $crate::value::Value>(residuals: &[(T, T)], p: T) -> Option<T> {
                         let mut sorted_residuals = residuals.to_vec();
@@ -479,15 +456,9 @@ macro_rules! assert_max_residual {
 
             if cutoff > max {
                 // Print any seeds used in the test thread so far
-                #[cfg(feature = "transforms")]
-                {
-                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                        eprintln!("\n\n{seeds}");
-                    }
-                }
+                $crate::test::assertions::print_thread_seeds();
 
                 // Create a failure plot
-                #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Abnormal Residuals") },
@@ -531,14 +502,8 @@ macro_rules! assert_monotone {
                 .expect("Failed to check monotonicity");
             if let Some(first) = violations.first() {
                 // Print any seeds used in the test thread so far
-                #[cfg(feature = "transforms")]
-                {
-                    if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                        eprintln!("\n\n{seeds}");
-                    }
-                }
+                $crate::test::assertions::print_thread_seeds();
 
-                #[cfg(feature = "plotting")]
                 $crate::plot!(
                     fit,
                     { title: format!("Monotonicity Violation at x={first}") },
@@ -612,12 +577,9 @@ macro_rules! assert_y {
 macro_rules! assert_is_derivative {
     ($f:expr, $f_prime:expr, $norm:expr, $domain:expr $(, f_lbl = $f_lbl:literal)? $(, fprime_lbl = $fprime_lbl:literal)?) => {
         if let Err(e) = $crate::statistics::is_derivative(&$f, &$f_prime, $norm, &$domain) {
-            #[cfg(feature = "plotting")]
-            {
-                $crate::plot!([$f, $f_prime], {
-                    x_range: Some(*$domain.start()..*$domain.end()),
-                });
-            }
+            $crate::plot!([$f, $f_prime], {
+                x_range: Some(*$domain.start()..*$domain.end()),
+            });
 
             #[allow(unused_mut, unused_assignments)] let mut f_lbl = "f(x)"; $(f_lbl = $f_lbl;)?
             #[allow(unused_mut, unused_assignments)] let mut fprime_lbl = "f'(x)"; $(fprime_lbl = $fprime_lbl;)?
@@ -650,24 +612,14 @@ macro_rules! assert_is_derivative {
 macro_rules! assert_true {
     ($condition:expr) => {
         // Print any seeds used in the test thread so far
-        #[cfg(feature = "transforms")]
-        {
-            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                eprintln!("\n\n{seeds}");
-            }
-        }
+        $crate::test::assertions::print_thread_seeds();
 
         assert!($condition);
     };
 
     ($condition:expr, $rest:tt) => {
         // Print any seeds used in the test thread so far
-        #[cfg(feature = "transforms")]
-        {
-            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                eprintln!("\n\n{seeds}");
-            }
-        }
+        $crate::test::assertions::print_thread_seeds();
 
         // Let the assert macro eat the rest of the tokens
         assert!($condition, $rest);
@@ -685,6 +637,7 @@ macro_rules! assert_true {
 /// # Parameters
 /// - `$a`: First value.
 /// - `$b`: Second value.
+/// - `epsilon = <value>`: *(optional)* Custom epsilon value to use instead of the default machine epsilon.
 /// - `$msg`: Custom failure message.
 ///
 /// # Panics
@@ -697,30 +650,28 @@ macro_rules! assert_true {
 /// ```
 #[macro_export]
 macro_rules! assert_close {
-    ($a:expr, $b:expr $(, $msg:literal $(, $($args:tt),*)?)?) => { #[allow(clippy::float_cmp)] {
+    ($a:expr, $b:expr $(, epsilon = $eps:expr)? $(, $msg:literal $(, $($args:tt),*)?)?) => { #[allow(clippy::float_cmp)] {
         #[allow(unused_imports)] use $crate::nalgebra::ComplexField;
         fn epsilon<C: $crate::nalgebra::ComplexField<RealField = T>, T: $crate::value::Value>(_: C) -> T {
             T::epsilon()
-        }
+            }
+
+            #[allow(unused_mut, unused_assignments)]let mut epsilon = epsilon($a);
+            $( epsilon = $eps; )?
 
         // Print any seeds used in the test thread so far
-        #[cfg(feature = "transforms")]
-        {
-            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                eprintln!("\n\n{seeds}");
-            }
-        }
+        $crate::test::assertions::print_thread_seeds();
 
         #[allow(unused_mut, unused_assignments)] let mut msg = "Values not close".to_string();
         $( msg = format!($msg, $($($args)?)?); )?
 
         let (a, b) = ($a, $b);
         assert!(
-            a.imaginary() == b.imaginary() || $crate::value::Value::abs(a.imaginary() - b.imaginary()) <= epsilon($a),
+            a.imaginary() == b.imaginary() || $crate::value::Value::abs(a.imaginary() - b.imaginary()) <= epsilon,
             "{msg} - imaginary parts differ {} != {}", a.imaginary(), b.imaginary()
         );
         assert!(
-            a.real() == b.real() || $crate::value::Value::abs(a.real() - b.real()) <= epsilon($a),
+            a.real() == b.real() || $crate::value::Value::abs(a.real() - b.real()) <= epsilon,
             "{msg}: {a} != {b}"
         );
     }};
@@ -735,6 +686,7 @@ macro_rules! assert_close {
 /// # Parameters
 /// - `$src`: Source slice (implements `iter()`).
 /// - `$dst`: Destination slice (same length as `$src`).
+/// - `epsilon = <value>`: *(optional)* Custom epsilon value to use instead of the default machine epsilon.
 /// - `$msg`: *(optional)* Custom failure message. Defaults to `"{len} elements"`.
 ///   Supports formatting arguments just like `format!`.
 ///
@@ -753,7 +705,7 @@ macro_rules! assert_close {
 /// ```
 #[macro_export]
 macro_rules! assert_all_close {
-    ($src:expr, $dst:expr  $(, $msg:literal $(, $($args:tt),*)?)?) => {
+    ($src:expr, $dst:expr $(, epsilon = $eps:expr)? $(, $msg:literal $(, $($args:tt),*)?)?) => {
         #[allow(unused_assignments, unused_mut)]
         let mut msg = format!("{} elements", $src.len());
         $(
@@ -761,17 +713,12 @@ macro_rules! assert_all_close {
         )?
 
         // Print any seeds used in the test thread so far
-        #[cfg(feature = "transforms")]
-        {
-            if let Some(seeds) = $crate::transforms::SeedSource::print_seeds() {
-                eprintln!("\n\n{seeds}");
-            }
-        }
+        $crate::test::assertions::print_thread_seeds();
 
         assert_eq!($src.len(), $dst.len(), "{msg} - length mismatch");
 
         for (i, (s, d)) in $src.iter().zip($dst.iter()).enumerate() {
-            $crate::assert_close!(*s, *d, "{msg} - src[{i}]");
+            $crate::assert_close!(*s, *d $(, epsilon = $eps)? , "{msg} - src[{i}]");
         }
     };
 }

@@ -4,7 +4,7 @@ use crate::{
     basis::Basis,
     display::PolynomialDisplay,
     statistics::{Confidence, ConfidenceBand, Tolerance},
-    value::Value,
+    value::{FloatClampedCast, Value},
     CurveFit, Polynomial,
 };
 
@@ -137,8 +137,6 @@ impl<T: Value> PlottingElement<T> {
     /// Solves the element for the given iterator
     #[must_use]
     pub fn y_range(&self) -> Range<T> {
-        let padding = T::from_usize(10).unwrap_or(T::one());
-
         match self {
             PlottingElement::Fit(_, bands, _) => {
                 let (mut min, mut max) = (None, None);
@@ -152,6 +150,8 @@ impl<T: Value> PlottingElement<T> {
                         None => band.max(),
                     });
                 }
+
+                let padding = padding_for_range(min, max);
 
                 if let (Some(min), Some(max)) = (min, max) {
                     (min - padding)..(max + padding)
@@ -173,6 +173,8 @@ impl<T: Value> PlottingElement<T> {
                     });
                 }
 
+                let padding = padding_for_range(min, max);
+
                 if let (Some(min), Some(max)) = (min, max) {
                     (min - padding)..(max + padding)
                 } else {
@@ -192,6 +194,8 @@ impl<T: Value> PlottingElement<T> {
                     });
                 }
 
+                let padding = padding_for_range(min, max);
+
                 if let (Some(min), Some(max)) = (min, max) {
                     (min - padding)..(max + padding)
                 } else {
@@ -199,6 +203,20 @@ impl<T: Value> PlottingElement<T> {
                 }
             }
         }
+    }
+}
+
+// padding is ~10% of the range, or 1 if the range is zero
+fn padding_for_range<T: Value>(min: Option<T>, max: Option<T>) -> T {
+    if let (Some(min), Some(max)) = (min, max) {
+        let range = max - min;
+        if range > T::zero() {
+            range * 0.1f64.clamped_cast()
+        } else {
+            T::one()
+        }
+    } else {
+        T::one()
     }
 }
 

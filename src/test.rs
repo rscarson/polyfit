@@ -97,7 +97,8 @@
 #[cfg(test)]
 pub mod basis_assertions;
 
-mod assertions;
+#[doc(hidden)]
+pub mod assertions;
 
 /// Macro to generate a monomial polynomial function.
 ///
@@ -164,6 +165,75 @@ macro_rules! function {
     (static $name:ident ($x:ident) = $($rest:tt)+ ) => {
         static $name: $crate::MonomialPolynomial<'static> = $crate::function!($($rest)+);
     };
+}
+
+#[doc(hidden)]
+pub struct FitProps<T: crate::value::Value> {
+    pub model_score: T,
+    pub rating: T,
+
+    #[cfg(feature = "plotting")]
+    pub plot_e: crate::plotting::PlottingElement<T>,
+
+    pub name: &'static str,
+    pub r2: T,
+    pub max_r2: T,
+    pub p_value: T,
+    pub stars: T,
+    pub equation: String,
+    pub parameters: usize,
+}
+impl<T: crate::value::Value> FitProps<T> {
+    pub fn from_fit<B>(
+        fit: &crate::CurveFit<B, T>,
+        basis_name: &'static str,
+        method: &impl crate::score::ModelScoreProvider,
+    ) -> FitProps<T>
+    where
+        B: crate::basis::Basis<T> + crate::display::PolynomialDisplay<T>,
+    {
+        use crate::value::{CoordExt, FloatClampedCast};
+
+        #[cfg(feature = "plotting")]
+        use crate::plotting::AsPlottingElement;
+
+        const R2_WEIGHT: f64 = 0.75;
+        const P_VALUE_WEIGHT: f64 = 0.25;
+
+        let equation = fit.equation();
+
+        let model_score = fit.model_score(method);
+        let residuals = fit.filtered_residuals().y();
+        let r2 = fit.r_squared(None);
+        let robust_r2 = fit.robust_r_squared(None);
+        let max_r2 = crate::value::Value::max(r2, robust_r2);
+        let p_value = crate::statistics::residual_normality(&residuals);
+
+        let r2_weight = R2_WEIGHT.clamped_cast::<T>();
+        let p_weight = P_VALUE_WEIGHT.clamped_cast::<T>();
+        let rating = r2_weight * max_r2 + p_weight * p_value;
+        let rating = crate::value::Value::clamp(rating, T::zero(), T::one());
+        let parameters = fit.coefficients().len();
+
+        #[cfg(feature = "plotting")]
+        let plot_e = fit.as_plotting_element(&[], crate::statistics::Confidence::P95, None);
+
+        Self {
+            model_score,
+            rating,
+
+            #[cfg(feature = "plotting")]
+            plot_e,
+
+            name: basis_name,
+            r2,
+            max_r2,
+            p_value,
+            stars: T::zero(), // to be filled later
+            equation,
+            parameters,
+        }
+    }
 }
 
 /// Automatically fits a dataset against multiple polynomial bases and reports the best fits.
@@ -243,27 +313,6 @@ macro_rules! basis_select {
     }};
 
     ($data:expr, $degree_bound:expr, $method:expr, options = [ $( $basis:path $( = $name:literal)? ),+ $(,)? ]) => {{
-        use $crate::value::CoordExt;
-
-        #[cfg(feature = "plotting")]
-        use $crate::plotting::AsPlottingElement;
-
-        struct FitProps {
-            model_score: f64,
-            rating: f64,
-
-            #[cfg(feature = "plotting")]
-            plot_e: $crate::plotting::PlottingElement<f64>,
-
-            name: &'static str,
-            r2: f64,
-            max_r2: f64,
-            p_value: f64,
-            stars: f64,
-            equation: String,
-            parameters: usize,
-        }
-
         let num_basis = 0 $( + { let _ = stringify!($basis); 1 } )+;
         let count = $data.len();
 
@@ -279,44 +328,17 @@ macro_rules! basis_select {
         $(
             if let Ok(fit) = $crate::CurveFit::<$basis>::new_auto($data, $degree_bound, $method) {
                 #[allow(unused_mut, unused_assignments)] let mut name = stringify!($basis); $( name = $name; )?
-                let equation = fit.equation();
+                let props = $crate::test::FitProps::from_fit(&fit, name, $method);
 
-                let model_score = fit.model_score($method);
-                let residuals = fit.filtered_residuals().y();
-                let r2 = fit.r_squared(None);
-                let robust_r2 = fit.robust_r_squared(None);
-                let max_r2 = $crate::value::Value::max(r2, robust_r2);
-                let p_value = $crate::statistics::residual_normality(&residuals);
-
-                let rating = (0.75 * max_r2 + 0.25 * p_value).clamp(0.0, 1.0);
-                let parameters = fit.coefficients().len();
-
-                if parameters < min_params {
-                    min_params = parameters;
+                if props.parameters < min_params {
+                    min_params = props.parameters;
                 }
 
-                if p_value > f64::EPSILON {
+                if props.p_value > f64::EPSILON {
                     all_normals_zero = false;
                 }
 
-                #[cfg(feature = "plotting")]
-                let plot_e = fit.as_plotting_element(&[], $crate::statistics::Confidence::P95, None);
-
-                options.push(FitProps {
-                    model_score,
-                    rating,
-
-                    #[cfg(feature = "plotting")]
-                    plot_e,
-
-                    name,
-                    r2,
-                    max_r2,
-                    p_value,
-                    stars: 0.0, // to be filled later
-                    equation,
-                    parameters,
-                });
+                options.push(props);
             }
         )+
 
@@ -404,13 +426,10 @@ macro_rules! basis_select {
             println!("{}: {}", props.name, props.equation);
             println!("Fit R²: {:.4}, Residuals Normality p-value: {:.4}", props.r2, props.p_value);
 
-            #[cfg(feature = "plotting")]
-            {
-                let prefix = props.name.to_lowercase().replace([' ', '\'', '"', '<', '>', ':', ';', ',', '.'], "_");
-                $crate::plot!(props.plot_e, {
-                    title: props.name.to_string()
-                }, prefix = prefix);
-            }
+            let prefix = props.name.to_lowercase().replace([' ', '\'', '"', '<', '>', ':', ';', ',', '.'], "_");
+            $crate::plot!(props.plot_e, {
+                title: props.name.to_string()
+            }, prefix = prefix);
         }
     }};
 }

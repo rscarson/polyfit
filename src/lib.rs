@@ -91,9 +91,9 @@
 //! | Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
 //! |---------------------------|--------------------|-----------------|-----------------------|-------------|
 //! | **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
-//! | **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
-//! | **Chebyshev (2nd form)**  | Yes                | Yes             | Yes                   | No          |
-//! | **Chebyshev (3rd form)**  | Yes                | No              | Yes                   | No          |
+//! | **Chebyshev (1st form)**  | No                 | Yes             | No                    | Yes         |
+//! | **Chebyshev (2nd form)**  | No                 | Yes             | Yes                   | No          |
+//! | **Chebyshev (3rd form)**  | No                 | No              | Yes                   | No          |
 //! | **Legendre**              | No                 | Yes             | No                    | Yes         |
 //! | **Laguerre**              | No                 | Yes             | No                    | Yes         |
 //! | **Hermite (Both kinds)**  | No                 | Yes             | No                    | Yes         |
@@ -461,6 +461,16 @@ pub mod test;
 #[cfg(feature = "plotting")]
 #[cfg_attr(docsrs, doc(cfg(feature = "plotting")))]
 pub mod plotting;
+
+/// Stub macro for when plotting is disabled, so you don't have to worry about it
+/// See the `plotting` module for the real macro when plotting is enabled
+#[cfg(not(feature = "plotting"))]
+#[macro_export]
+macro_rules! plot {
+    ($($arg:tt)*) => {
+        println!("Plotting is disabled. Enable the 'plotting' feature to use this macro.");
+    };
+}
 
 #[cfg(feature = "transforms")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transforms")))]

@@ -1,7 +1,7 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    basis::{chebyshev::SecondFormChebyshevBasis, Basis, IntegralBasis, Root, RootFindingBasis},
+    basis::{chebyshev::SecondFormChebyshevBasis, Basis, IntegralBasis},
     display,
     error::Result,
     statistics::DomainNormalizer,
@@ -84,27 +84,6 @@ impl<T: Value> display::PolynomialDisplay<T> for ThirdFormChebyshevBasis<T> {
         let x = format!("x{x}");
 
         Some(format!("{x} = {}", self.normalizer))
-    }
-}
-
-impl<T: Value> RootFindingBasis<T> for ThirdFormChebyshevBasis<T> {
-    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>> {
-        let mut roots = Vec::with_capacity(coefs.len());
-        // Xk = cos((2k+1)π/(2n)) for k=0..n-1
-        // All roots are real in [-1, 1]
-        let n = coefs.len() - 1;
-        let nplus = T::from_positive_int(n) + T::one() / T::two();
-        for k in 0..coefs.len() - 1 {
-            let k = n - 1 - k; // Reverse order to get ascending roots
-
-            let k = T::from_positive_int(k);
-
-            let x = (T::pi() * (k + T::one() / T::two()) / nplus).cos();
-            let x = self.denormalize_x(x);
-            roots.push(Root::Real(x));
-        }
-
-        Ok(roots)
     }
 }
 

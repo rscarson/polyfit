@@ -1,7 +1,7 @@
 use nalgebra::MatrixViewMut;
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, Root, RootFindingBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
     display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
@@ -245,36 +245,16 @@ impl<T: Value> display::PolynomialDisplay<T> for ChebyshevBasis<T> {
     }
 }
 
-impl<T: Value> RootFindingBasis<T> for ChebyshevBasis<T> {
-    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>> {
-        let mut roots = Vec::with_capacity(coefs.len() - 1);
-        // Xk = cos((2k+1)π/(2n)) for k=0..n-1
-        // All roots are real in [-1, 1]
-        let n = coefs.len() - 1;
-        let two_n = T::from_positive_int(2 * n);
-        for k in 0..coefs.len() - 1 {
-            let k = n - 1 - k; // Reverse order to get ascending roots
-
-            let tk1 = 2 * k + 1;
-            let tk1 = T::from_positive_int(tk1);
-
-            let x = (T::pi() * tk1 / two_n).cos();
-            let x = self.denormalize_x(x);
-            roots.push(Root::Real(x));
-        }
-
-        Ok(roots)
-    }
-}
-
 impl<T: Value> DifferentialBasis<T> for ChebyshevBasis<T> {
     type B2 = SecondFormChebyshevBasis<T>;
 
     fn derivative(&self, coefficients: &[T]) -> Result<(Self::B2, Vec<T>)> {
         // Drop the constant term and multiply each coefficient by its degree
         let mut coefs = coefficients[1..].to_vec();
+        let scale = self.normalizer.scale();
         for (i, c) in coefs.iter_mut().enumerate() {
-            *c *= T::from_positive_int(i + 1);
+            let n = T::from_positive_int(i) + T::one(); // degree starts at 1 for the first term
+            *c = *c * n * scale;
         }
 
         let basis = SecondFormChebyshevBasis::from_normalizer(self.normalizer);
@@ -288,7 +268,7 @@ mod tests {
     use core::f64;
 
     use crate::{
-        assert_fits,
+        assert_close, assert_fits,
         score::Aic,
         statistics::DegreeBound,
         test::basis_assertions::{
@@ -299,6 +279,35 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn test_regression_derivative() {
+        let points: &[(f64, f64)] = &[
+            (61.0, 110.2647),
+            (62.0, 110.8006),
+            (63.0, 111.3338),
+            (64.0, 111.8636),
+            (65.0, 112.3895),
+            (66.0, 112.9110),
+            (67.0, 113.4280),
+        ];
+        let fit = ChebyshevFit::new_auto(points, DegreeBound::Custom(3), &Aic).unwrap();
+        println!("Fit: {fit}");
+        let dx_1 = fit.as_polynomial().derivative().unwrap();
+        println!("dx/dx: {dx_1}");
+
+        let mono_form = fit.as_monomial().unwrap();
+        let dx_2 = mono_form.derivative().unwrap();
+        println!("monomial form: {mono_form}");
+
+        // x=61 should have the same y in both derivatives
+        assert_close!(
+            dx_1.y(61.0),
+            dx_2.y(61.0),
+            epsilon = 1e-5,
+            "Derivatives differ at x=61"
+        );
+    }
 
     #[test]
     fn test_chebyshev() {
