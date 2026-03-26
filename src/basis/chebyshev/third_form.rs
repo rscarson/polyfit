@@ -20,6 +20,37 @@ impl<T: Value> ThirdFormChebyshevBasis<T> {
     pub fn from_normalizer(normalizer: DomainNormalizer<T>) -> Self {
         Self { normalizer }
     }
+
+    /// Creates a new Chebyshev basis that normalizes inputs from the given range to [-1, 1].
+    pub fn new(x_min: T, x_max: T) -> Self {
+        let normalizer = DomainNormalizer::new((x_min, x_max), (-T::one(), T::one()));
+        Self { normalizer }
+    }
+
+    /// Creates a new 3rd form Chebyshev polynomial with the given coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which the Chebyshev basis is defined.
+    /// - `coefficients`: The coefficients for the Chebyshev basis functions.
+    ///
+    /// # Returns
+    /// A polynomial defined in the Chebyshev basis.
+    ///
+    /// # Errors
+    /// Returns an error if the polynomial cannot be created with the given basis and coefficients.
+    ///
+    /// # Example
+    /// ```rust
+    /// use polyfit::basis::ThirdFormChebyshevBasis;
+    /// let chebyshev_poly = ThirdFormChebyshevBasis::new_polynomial((-1.0, 1.0), &[1.0, 0.0, -0.5]).unwrap();
+    /// ```
+    pub fn new_polynomial(
+        x_range: (T, T),
+        coefficients: &[T],
+    ) -> Result<crate::Polynomial<'_, Self, T>> {
+        let basis = Self::new(x_range.0, x_range.1);
+        crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
 }
 impl<T: Value> Basis<T> for ThirdFormChebyshevBasis<T> {
     fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self {
@@ -105,6 +136,12 @@ impl<T: Value> IntegralBasis<T> for ThirdFormChebyshevBasis<T> {
             let factor = T::from_positive_int(k + 1) * T::two();
             a[k + 1] = (b[k] - b_next) / factor;
             b_next = b[k];
+        }
+
+        // scale coefficients to account for original domain
+        let scale = self.normalizer.scale();
+        for coeff in &mut a {
+            *coeff /= scale;
         }
 
         let basis = SecondFormChebyshevBasis::from_normalizer(self.normalizer);

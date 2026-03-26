@@ -136,13 +136,13 @@ pub fn assert_basis_normalizes<B: Basis<T>, T: Value>(
 /// Uses a numerical method to comfirm that f'(x) is the derivative of f(x), and that f''(x) is the derivative of f'(x).
 macro_rules! test_derivation {
     ($f:expr, $norm:expr $(, with_reverse=$bool:literal)?) => {
-        let norm = $norm;
         let f = &$f;
 
         let domain = $norm.src_range();
         let domain = domain.0..=domain.1;
 
         let f_prime = f.derivative().expect("Failed to compute first derivative");
+
         let f_double_prime = f_prime
             .derivative()
             .expect("Failed to compute second derivative");
@@ -157,8 +157,8 @@ macro_rules! test_derivation {
             });
         }
 
-        $crate::assert_is_derivative!(f, f_prime, norm, domain);
-        $crate::assert_is_derivative!(f_prime, f_double_prime, norm, domain, f_lbl = "f'(x)", fprime_lbl = "f''(x)");
+        $crate::assert_is_derivative!(f, f_prime, domain);
+        $crate::assert_is_derivative!(f_prime, f_double_prime, domain, f_lbl = "f'(x)", fprime_lbl = "f''(x)");
 
         $(
             if $bool {
@@ -168,8 +168,8 @@ macro_rules! test_derivation {
                 let f_prime2 = f_double_prime.integral(Some(c1)).expect("Failed to integrate f''(x)");
                 let f2 = f_prime2.integral(Some(c0)).expect("Failed to integrate f'(x)");
 
-                $crate::assert_is_derivative!(f_prime2, f_double_prime, norm, &domain, f_lbl = "∫(f'')(x)", fprime_lbl = "f''(x)");
-                $crate::assert_is_derivative!(f2, f_prime2, norm, &domain, f_lbl = "∫∫(f'')(x)", fprime_lbl = "∫(f'')(x)");
+                $crate::assert_is_derivative!(f_prime2, f_double_prime, &domain, f_lbl = "∫(f'')(x)", fprime_lbl = "f''(x)");
+                $crate::assert_is_derivative!(f2, f_prime2, &domain, f_lbl = "∫∫(f'')(x)", fprime_lbl = "∫(f'')(x)");
             }
         )?
     };
@@ -178,7 +178,6 @@ macro_rules! test_derivation {
 /// Uses a numerical method to comfirm that g(x) is the integral of f(x), and that h(x) is the integral of g(x).
 macro_rules! test_integration {
     ($f:expr, $norm:expr $(, with_reverse=$bool:literal)?) => {
-        let normalizer = $norm;
         let f = &$f;
 
         let domain = $norm.src_range();
@@ -190,11 +189,10 @@ macro_rules! test_integration {
         let g = f.integral(Some(c1)).expect("Failed to compute first integral");
         let h = g.integral(Some(c0)).expect("Failed to compute second integral");
 
-        $crate::assert_is_derivative!(g, f, normalizer, domain, fprime_lbl = "g(x)");
+        $crate::assert_is_derivative!(g, f, domain, fprime_lbl = "g(x)");
         $crate::assert_is_derivative!(
             h,
             g,
-            normalizer,
             domain,
             f_lbl = "g(x)",
             fprime_lbl = "h(x)"
@@ -208,7 +206,6 @@ macro_rules! test_integration {
                 $crate::assert_is_derivative!(
                     h,
                     g2,
-                    normalizer,
                     domain,
                     f_lbl = "h(x)",
                     fprime_lbl = "d(h(x))/dx"
@@ -217,7 +214,6 @@ macro_rules! test_integration {
                 $crate::assert_is_derivative!(
                     g2,
                     f2,
-                    normalizer,
                     domain,
                     f_lbl = "d(h(x))/dx",
                     fprime_lbl = "d(d(h(x))/dx)/dx"

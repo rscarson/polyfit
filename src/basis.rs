@@ -35,7 +35,7 @@ pub(crate) mod monomial;
 pub use monomial::MonomialBasis;
 
 pub(crate) mod chebyshev;
-pub use chebyshev::ChebyshevBasis;
+pub use chebyshev::{ChebyshevBasis, SecondFormChebyshevBasis, ThirdFormChebyshevBasis};
 
 pub(crate) mod fourier;
 pub use fourier::FourierBasis;

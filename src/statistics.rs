@@ -46,18 +46,23 @@
 //! # Examples
 //!
 //! ```rust
-//! use polyfit::statistics::r_squared;
-//! use polyfit::score::{Aic, ModelScoreProvider};
+//! use polyfit::statistics::{DegreeBound, r_squared};
+//! use polyfit::score::Aic;
+//! use polyfit::ChebyshevFit;
 //!
-//! let y = vec![1.0, 2.0, 3.0];
-//! let y_fit = vec![1.1, 1.9, 3.05];
+//! let data = &[(1.0, 2.0), (2.0, 3.0), (3.0, 5.0)];
+//! let fit = ChebyshevFit::new_auto(data, DegreeBound::Relaxed, &Aic).unwrap();
 //!
 //! // Goodness-of-fit
-//! let r2 = r_squared(y.iter().copied(), y_fit.iter().copied());
+//! // R² is between 0 and 1, with higher values indicating a better fit.
+//! // Not to be confused with AIC/BIC scores, which are only meaningful for comparing models of different degrees.
+//! let r2 = fit.r_squared(None);
 //! println!("R² = {r2}");
 //!
 //! // Model scoring
-//! let score = Aic.score(y.into_iter(), y_fit.into_iter(), 3.0);
+//! // AIC/BIC scores are only meaningful for comparing models of different degrees, and lower is better.
+//! // Not an objective measure of fit quality outside the context of model selection.
+//! let score = fit.model_score(&Aic);
 //! println!("AIC score = {score}");
 //! ```
 use std::ops::RangeInclusive;
@@ -65,6 +70,7 @@ use std::ops::RangeInclusive;
 use crate::{
     basis::Basis,
     display::PolynomialDisplay,
+    error::Error,
     score::{Bic, ModelScoreProvider},
     value::{CoordExt, FloatClampedCast, IntClampedCast, SteppedValues, Value},
     Polynomial,
@@ -974,7 +980,7 @@ impl<T: Value> std::fmt::Display for DerivationError<T> {
     }
 }
 
-/// Computes the Bayes factor between two polynomial models.
+/// Computes the Bayes factor between two models.
 ///
 /// The result indicates how much more likely the data is under one model compared to the other:
 /// - < 1.0 → Model 2 is favored
@@ -982,25 +988,28 @@ impl<T: Value> std::fmt::Display for DerivationError<T> {
 /// - 1.0 to 3.0 → Weak evidence for Model 1
 /// - 3.0 to 10.0 → Moderate evidence for Model 1
 /// - > 10.0 → Strong evidence for Model 1
+///
+/// # Errors
+/// Returns `Err` if either model fails to solve for the given data, indicating the supplied data is out of the model's domain
 pub fn bayes_factor<T: Value, B1, B2>(
-    m1: &Polynomial<B1, T>,
-    m2: &Polynomial<B2, T>,
+    m1: &crate::CurveFit<B1, T>,
+    m2: &crate::CurveFit<B2, T>,
     data: &[(T, T)],
-) -> T
+) -> Result<T, Error>
 where
     B1: Basis<T> + PolynomialDisplay<T>,
     B2: Basis<T> + PolynomialDisplay<T>,
 {
-    let y1 = m1.solve(data.x_iter()).y();
-    let y2 = m2.solve(data.x_iter()).y();
+    let y1 = m1.solve(data.x_iter())?.y();
+    let y2 = m2.solve(data.x_iter())?.y();
 
     let k1 = T::from_positive_int(m1.coefficients().len());
-    let bic1 = Bic.score::<T>(y1.into_iter(), data.y_iter(), k1);
+    let bic1 = Bic.score(m1, y1.into_iter(), data.y_iter(), k1);
 
     let k2 = T::from_positive_int(m2.coefficients().len());
-    let bic2 = Bic.score::<T>(y2.into_iter(), data.y_iter(), k2);
+    let bic2 = Bic.score(m2, y2.into_iter(), data.y_iter(), k2);
 
-    ((bic2 - bic1) / T::two()).exp()
+    Ok(((bic2 - bic1) / T::two()).exp())
 }
 
 /// Checks if `f_prime` is the derivative of polynomial `f`.
@@ -1029,7 +1038,6 @@ where
 pub fn is_derivative<T: Value, B, B2>(
     f: &Polynomial<B, T>,
     f_prime: &Polynomial<B2, T>,
-    normalizer: &DomainNormalizer<T>,
     domain: &RangeInclusive<T>,
 ) -> Result<(), DerivationError<T>>
 where
@@ -1058,7 +1066,7 @@ where
 
         let finite_diff = (f.y(xhp) - f.y(xhm)) / (T::two() * h);
         let derivative = f_prime.y(x);
-        let derivative = derivative * normalizer.scale();
+        // let derivative = derivative * scale;
 
         let rel_tol = tol.sqrt() * Value::max(Value::abs(derivative), T::one());
         let diff = Value::abs(finite_diff - derivative);
@@ -1123,6 +1131,15 @@ pub enum DegreeBound {
     /// - Hard cap reached when n ~= 3,375
     Relaxed,
 
+    /// Similar to Relaxed but with no smoothness assumption, or hard cap. Use this if you are trying to approximate a dataset exactly,
+    ///  or if you have a very large dataset and want to explore higher degrees.
+    /// Use with caution, as it can lead to overfitting and numerical instability, especially with small datasets.
+    ///
+    /// - Assumes the data is not smooth (s=0)
+    /// - No hard cap, but the theoretical maximum of n-1 still applies
+    /// - Same observation per parameter limit as Relaxed (8)
+    Aggressive,
+
     /// User-specified maximum degree. Use only if you understand the implications for overfitting and numerical stability.
     Custom(usize),
 }
@@ -1140,10 +1157,11 @@ impl DegreeBound {
         let theoretical_max = n.saturating_sub(1);
         match self {
             DegreeBound::Custom(d) => d.min(theoretical_max),
-            DegreeBound::Conservative | DegreeBound::Relaxed => {
+            DegreeBound::Conservative | DegreeBound::Relaxed | DegreeBound::Aggressive => {
                 let (hard_cap, max_n_per_k, est_smoothness) = match self {
                     DegreeBound::Conservative => (8, 15, 2),
                     DegreeBound::Relaxed => (15, 8, 1),
+                    DegreeBound::Aggressive => (theoretical_max, 8, 0),
                     DegreeBound::Custom(_) => unreachable!(),
                 };
 
@@ -1665,6 +1683,11 @@ impl CvStrategy {
             CvStrategy::Balanced => 7,
             CvStrategy::Custom { k } => k,
         }
+    }
+}
+impl From<usize> for CvStrategy {
+    fn from(k: usize) -> Self {
+        CvStrategy::Custom { k }
     }
 }
 

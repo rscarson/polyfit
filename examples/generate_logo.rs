@@ -9,6 +9,22 @@ fn main() -> Result<(), Error> {
     let dx = fancy_curve.derivative()?;
     let ddx = dx.derivative()?;
 
+    println!("f(x) = {}", fancy_curve);
+    println!("f'(x) = {}", dx);
+    println!("f''(x) = {}", ddx);
+    plot!([fancy_curve, dx, ddx], {
+        x_range: Some(0.0..100.0),
+    });
+
+    let fprime = fancy_curve.integral(None)?;
+    let fdoubleprime = fprime.integral(None)?;
+    println!("f(x) = {}", fancy_curve);
+    println!("∫f(x) dx = {}", fprime);
+    println!("∫∫f(x) dx² = {}", fdoubleprime);
+    plot!([fdoubleprime, fprime, fancy_curve], {
+        x_range: Some(0.0..100.0),
+    });
+
     plot!([ddx, dx, fancy_curve], {
         title: "".to_string(),
         size: (50, 50),

@@ -22,6 +22,37 @@ impl<T: Value> SecondFormChebyshevBasis<T> {
     pub fn from_normalizer(normalizer: DomainNormalizer<T>) -> Self {
         Self { normalizer }
     }
+
+    /// Creates a new Chebyshev basis that normalizes inputs from the given range to [-1, 1].
+    pub fn new(x_min: T, x_max: T) -> Self {
+        let normalizer = DomainNormalizer::new((x_min, x_max), (-T::one(), T::one()));
+        Self { normalizer }
+    }
+
+    /// Creates a new 2nd form Chebyshev polynomial with the given coefficients over the specified x-range.
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values over which the Chebyshev basis is defined.
+    /// - `coefficients`: The coefficients for the Chebyshev basis functions.
+    ///
+    /// # Returns
+    /// A polynomial defined in the Chebyshev basis.
+    ///
+    /// # Errors
+    /// Returns an error if the polynomial cannot be created with the given basis and coefficients.
+    ///
+    /// # Example
+    /// ```rust
+    /// use polyfit::basis::SecondFormChebyshevBasis;
+    /// let chebyshev_poly = SecondFormChebyshevBasis::new_polynomial((-1.0, 1.0), &[1.0, 0.0, -0.5]).unwrap();
+    /// ```
+    pub fn new_polynomial(
+        x_range: (T, T),
+        coefficients: &[T],
+    ) -> Result<crate::Polynomial<'_, Self, T>> {
+        let basis = Self::new(x_range.0, x_range.1);
+        crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
 }
 impl<T: Value> Basis<T> for SecondFormChebyshevBasis<T> {
     fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self {
@@ -111,6 +142,12 @@ impl<T: Value> DifferentialBasis<T> for SecondFormChebyshevBasis<T> {
             b_kplus2 = b[k];
         }
 
+        // scale coefficients to account for original domain
+        let scale = self.normalizer.scale();
+        for coeff in &mut b {
+            *coeff *= scale;
+        }
+
         let basis = ThirdFormChebyshevBasis::from_normalizer(self.normalizer);
         Ok((basis, b))
     }
@@ -126,6 +163,12 @@ impl<T: Value> IntegralBasis<T> for SecondFormChebyshevBasis<T> {
         for (i, &c) in coefficients.iter().enumerate() {
             let denom = T::from_positive_int(i + 1);
             coefs.push(c / denom);
+        }
+
+        // scale coefficients to account for original domain
+        let scale = self.normalizer.scale();
+        for coeff in &mut coefs {
+            *coeff /= scale;
         }
 
         let basis = ChebyshevBasis::from_normalizer(self.normalizer);

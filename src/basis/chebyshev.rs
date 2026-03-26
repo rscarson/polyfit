@@ -349,8 +349,7 @@ mod tests {
         assert_fits!(&monomial_fit, &fit, 1.0);
 
         // Calculus tests - go T(x) -> U(x) -> V(x) -> U(x) -> T(x)
-        // First let's save the lowest 2 coefficients for comparison
-        let poly = ChebyshevBasis::new_polynomial((0.0, 1000.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
-        test_derivation!(poly, &poly.basis().normalizer, with_reverse = true);
+        let polyt = ChebyshevBasis::new_polynomial((0.0, 1000.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
+        test_derivation!(polyt, &polyt.basis().normalizer, with_reverse = true);
     }
 }

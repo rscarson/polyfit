@@ -709,7 +709,7 @@ where
     pub fn new_auto(
         data: impl Into<Cow<'data, [(T, T)]>>,
         max_degree: impl Into<DegreeBound>,
-        method: &impl ModelScoreProvider,
+        method: &impl ModelScoreProvider<B, T>,
     ) -> Result<Self> {
         let data: Cow<_> = data.into();
         let max_degree = max_degree.into().max_degree(data.len());
@@ -789,9 +789,12 @@ where
         // Step 3 - get delta_score
         // Re: Burnham and Anderson, use the first delta <=2 (P = 0.37)
         // Statistically indistinguishable from the top model
+        let min_dist = method
+            .minimum_significant_distance()
+            .map_or(T::zero(), T::from_positive_int);
         for (model, score) in model_scores {
             let delta = score - min_score;
-            if delta <= T::two() {
+            if delta <= min_dist {
                 return Ok(model);
             }
         }
@@ -862,12 +865,12 @@ where
     )]
     pub fn new_kfold_cross_validated(
         data: impl Into<Cow<'data, [(T, T)]>>,
-        strategy: CvStrategy,
+        strategy: impl Into<CvStrategy>,
         max_degree: impl Into<DegreeBound>,
-        method: &impl ModelScoreProvider,
+        method: &impl ModelScoreProvider<B, T>,
     ) -> Result<Self> {
         let data: Cow<_> = data.into();
-        let folds = strategy.k(data.len());
+        let folds = strategy.into().k(data.len());
         let fold_size = data.len() / folds;
         let max_degree = max_degree.into().max_degree(data.len());
         if data.is_empty() || folds < 2 || data.len() < folds {
@@ -945,7 +948,9 @@ where
                 let y = test_data.y_iter();
                 let predicted = model.as_polynomial().solve(test_data.x_iter());
                 let y_fit = predicted.y_iter();
-                mean_score += method.score(y, y_fit, model.k);
+                let score = method.score(&model, y, y_fit, model.k);
+
+                mean_score += score;
                 n += T::one();
             }
 
@@ -957,9 +962,12 @@ where
         }
 
         // Step 4 - Select the best model within 2 AIC units of the minimum (Burnham and Anderson 2002)
+        let min_dist = method
+            .minimum_significant_distance()
+            .map_or(T::zero(), T::from_positive_int);
         for (degree, score) in candidates {
             let delta = score - min_score;
-            if delta <= T::two() {
+            if delta <= min_dist {
                 return Self::new(data, degree);
             }
         }
@@ -1165,10 +1173,10 @@ where
     /// let score = fit.model_score(&Aic);
     /// println!("Model score: {}", score);
     /// ```
-    pub fn model_score(&self, method: &impl ModelScoreProvider) -> T {
+    pub fn model_score(&self, method: &impl ModelScoreProvider<B, T>) -> T {
         let y = self.data.y_iter();
         let y_fit = self.solution().into_iter().map(|(_, y)| y);
-        method.score(y, y_fit, self.k)
+        method.score(self, y, y_fit, self.k)
     }
 
     /// Computes the residuals of the fit.

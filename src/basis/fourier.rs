@@ -46,6 +46,58 @@ impl<T: Value> FourierPolynomial<'_, T> {
         let basis = FourierBasis::new(x_range.0, x_range.1);
         Polynomial::from_basis(basis, coefficients).expect("Failed to create Fourier polynomial")
     }
+
+    /// Creates a copy of the fourier series with a specified DC offset (monomial constant term).
+    /// This is useful for adjusting the baseline of the function without affecting its oscillatory behavior.
+    ///
+    /// Useful if you integrate a Fourier series and want the terms to line up with the original function, for example.
+    #[must_use]
+    pub fn with_dc_offset(&self, offset: T) -> Self {
+        let dc_terms = [offset];
+        self.with_dc_component(&dc_terms)
+    }
+
+    /// Creates a copy of the fourier series with a specified DC offset (monomial constant term).
+    /// This is useful for adjusting the baseline of the function without affecting its oscillatory behavior.
+    ///
+    /// Useful if you integrate a Fourier series and want the terms to line up with the original function, for example.
+    #[must_use]
+    pub fn with_dc_component(&self, dc_terms: &[T]) -> Self {
+        let mut basis = self.basis().clone();
+        let coefficients = self.coefficients();
+
+        let fourier_terms = &coefficients[basis.polynomial_terms.min(coefficients.len())..];
+        let coefficients = dc_terms
+            .iter()
+            .copied()
+            .chain(fourier_terms.iter().copied())
+            .collect::<Vec<_>>();
+        basis.polynomial_terms = dc_terms.len(); // Ensure we have enough monomial terms for the DC components
+
+        let degree = fourier_terms.len() / 2;
+        unsafe { Polynomial::from_raw(basis, coefficients.into(), degree) }
+    }
+
+    /// Returns a new Fourier polynomial with the same oscillatory behavior but centered around the specified DC offset.
+    /// This is useful for adjusting the baseline of the function without affecting its oscillatory behavior.
+    ///
+    /// This method calculates the necessary DC offset to ensure that the sum of the Fourier terms (sine and cosine) is centered around the target DC value.
+    #[must_use]
+    pub fn center_on_dc(&self, target_dc: T) -> Self {
+        let coefficients = self.coefficients();
+        let basis = self.basis();
+
+        // Sum up only the Cosine coefficients (indices 0, 2, 4... in the Fourier part)
+        let fourier_terms = &coefficients[basis.polynomial_terms..];
+        let mut cos_sum = T::zero();
+        for i in (0..fourier_terms.len()).step_by(2) {
+            cos_sum += fourier_terms[i];
+        }
+
+        // The new DC offset needs to cancel out the starting values of the cosines
+        let corrected_offset = target_dc - cos_sum;
+        self.with_dc_offset(corrected_offset)
+    }
 }
 
 /// Standard Fourier basis for periodic functions.
@@ -132,11 +184,8 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
 
     #[inline(always)]
     fn degree(&self, k: usize) -> Option<usize> {
-        if k % 2 == 0 {
-            None
-        } else {
-            Some((k - 1) / 2)
-        }
+        let fourier_terms = k.checked_sub(self.polynomial_terms)?;
+        Some(fourier_terms / 2)
     }
 
     #[inline(always)]
@@ -144,6 +193,9 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
         // Because we support calculus, there can be a polynomial series at the start
         // The first [0..polynomial_terms] are monomial terms
         if j < self.polynomial_terms {
+            // we must undo the normalization for the monomial terms to get the correct values, since the Fourier basis normalizes x to [0, 2π]
+            let x = self.denormalize_x(x);
+
             return Value::powi(x, j.clamped_cast());
         }
 
@@ -203,6 +255,8 @@ impl<T: Value> display::PolynomialDisplay<T> for FourierBasis<T> {
         if degree < self.polynomial_terms.clamped_cast() {
             return MonomialBasis::format_term(&MonomialBasis::default(), degree, coef);
         }
+
+        let degree = degree - self.polynomial_terms.clamped_cast::<i32>() + 1;
 
         let sign = Sign::from_coef(coef);
         let coef = format_coefficient(coef, degree, DEFAULT_PRECISION)?;
@@ -269,6 +323,12 @@ impl<T: Value> IntegralBasis<T> for FourierBasis<T> {
             n += T::one(); // increment frequency index
         }
 
+        // Scale only the fourier coefficients to account for original domain
+        let scale = self.normalizer.scale();
+        for coeff in &mut integral_coeffs[(self.polynomial_terms + 1).min(coefficients.len())..] {
+            *coeff /= scale;
+        }
+
         let basis = Self {
             normalizer: self.normalizer,
             polynomial_terms: self.polynomial_terms + 1,
@@ -308,6 +368,12 @@ impl<T: Value> DifferentialBasis<T> for FourierBasis<T> {
             derivative_coeffs.push(n * a);
 
             n += T::one(); // increment frequency index
+        }
+
+        // Scale only the fourier coefficients to account for original domain
+        let scale = self.normalizer.scale();
+        for coeff in &mut derivative_coeffs[(self.polynomial_terms - 1).min(coefficients.len())..] {
+            *coeff *= scale;
         }
 
         let basis = Self {

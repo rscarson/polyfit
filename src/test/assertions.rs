@@ -568,15 +568,14 @@ macro_rules! assert_y {
 /// # Arguments
 /// * `$f` - The original polynomial function.
 /// * `$f_prime` - The polynomial function that should be the derivative of `$f`.
-/// * `$norm` - The domain normalizer used for both polynomials. Use `DomainNormalizer::default()` if none.
 /// * `$domain` - The range of x-values over which to check the derivative relationship. (inclusive range)
 ///
 /// # Panics
 /// Panics if the derivative relationship does not hold within a reasonable tolerance.
 #[macro_export]
 macro_rules! assert_is_derivative {
-    ($f:expr, $f_prime:expr, $norm:expr, $domain:expr $(, f_lbl = $f_lbl:literal)? $(, fprime_lbl = $fprime_lbl:literal)?) => {
-        if let Err(e) = $crate::statistics::is_derivative(&$f, &$f_prime, $norm, &$domain) {
+    ($f:expr, $f_prime:expr, $domain:expr $(, f_lbl = $f_lbl:literal)? $(, fprime_lbl = $fprime_lbl:literal)?) => {
+        if let Err(e) = $crate::statistics::is_derivative(&$f, &$f_prime, &$domain) {
             $crate::plot!([$f, $f_prime], {
                 x_range: Some(*$domain.start()..*$domain.end()),
             });

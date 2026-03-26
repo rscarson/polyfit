@@ -217,6 +217,12 @@ impl<T: Value> DifferentialBasis<T> for LegendreBasis<T> {
             }
         }
 
+        // scale coefficients to account for original domain
+        let scale = self.normalizer.scale();
+        for coeff in &mut b {
+            *coeff *= scale;
+        }
+
         Ok((*self, b))
     }
 }

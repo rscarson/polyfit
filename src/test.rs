@@ -187,7 +187,7 @@ impl<T: crate::value::Value> FitProps<T> {
     pub fn from_fit<B>(
         fit: &crate::CurveFit<B, T>,
         basis_name: &'static str,
-        method: &impl crate::score::ModelScoreProvider,
+        method: &impl crate::score::ModelScoreProvider<B, T>,
     ) -> FitProps<T>
     where
         B: crate::basis::Basis<T> + crate::display::PolynomialDisplay<T>,
