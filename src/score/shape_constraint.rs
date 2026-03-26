@@ -284,7 +284,7 @@ where
             let violation = match monotonic_direction {
                 MonotonicityDirection::Increasing => Value::min(v1, T::zero()),
                 MonotonicityDirection::Decreasing => Value::max(v1, T::zero()),
-                MonotonicityDirection::Infer => unreachable!(),
+                MonotonicityDirection::Infer => T::zero(),
             };
             if Value::abs(violation) > mono_epsilon {
                 monotonic += violation * violation;
