@@ -98,9 +98,9 @@ Polyfit supports indefinite integration and differentiation in many bases, as we
 | Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
 |---------------------------|--------------------|-----------------|-----------------------|-------------|
 | **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
-| **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
-| **Chebyshev (2nd form)**  | Yes                | Yes             | Yes                   | No          |
-| **Chebyshev (3rd form)**  | Yes                | No              | Yes                   | No          |
+| **Chebyshev (1st form)**  | No                 | Yes             | No                    | Yes         |
+| **Chebyshev (2nd form)**  | No                 | Yes             | Yes                   | No          |
+| **Chebyshev (3rd form)**  | No                 | No              | Yes                   | No          |
 | **Legendre**              | No                 | Yes             | No                    | Yes         |
 | **Laguerre**              | No                 | Yes             | No                    | Yes         |
 | **Hermite (Both kinds)**  | No                 | Yes             | No                    | Yes         |
