@@ -190,6 +190,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     //
+    // Log offset normalization
+    const CHILDREN_HEIGHT_DATA: &str = include_str!("childrens_height_data.json");
+    let data: Vec<(f64, f64)> = serde_json::from_str(CHILDREN_HEIGHT_DATA).unwrap();
+    let log_offset = NormalizationTransform::LogOffset{ asymptote_epsilon: None };
+    generate_plot(
+        data.clone(),
+        vec![
+            ("Log Offset", data.transformed(&log_offset)),
+        ],
+        false,
+        "Log Offset Normalization",
+        "log_offset_normalization_example.png",
+    )?;
+
+    //
     // Scale transforms
     //
 

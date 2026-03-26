@@ -108,6 +108,27 @@ pub enum NormalizationTransform<T: Value> {
     /// ```
     /// </div>
     ZScore,
+
+    /// Normalizes the dataset by applying a logarithmic transformation with an offset.
+    ///
+    /// An asymptote - or in other words a value that the data approaches but never reaches - can cause problems for polynomial fitting.
+    /// This transform tries to approximate that value, then applies a log transform to the data relative to that value
+    ///
+    /// ![Log example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/log_offset_normalization_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// asymptote_epsilon = mean(Y) * 1e-02
+    /// asymptote = max(Y) + asymptote_epsilon
+    /// yₙ = ln(asymptote - y)
+    LogOffset {
+        /// A small epsilon added to the estimated asymptote to ensure all points are below it, which is important for the log transformation.
+        /// If None, a default value of 1% of the standard deviation of the data will be used.
+        asymptote_epsilon: Option<T>,
+    },
 }
 
 impl<T: Value> Transform<T> for NormalizationTransform<T> {
@@ -140,6 +161,27 @@ impl<T: Value> Transform<T> for NormalizationTransform<T> {
                 let (s, m) = statistics::stddev_and_mean(data.iter().map(|d| **d));
                 for value in data {
                     *value = (*value - m) / s;
+                }
+            }
+
+            Self::LogOffset { asymptote_epsilon } => {
+                let buffer_weight =
+                    asymptote_epsilon.unwrap_or_else(|| T::from(1e-2).unwrap_or(T::zero()));
+
+                if data.is_empty() {
+                    return;
+                }
+
+                let asymptote = data
+                    .iter()
+                    .fold(T::neg_infinity(), |v, d| Value::max(v, **d));
+
+                // Add a small buffer to the asymptote to ensure all points are below it, which is important for the log transformation
+                let (stdev, _) = statistics::stddev_and_mean(data.iter().map(|d| **d));
+                let buffer = stdev * buffer_weight; // small fraction of typical deviation
+
+                for p in data {
+                    *p = (asymptote + buffer - *p).ln();
                 }
             }
         }
@@ -270,6 +312,38 @@ pub trait ApplyNormalization<T: Value> {
     /// ```
     #[must_use]
     fn apply_z_score_normalization(self) -> Self;
+
+    /// Normalizes the dataset by applying a logarithmic transformation with an offset.
+    ///
+    /// An asymptote - or in other words a value that the data approaches but never reaches - can cause problems for polynomial fitting.
+    ///
+    /// This transform tries to approximate that value, then applies a log transform to the data relative to that value
+    ///
+    /// # Parameters
+    /// - `asymptote_epsilon`: A small epsilon added to the estimated asymptote to ensure all points are below it, which is important for the log transformation.
+    ///   If not provided, a default value of 1% of the standard deviation of the data will be used.
+    ///
+    /// ![Log example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/log_offset_normalization_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// asymptote_epsilon = mean(Y) * 1e-02
+    /// asymptote = max(Y) + asymptote_epsilon
+    /// yₙ = ln(asymptote - y)
+    /// ```
+    ///
+    /// </div>
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::transforms::ApplyNormalization;
+    /// let data = vec![(1.0, 2.0), (2.0, 3.0)].apply_log_offset_normalization(None);
+    /// ```
+    #[must_use]
+    fn apply_log_offset_normalization(self, asymptote_epsilon: Option<T>) -> Self;
 }
 impl<T: Value> ApplyNormalization<T> for Vec<(T, T)> {
     fn apply_domain_normalization(mut self, min: T, max: T) -> Self {
@@ -289,6 +363,12 @@ impl<T: Value> ApplyNormalization<T> for Vec<(T, T)> {
 
     fn apply_z_score_normalization(mut self) -> Self {
         NormalizationTransform::ZScore.apply(self.iter_mut().map(|(_, y)| y));
+        self
+    }
+
+    fn apply_log_offset_normalization(mut self, asymptote_epsilon: Option<T>) -> Self {
+        NormalizationTransform::LogOffset { asymptote_epsilon }
+            .apply(self.iter_mut().map(|(_, y)| y));
         self
     }
 }
