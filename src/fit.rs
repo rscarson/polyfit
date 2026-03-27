@@ -5,6 +5,7 @@ use nalgebra::{DMatrix, DVector, SVD};
 use crate::{
     basis::{
         Basis, CriticalPoint, DifferentialBasis, IntegralBasis, IntoMonomialBasis, OrthogonalBasis,
+        RootFindingBasis,
     },
     display::PolynomialDisplay,
     error::{Error, Result},
@@ -1084,8 +1085,56 @@ where
     where
         B: DifferentialBasis<T>,
         B::B2: DifferentialBasis<T>,
+        B::B2: RootFindingBasis<T>,
     {
         let points = self.function.critical_points(self.x_range.clone())?;
+        Ok(points)
+    }
+
+    /// Estimates the critical points (where the derivative is zero) of a polynomial in this basis.
+    ///
+    /// This is a less precise method that uses the `approximate_real_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
+    /// and is available for all bases, but may not be as accurate as the exact root finding method used in [`Self::critical_points`].
+    ///
+    /// This corresponds to the polynomial's local minima and maxima (The `x` values where curvature changes).
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
+    ///
+    /// This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
+    /// </div>
+    ///
+    /// # Returns
+    /// A vector of `x` values where the critical points occur.
+    ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`DifferentialBasis`].
+    ///
+    /// # Errors
+    /// Returns an error if the critical points cannot be found.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::MonomialPolynomial;
+    /// # use polyfit::statistics::Confidence;
+    /// # use polyfit::MonomialFit;
+    /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
+    /// let critical_points = model.approximate_critical_points(None).unwrap();
+    /// ```
+    pub fn approximate_critical_points(
+        &self,
+        max_newton_iterations: Option<usize>,
+    ) -> Result<Vec<CriticalPoint<T>>>
+    where
+        B: DifferentialBasis<T>,
+        B::B2: DifferentialBasis<T>,
+    {
+        let points = self
+            .function
+            .approximate_critical_points(self.x_range.clone(), max_newton_iterations)?;
         Ok(points)
     }
 
@@ -1148,8 +1197,33 @@ where
     pub fn monotonicity_violations(&self) -> Result<Vec<T>>
     where
         B: DifferentialBasis<T>,
+        B::B2: RootFindingBasis<T>,
     {
         self.function.monotonicity_violations(self.x_range.clone())
+    }
+
+    /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign).
+    ///
+    /// # Errors
+    /// Returns an error if the derivative cannot be computed.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::MonomialFit;
+    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
+    /// let fit = MonomialFit::new(data, 2).unwrap();
+    /// let violations = fit.approximate_monotonicity_violations(None).unwrap();
+    /// ```
+    pub fn approximate_monotonicity_violations(
+        &self,
+        max_newton_iterations: Option<usize>,
+    ) -> Result<Vec<T>>
+    where
+        B: DifferentialBasis<T>,
+        B::B2: DifferentialBasis<T>,
+    {
+        self.function
+            .approximate_monotonicity_violations(self.x_range.clone(), max_newton_iterations)
     }
 
     /// Computes the quality score of the polynomial fit using the specified method.

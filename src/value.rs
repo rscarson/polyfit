@@ -450,6 +450,28 @@ pub trait FloatClampedCast:
 }
 impl<T: num_traits::float::FloatCore> FloatClampedCast for T {}
 
+/// Performs a bisection search to find a root of the function `f` between `a` and `b`.
+pub(crate) fn bisect<B, T>(f: &B, mut a: T, mut b: T, mut fa: T, mut fb: T, steps: usize) -> (T, T)
+where
+    B: Fn(T) -> T,
+    T: Value,
+{
+    for _ in 0..steps {
+        let m = (a + b) / T::two();
+        let fm = f(m);
+
+        if (fa * fm).is_sign_negative() {
+            b = m;
+            fb = fm;
+        } else {
+            a = m;
+            fa = fm;
+        }
+    }
+
+    ((a + b) / T::two(), (fa + fb) / T::two())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

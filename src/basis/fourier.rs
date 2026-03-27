@@ -425,8 +425,11 @@ impl<T: Value> OrthogonalBasis<T> for FourierBasis<T> {
 mod tests {
     use super::*;
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
-        test::basis_assertions::assert_basis_orthogonal, FourierFit, Polynomial,
+        assert_close, assert_fits,
+        score::Aic,
+        statistics::DegreeBound,
+        test::basis_assertions::{self, assert_basis_orthogonal},
+        FourierFit, Polynomial,
     };
 
     fn get_poly() -> Polynomial<'static, FourierBasis<f64>> {
@@ -452,8 +455,8 @@ mod tests {
 
         // Integrate -> differentiate = Original
         let poly = FourierBasis::new_polynomial((0.0, 100.0), &[0.5, 2.0, -1.5]).unwrap();
-        test_derivation!(poly, &fit.basis().normalizer, with_reverse = true);
-        test_integration!(poly, &fit.basis().normalizer, with_reverse = true);
+        basis_assertions::test_reversible_derivation(&poly, &fit.basis().normalizer);
+        basis_assertions::test_reversible_integration(&poly, &fit.basis().normalizer);
 
         let org_coefs = fit.coefficients();
         let (bi, int_coefs) = fit.basis().integral(org_coefs, 0.0).unwrap();

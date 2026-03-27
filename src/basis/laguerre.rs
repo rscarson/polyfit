@@ -229,8 +229,11 @@ impl<T: Value> OrthogonalBasis<T> for LaguerreBasis<T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
-        test::basis_assertions::assert_basis_orthogonal, LaguerreFit, Polynomial,
+        assert_close, assert_fits,
+        score::Aic,
+        statistics::DegreeBound,
+        test::basis_assertions::{self, assert_basis_orthogonal},
+        LaguerreFit, Polynomial,
     };
 
     use super::*;
@@ -260,7 +263,7 @@ mod tests {
 
         // Calculus tests
         let poly = LaguerreBasis::new_polynomial((0.0, 100.0), &[3.0, 2.0, 1.5]).unwrap();
-        test_derivation!(poly, &poly.basis().normalizer);
+        basis_assertions::test_derivation(&poly, &poly.basis().normalizer);
 
         // Orthogonality test points
         assert_basis_orthogonal(&basis, 4, 100, 1e-12);

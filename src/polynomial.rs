@@ -8,7 +8,7 @@ use crate::{
     display::PolynomialDisplay,
     error::{Error, Result},
     statistics,
-    value::{CoordExt, FloatClampedCast, SteppedValues, Value},
+    value::{bisect, CoordExt, FloatClampedCast, SteppedValues, Value},
     MonomialPolynomial,
 };
 
@@ -377,10 +377,81 @@ where
     where
         B: DifferentialBasis<T>,
         B::B2: DifferentialBasis<T>,
+        B::B2: RootFindingBasis<T>,
+    {
+        self.critical_points_from_roots(x_range, |f, x| {
+            f.roots(x).map(|roots| {
+                roots
+                    .into_iter()
+                    .filter_map(|r| if let Root::Real(x) = r { Some(x) } else { None })
+                    .collect()
+            })
+        })
+    }
+
+    /// Estimates the critical points (where the derivative is zero) of a polynomial in this basis.
+    ///
+    /// This is a less precise method that uses the `approximate_real_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
+    /// and is available for all bases, but may not be as accurate as the exact root finding method used in [`Self::critical_points`].
+    ///
+    /// This corresponds to the polynomial's local minima and maxima (The `x` values where curvature changes).
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values to search for critical points.
+    /// - `max_newton_iterations`: Optional maximum number of iterations to refine each critical point.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
+    ///
+    /// This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
+    /// </div>
+    ///
+    /// # Returns
+    /// A vector of `x` values where the critical points occur.
+    ///
+    /// # Requirements
+    /// - The polynomial's basis `B` must implement [`DifferentialBasis`].
+    ///
+    /// # Errors
+    /// Returns an error if the critical points cannot be found.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use polyfit::MonomialPolynomial;
+    /// let poly = MonomialPolynomial::borrowed(&[1.0, 2.0, 3.0]); // 1 + 2x + 3x^2
+    /// let critical_points = poly.approximate_critical_points(0.0..=100.0, None).unwrap();
+    /// ```
+    pub fn approximate_critical_points(
+        &self,
+        x_range: RangeInclusive<T>,
+        max_newton_iterations: Option<usize>,
+    ) -> Result<Vec<CriticalPoint<T>>>
+    where
+        B: DifferentialBasis<T>,
+        B::B2: DifferentialBasis<T>,
+    {
+        self.critical_points_from_roots(x_range, |f, x| {
+            f.approximate_real_roots(x, max_newton_iterations)
+        })
+    }
+
+    /// Inner implementation allowing exact or approximate root finding to be used for critical point detection.
+    fn critical_points_from_roots<F>(
+        &self,
+        x_range: RangeInclusive<T>,
+        root_finder: F,
+    ) -> Result<Vec<CriticalPoint<T>>>
+    where
+        B: DifferentialBasis<T>,
+        B::B2: DifferentialBasis<T>,
+        F: Fn(&Polynomial<B::B2, T>, RangeInclusive<T>) -> Result<Vec<T>>,
     {
         let dx = self.derivative()?;
         let ddx = dx.derivative()?;
-        let roots = dx.real_roots(x_range, None)?;
+        let roots = root_finder(&dx, x_range)?;
 
         let mut points = Vec::with_capacity(roots.len());
         for x in roots {
@@ -396,7 +467,6 @@ where
 
         Ok(points)
     }
-
     /// Finds the roots (zeros) of the polynomial in this basis.
     ///
     /// This corresponds to the `x` values where the polynomial evaluates to zero.
@@ -421,11 +491,11 @@ where
     ///
     /// # Errors
     /// Returns an error if the roots cannot be found.
-    pub fn roots(&self) -> Result<Vec<Root<T>>>
+    pub fn roots(&self, x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>>
     where
         B: RootFindingBasis<T>,
     {
-        self.basis.roots(self.coefficients())
+        self.basis.roots(self.coefficients(), x_range)
     }
 
     /// Uses a less precise iterative method to find only the real roots of the polynomial.
@@ -443,7 +513,8 @@ where
     ///
     /// # Errors
     /// Returns an error if the derivative cannot be computed.
-    pub fn real_roots(
+    #[allow(clippy::many_single_char_names, reason = "begone, peasant")]
+    pub fn approximate_real_roots(
         &self,
         x_range: RangeInclusive<T>,
         max_newton_iterations: Option<usize>,
@@ -451,8 +522,8 @@ where
     where
         B: DifferentialBasis<T>,
     {
-        const DEFAULT_SAMPLES: f64 = 5000.0;
-        const DEFAULT_ITERATIONS: usize = 20;
+        const DEFAULT_SAMPLES: f64 = 500_000.0;
+        const DEFAULT_ITERATIONS: usize = 500;
 
         let mut roots = vec![];
         let mut prev_x = *x_range.start();
@@ -491,18 +562,33 @@ where
         for x in SteppedValues::new(x_range, domain_width / num_samples) {
             let y = self.y(x);
             if (prev_y * y).is_sign_negative() || prev_y.is_near_zero() || y.is_near_zero() {
-                // Sign change -> root in between
-                // Perform bisection to find it more precisely
-                let mid_x = (prev_x + x) / T::two();
-                let mid_y = (prev_y + y) / T::two();
-                let slope = (y - prev_y) / (x - prev_x);
-                let neg_recip_slope = if Value::abs(slope) > sqrt_eps {
-                    T::one() / slope
-                } else {
-                    T::zero()
-                };
+                let (x, _) = bisect(
+                    &|x| self.y(x),
+                    prev_x,
+                    x,
+                    prev_y,
+                    y,
+                    4, // small fixed count
+                );
 
-                let x = Value::clamp(mid_x - mid_y * neg_recip_slope, prev_x, x);
+                let mut a = prev_x;
+                let mut b = x;
+                let mut fa = prev_y;
+
+                // shrink interval FIRST
+                for _ in 0..max_newton_iterations {
+                    let m = (a + b) / T::two();
+                    let fm = self.y(m);
+
+                    if (fa * fm).is_sign_negative() {
+                        b = m;
+                    } else {
+                        a = m;
+                        fa = fm;
+                    }
+                }
+
+                let x = (a + b) / T::two();
 
                 // Newton iterations to refine
                 let mut newton_prev_x = x;
@@ -612,7 +698,42 @@ where
         Ok(integral.y(x_max) - integral.y(x_min))
     }
 
-    /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign).
+    /// Estimates the X-values where the function is not monotone (i.e., where the derivative changes sign - meaning the function changes direction).
+    ///
+    /// This is a less precise method that uses the `approximate_real_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
+    /// and is available for all bases, but may not be as accurate as the exact root finding method used in [`Self::monotonicity_violations`].
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values to search for monotonicity violations.
+    /// - `max_newton_iterations`: The maximum number of Newton-Raphson iterations to refine each critical point.
+    ///
+    /// # Errors
+    /// Returns an error if the derivative cannot be computed.
+    ///
+    /// # Example
+    /// ```rust
+    /// polyfit::function!(poly(x) = 4 x^3 + 2);
+    /// let area = poly.area_under_curve(0.0, 3.0, None).unwrap();
+    /// let violations = poly.approximate_monotonicity_violations(0.0..=3.0, None).unwrap();
+    /// ```
+    pub fn approximate_monotonicity_violations(
+        &self,
+        x_range: RangeInclusive<T>,
+        max_newton_iterations: Option<usize>,
+    ) -> Result<Vec<T>>
+    where
+        B: DifferentialBasis<T>,
+        B::B2: DifferentialBasis<T>,
+    {
+        self.monotonicity_violations_from_roots(x_range, |f, x| {
+            f.approximate_real_roots(x, max_newton_iterations)
+        })
+    }
+
+    /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign - meaning the function changes direction).
+    ///
+    /// # Parameters
+    /// - `x_range`: The range of x-values to search for monotonicity violations.
     ///
     /// # Errors
     /// Returns an error if the derivative cannot be computed.
@@ -626,9 +747,29 @@ where
     pub fn monotonicity_violations(&self, x_range: RangeInclusive<T>) -> Result<Vec<T>>
     where
         B: DifferentialBasis<T>,
+        B::B2: RootFindingBasis<T>,
+    {
+        self.monotonicity_violations_from_roots(x_range, |f, x| {
+            f.roots(x).map(|roots| {
+                roots
+                    .into_iter()
+                    .filter_map(|r| if let Root::Real(x) = r { Some(x) } else { None })
+                    .collect()
+            })
+        })
+    }
+
+    fn monotonicity_violations_from_roots<F>(
+        &self,
+        x_range: RangeInclusive<T>,
+        root_finder: F,
+    ) -> Result<Vec<T>>
+    where
+        F: Fn(&Polynomial<B::B2, T>, RangeInclusive<T>) -> Result<Vec<T>>,
+        B: DifferentialBasis<T>,
     {
         let dx = self.derivative()?;
-        let roots = self.real_roots(x_range.clone(), None)?;
+        let roots = root_finder(&dx, x_range.clone())?;
 
         if roots.is_empty() {
             // No critical points -> derivative does not change sign

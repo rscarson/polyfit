@@ -26,8 +26,12 @@
 //!
 //! This allows `CurveFit` and `Polynomial` to use your custom basis seamlessly.
 
+use std::ops::RangeInclusive;
+
 use nalgebra::Complex;
+use nalgebra::ComplexField;
 use nalgebra::MatrixViewMut;
+use nalgebra::Normed;
 
 use crate::{error::Result, value::Value};
 
@@ -241,7 +245,17 @@ pub trait RootFindingBasis<T: Value>: Basis<T> {
     ///
     /// # Errors
     /// Returns an error if the roots cannot be found.
-    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>>;
+    fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>>;
+
+    /// Evaluates the polynomial at a complex point `z` using the given coefficients.
+    ///
+    /// # Parameters
+    /// - `z`: The complex point at which to evaluate the polynomial.
+    /// - `coefs`: The coefficients of the polynomial in this basis.
+    ///
+    /// # Returns
+    /// The value of the polynomial at the given complex point.
+    fn complex_y(&self, z: Complex<T>, coefs: &[T]) -> Complex<T>;
 }
 
 /// Trait for bases that support integration of polynomials.
@@ -250,8 +264,8 @@ pub trait RootFindingBasis<T: Value>: Basis<T> {
 /// - `T`: Numeric type for coefficients.
 /// - `B2`: Basis type returned by the integral (defaults to `Self`).
 pub trait IntegralBasis<T: Value>: Basis<T> {
-    /// The basis type returned by the derivative operation.
-    /// This allows the derivative to be expressed in a different basis if needed.
+    /// The basis type returned by the integral operation.
+    /// This allows the integral to be expressed in a different basis if needed.
     type B2: Basis<T> + crate::display::PolynomialDisplay<T>;
 
     /// Computes the integral of a polynomial in this basis.
@@ -348,6 +362,111 @@ pub enum Root<T: Value> {
     /// A pair of complex conjugate roots, which often occur in polynomials with real coefficients.
     /// - This represents two solutions to the equation P(x) = 0 that are complex
     ComplexPair(Complex<T>, Complex<T>),
+}
+impl<T: Value> Root<T> {
+    /// Returns true if this root is a real root.
+    pub fn is_real(&self) -> bool {
+        matches!(self, Root::Real(_))
+    }
+
+    /// Returns true if this root is a complex root (either a single complex root or a conjugate pair).
+    pub fn is_complex(&self) -> bool {
+        matches!(self, Root::Complex(_) | Root::ComplexPair(_, _))
+    }
+
+    /// Categorizes the roots of a polynomial into real and complex roots, while removing duplicates.
+    ///
+    /// This is a helper function used for implementing root finding in various bases.
+    ///
+    /// It takes a list of eigenvalues (which may include duplicates and non-roots) and filters them based on:
+    /// 1. Removing non-finite values (INF/NAN).
+    /// 2. Removing values where the polynomial does not evaluate to zero (not actual roots).
+    /// 3. Removing duplicates (values that are very close to each other).
+    /// 4. Categorizing remaining roots as real or complex (including conjugate pairs).
+    ///
+    /// The `solver` function is used to evaluate the polynomial at complex points to verify if they are roots.
+    /// - This is generally the `complex_y` method of the basis, which evaluates the polynomial at a complex point.
+    #[allow(
+        clippy::match_same_arms,
+        reason = "This is more readable as a match statement, even if some arms are the same"
+    )]
+    pub fn roots_from_complex<F: Fn(&Complex<T>) -> Complex<T>>(
+        eigenvalues: &[Complex<T>],
+        solver: F,
+    ) -> Vec<Root<T>> {
+        let mut roots = Vec::new();
+        let mut skip = vec![false; eigenvalues.len()];
+        for i in 0..eigenvalues.len() {
+            if skip[i] {
+                continue;
+            }
+
+            // Skip INF/NAN roots
+            if !eigenvalues[i].imaginary().is_finite() || !eigenvalues[i].real().is_finite() {
+                continue;
+            }
+
+            // Skip roots where P(x) != 0
+            let zero_tol = (T::one() + eigenvalues[i].norm()) * T::epsilon().sqrt();
+            if solver(&eigenvalues[i]).norm() > zero_tol {
+                continue;
+            }
+
+            // Skip future duplicates
+            let conj_tol = T::epsilon().sqrt() * (T::one() + eigenvalues[i].norm());
+            for j in (i + 1)..eigenvalues.len() {
+                if (eigenvalues[i] - eigenvalues[j]).norm() < conj_tol {
+                    skip[j] = true;
+                }
+            }
+
+            // At this point for reals we can stop
+            if Value::abs(eigenvalues[i].imaginary()) < zero_tol {
+                roots.push(Root::Real(eigenvalues[i].real()));
+                continue;
+            }
+
+            // Complex root - we check for conjugate pairs
+            for j in (i + 1)..eigenvalues.len() {
+                if Value::abs(eigenvalues[i].real() - eigenvalues[j].real()) < conj_tol
+                    && Value::abs(eigenvalues[i].imaginary() + eigenvalues[j].imaginary())
+                        < conj_tol
+                {
+                    let root_i = eigenvalues[i];
+                    let root_j = eigenvalues[j];
+
+                    skip[j] = true;
+                    roots.push(Root::ComplexPair(root_i, root_j));
+                    break;
+                }
+            }
+
+            // Singular complex root - should only happen for complex coefficients
+            roots.push(Root::Complex(eigenvalues[i]));
+        }
+
+        // Now we sort them - reals first, then complex pairs, then singular complex roots, and within each category we sort by magnitude
+        roots.sort_by(|a, b| match (a, b) {
+            (Root::Real(x), Root::Real(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
+            (Root::Real(_), _) => std::cmp::Ordering::Less,
+            (_, Root::Real(_)) => std::cmp::Ordering::Greater,
+            (Root::ComplexPair(a1, a2), Root::ComplexPair(b1, b2)) => {
+                let mag_a = a1.norm() + a2.norm();
+                let mag_b = b1.norm() + b2.norm();
+                mag_a
+                    .partial_cmp(&mag_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (Root::ComplexPair(_, _), Root::Complex(_)) => std::cmp::Ordering::Less,
+            (Root::Complex(_), Root::ComplexPair(_, _)) => std::cmp::Ordering::Greater,
+            (Root::Complex(a), Root::Complex(b)) => a
+                .norm()
+                .partial_cmp(&b.norm())
+                .unwrap_or(std::cmp::Ordering::Equal),
+        });
+
+        roots
+    }
 }
 
 /// A trait for orthogonal polynomial bases.

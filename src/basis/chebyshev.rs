@@ -1,7 +1,9 @@
-use nalgebra::MatrixViewMut;
+use std::ops::RangeInclusive;
+
+use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, Root, RootFindingBasis},
     display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
@@ -262,6 +264,98 @@ impl<T: Value> DifferentialBasis<T> for ChebyshevBasis<T> {
     }
 }
 
+impl<T: Value> RootFindingBasis<T> for ChebyshevBasis<T> {
+    fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>> {
+        let n = coefs.len() - 1;
+        if n == 0 {
+            return Ok(vec![]);
+        }
+
+        let mut mat = DMatrix::<T>::zeros(n, n);
+        let half = T::one() / T::two();
+
+        for i in 1..n {
+            mat[(i, i - 1)] = half;
+        }
+
+        for i in 0..n - 1 {
+            mat[(i, i + 1)] = half;
+        }
+
+        mat[(0, 1)] = T::one();
+
+        let a_n = coefs[n];
+        for j in 0..n {
+            mat[(n - 1, j)] -= coefs[j] / (a_n * T::two());
+        }
+
+        let eigs: Vec<Complex<T>> = mat.complex_eigenvalues().into_iter().copied().collect();
+
+        // Filter and categorize roots
+        let mut roots = Root::roots_from_complex(&eigs, |z| self.complex_y(*z, coefs));
+        for root in &mut roots {
+            match root {
+                Root::Real(r) => {
+                    // Normalize real root back to original x-range if normalizer is provided
+                    let denorm = self.normalizer.denormalize(*r);
+                    *root = Root::Real(denorm);
+                }
+                Root::Complex(c) => {
+                    let denorm = Complex::new(
+                        self.normalizer.denormalize(c.real()),
+                        self.normalizer.denormalize(c.imaginary()),
+                    );
+                    *root = Root::Complex(denorm);
+                }
+                Root::ComplexPair(c1, c2) => {
+                    let denorm1 = Complex::new(
+                        self.normalizer.denormalize(c1.real()),
+                        self.normalizer.denormalize(c1.imaginary()),
+                    );
+                    let denorm2 = Complex::new(
+                        self.normalizer.denormalize(c2.real()),
+                        self.normalizer.denormalize(c2.imaginary()),
+                    );
+                    *root = Root::ComplexPair(denorm1, denorm2);
+                }
+            }
+        }
+
+        // Remove roots outside the specified x_range
+        let x_min = *x_range.start();
+        let x_max = *x_range.end();
+        let roots = roots
+            .into_iter()
+            .filter(|root| match root {
+                Root::Real(r) => *r >= x_min && *r <= x_max,
+                Root::Complex(_) | Root::ComplexPair(_, _) => true, // Keep complex roots
+            })
+            .collect();
+
+        Ok(roots)
+    }
+
+    fn complex_y(&self, z: Complex<T>, coefs: &[T]) -> Complex<T> {
+        let n = coefs.len();
+        if n == 0 {
+            return Complex::new(T::zero(), T::zero());
+        }
+
+        let two = Complex::from_real(T::two());
+        let mut b_next = Complex::new(T::zero(), T::zero());
+        let mut b_next2 = Complex::new(T::zero(), T::zero());
+
+        for &a_k in coefs[1..].iter().rev() {
+            let b = two * z * b_next - b_next2 + Complex::from_real(a_k);
+            b_next2 = b_next;
+            b_next = b;
+        }
+
+        // Now handle a0
+        Complex::from_real(coefs[0]) + z * b_next - b_next2
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
@@ -272,7 +366,7 @@ mod tests {
         score::Aic,
         statistics::DegreeBound,
         test::basis_assertions::{
-            assert_basis_functions_close, assert_basis_matrix_row, assert_basis_normalizes,
+            self, assert_basis_functions_close, assert_basis_matrix_row, assert_basis_normalizes,
             assert_basis_orthogonal,
         },
         ChebyshevFit,
@@ -350,6 +444,9 @@ mod tests {
 
         // Calculus tests - go T(x) -> U(x) -> V(x) -> U(x) -> T(x)
         let polyt = ChebyshevBasis::new_polynomial((0.0, 1000.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
-        test_derivation!(polyt, &polyt.basis().normalizer, with_reverse = true);
+        basis_assertions::test_reversible_derivation(&polyt, &polyt.basis().normalizer);
+
+        // Test root finding
+        basis_assertions::test_root_finding(&polyt, 0.0..=1000.0);
     }
 }

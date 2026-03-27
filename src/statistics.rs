@@ -1548,8 +1548,12 @@ impl<T: Value> DomainNormalizer<T> {
 
     /// Denormalizes a complex value from the destination range back to the source range.
     pub fn denormalize_complex(&self, z: nalgebra::Complex<T>) -> nalgebra::Complex<T> {
-        (z - nalgebra::Complex::new(self.shift(), T::zero()))
-            / nalgebra::Complex::new(self.scale(), T::one())
+        let s = self.scale();
+        let sh = self.shift();
+        nalgebra::Complex::new(
+            z.re / s + sh, // real part
+            z.im / s,      // imaginary part
+        )
     }
 
     /// Denormalizes a slice of polynomial coefficients from the destination range back to the source range.

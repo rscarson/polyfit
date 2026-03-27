@@ -1,6 +1,6 @@
-use std::{borrow::Cow, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug, ops::RangeInclusive};
 
-use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut, Normed};
+use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut};
 
 use crate::{
     basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis, Root, RootFindingBasis},
@@ -55,15 +55,6 @@ impl<T: Value> MonomialBasis<T> {
     pub fn new_polynomial(coefficients: &[T]) -> Result<crate::Polynomial<'_, Self, T>> {
         let basis = Self::default();
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
-    }
-
-    /// Evaluates the polynomial at a given complex x-value using Horner's method.
-    pub fn complex_y(&self, x: Complex<T>, coefficients: &[T]) -> Complex<T> {
-        let mut y = Complex::new(T::zero(), T::zero());
-        for &coef in coefficients.iter().rev() {
-            y = y * x + Complex::from_real(coef);
-        }
-        y
     }
 }
 impl<T: Value> Basis<T> for MonomialBasis<T> {
@@ -131,7 +122,7 @@ impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
 }
 
 impl<T: Value> RootFindingBasis<T> for MonomialBasis<T> {
-    fn roots(&self, coefs: &[T]) -> Result<Vec<Root<T>>> {
+    fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>> {
         let n = coefs.len() - 1; // degree of polynomial
         if n == 0 {
             return Ok(vec![]);
@@ -172,9 +163,32 @@ impl<T: Value> RootFindingBasis<T> for MonomialBasis<T> {
             .copied()
             .collect();
 
-        Ok(categorize_roots(&eigs, |z| self.complex_y(*z, &coefs)))
+        // Filter and categorize roots
+        let roots = Root::roots_from_complex(&eigs, |z| self.complex_y(*z, &coefs));
+
+        // Remove roots outside the specified x_range
+        let x_min = *x_range.start();
+        let x_max = *x_range.end();
+        let roots = roots
+            .into_iter()
+            .filter(|root| match root {
+                Root::Real(r) => *r >= x_min && *r <= x_max,
+                Root::Complex(_) | Root::ComplexPair(_, _) => true, // Keep complex roots
+            })
+            .collect();
+
+        Ok(roots)
+    }
+
+    fn complex_y(&self, x: Complex<T>, coefficients: &[T]) -> Complex<T> {
+        let mut y = Complex::new(T::zero(), T::zero());
+        for &coef in coefficients.iter().rev() {
+            y = y * x + Complex::from_real(coef);
+        }
+        y
     }
 }
+
 impl<T: Value> IntegralBasis<T> for MonomialBasis<T> {
     type B2 = Self;
 
@@ -350,67 +364,12 @@ impl<T: Value> std::ops::MulAssign for MonomialPolynomial<'_, T> {
     }
 }
 
-/// Categorizes the roots of a polynomial into real and complex roots, while removing duplicates.
-pub fn categorize_roots<T: Value, F: Fn(&Complex<T>) -> Complex<T>>(
-    eigenvalues: &[Complex<T>],
-    solver: F,
-) -> Vec<Root<T>> {
-    let mut roots = Vec::new();
-    let mut skip = vec![false; eigenvalues.len()];
-    for i in 0..eigenvalues.len() {
-        if skip[i] {
-            continue;
-        }
-
-        // Skip INF/NAN roots
-        if !eigenvalues[i].imaginary().is_finite() || !eigenvalues[i].real().is_finite() {
-            continue;
-        }
-
-        // Skip roots where P(x) != 0
-        let zero_tol = (T::one() + eigenvalues[i].norm()) * T::epsilon().sqrt();
-        if solver(&eigenvalues[i]).norm() > zero_tol {
-            continue;
-        }
-
-        // Skip future duplicates
-        let conj_tol = T::epsilon().sqrt() * (T::one() + eigenvalues[i].norm());
-        for j in (i + 1)..eigenvalues.len() {
-            if (eigenvalues[i] - eigenvalues[j]).norm() < conj_tol {
-                skip[j] = true;
-            }
-        }
-
-        // At this point for reals we can stop
-        if Value::abs(eigenvalues[i].imaginary()) < zero_tol {
-            roots.push(Root::Real(eigenvalues[i].real()));
-            continue;
-        }
-
-        // Complex root - we check for conjugate pairs
-        for j in (i + 1)..eigenvalues.len() {
-            if Value::abs(eigenvalues[i].real() - eigenvalues[j].real()) < conj_tol
-                && Value::abs(eigenvalues[i].imaginary() + eigenvalues[j].imaginary()) < conj_tol
-            {
-                skip[j] = true;
-                roots.push(Root::ComplexPair(eigenvalues[i], eigenvalues[j]));
-                break;
-            }
-        }
-
-        // Singular complex root - should only happen for complex coefficients
-        roots.push(Root::Complex(eigenvalues[i]));
-    }
-
-    roots
-}
-
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
     use crate::{
         statistics::DomainNormalizer,
-        test::basis_assertions::{assert_basis_functions_close, assert_basis_matrix_row},
+        test::basis_assertions::{self, assert_basis_functions_close, assert_basis_matrix_row},
     };
 
     use super::*;
@@ -433,16 +392,8 @@ mod tests {
 
         // Derivative and integral
         let poly = MonomialPolynomial::owned(vec![1.0, 2.0, 3.0, 4.0]); // 1 + 2x + 3x^2 + 4x^3
-        test_derivation!(
-            poly,
-            &DomainNormalizer::<f64>::default(),
-            with_reverse = true
-        );
-        test_integration!(
-            poly,
-            &DomainNormalizer::<f64>::default(),
-            with_reverse = true
-        );
+        basis_assertions::test_reversible_derivation(&poly, &DomainNormalizer::<f64>::default());
+        basis_assertions::test_reversible_integration(&poly, &DomainNormalizer::<f64>::default());
 
         let (_, derivative) = basis
             .derivative(&[1.0, 2.0, 3.0, 4.0])
@@ -475,5 +426,9 @@ mod tests {
             .integral(&[], 3.0)
             .expect("Integral failed for empty coefficients");
         assert_eq!(integral_empty, &[3.0]);
+
+        // Test root finding
+        function!(f(x) = 1 x^3 - 6 x^2 + 11 x - 6);
+        basis_assertions::test_root_finding(&f, 0.0..=100.0);
     }
 }

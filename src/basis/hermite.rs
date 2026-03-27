@@ -406,7 +406,7 @@ mod tests {
         assert_close, assert_fits,
         score::Aic,
         statistics::{DegreeBound, DomainNormalizer},
-        test::basis_assertions::assert_basis_orthogonal,
+        test::basis_assertions::{self, assert_basis_orthogonal},
         PhysicistsHermiteFit, Polynomial, ProbabilistsHermiteFit,
     };
 
@@ -434,7 +434,7 @@ mod tests {
         assert_close!(basis.solve_function(3, 0.5), -5.0);
 
         let poly = PhysicistsHermiteBasis::new_polynomial(&[3.0, 2.0, 1.5]).unwrap();
-        test_derivation!(poly, &DomainNormalizer::default());
+        basis_assertions::test_derivation(&poly, &DomainNormalizer::default());
 
         // Orthogonality test points
         assert_basis_orthogonal(&basis, 4, 100, 1e-12);
@@ -461,7 +461,7 @@ mod tests {
 
         // Calculus tests
         let poly = ProbabilistsHermiteBasis::new_polynomial(&[3.0, 2.0, 1.5]).unwrap();
-        test_derivation!(poly, &DomainNormalizer::default());
+        basis_assertions::test_derivation(&poly, &DomainNormalizer::default());
 
         // Orthogonality test points
         assert_basis_orthogonal(&basis, 4, 100, 1e-12);

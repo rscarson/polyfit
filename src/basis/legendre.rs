@@ -275,8 +275,11 @@ impl<T: Value> OrthogonalBasis<T> for LegendreBasis<T> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        assert_close, assert_fits, score::Aic, statistics::DegreeBound,
-        test::basis_assertions::assert_basis_orthogonal, LegendreFit, Polynomial,
+        assert_close, assert_fits,
+        score::Aic,
+        statistics::DegreeBound,
+        test::basis_assertions::{self, assert_basis_orthogonal},
+        LegendreFit, Polynomial,
     };
 
     use super::*;
@@ -310,6 +313,6 @@ mod tests {
 
         // Calculus tests
         let poly = LegendreBasis::new_polynomial((0.0, 100.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
-        test_derivation!(poly, &poly.basis().normalizer);
+        basis_assertions::test_derivation(&poly, &poly.basis().normalizer);
     }
 }
