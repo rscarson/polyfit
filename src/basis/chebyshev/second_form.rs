@@ -1,13 +1,17 @@
-use nalgebra::MatrixViewMut;
+use std::ops::RangeInclusive;
+
+use nalgebra::{Complex, MatrixViewMut};
 
 use crate::{
     basis::{
-        chebyshev::ThirdFormChebyshevBasis, Basis, ChebyshevBasis, DifferentialBasis, IntegralBasis,
+        chebyshev::ThirdFormChebyshevBasis, Basis, ChebyshevBasis, DifferentialBasis,
+        IntegralBasis, Root, RootFindingBasis,
     },
     display,
     error::Result,
     statistics::DomainNormalizer,
     value::Value,
+    Polynomial,
 };
 
 /// Normalized Chebyshev basis of the second kind for polynomial curves (`U_n`).
@@ -52,6 +56,53 @@ impl<T: Value> SecondFormChebyshevBasis<T> {
     ) -> Result<crate::Polynomial<'_, Self, T>> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
+    }
+
+    /// Converts coefficients from the second form Chebyshev basis (`U_n`) to the first form Chebyshev basis (`T_n`).
+    fn first_form_coefficients(u: &[T]) -> Vec<T> {
+        let n = u.len();
+        let mut t = vec![T::zero(); n];
+
+        for (n_idx, &a_n) in u.iter().enumerate() {
+            if n_idx == 0 {
+                // U0 = T0
+                t[0] += a_n;
+                continue;
+            }
+
+            let mut m = n_idx;
+
+            // Add 2*a_n to T_m, T_{m-2}, ..., down to T_2 or T_1
+            while m >= 2 {
+                t[m] += a_n + a_n; // 2 * a_n
+                m -= 2;
+            }
+
+            if m == 1 {
+                // odd n: U_n contributes 2*T1
+                t[1] += a_n + a_n;
+            } else {
+                // even n >= 2: U_n contributes 1*T0
+                t[0] += a_n;
+            }
+        }
+
+        t
+    }
+}
+impl<T: Value> Polynomial<'_, SecondFormChebyshevBasis<T>, T> {
+    /// Computes a polynomial in the first form Chebyshev basis (`T_n`) that is equivalent to this second form basis (`U_n`).
+    ///
+    /// # Returns
+    /// A polynomial in the first form Chebyshev basis with coefficients derived from this second form
+    ///
+    /// # Errors
+    /// Can only fail if called on a polynomial that is already invalid (e.g. k=0)
+    pub fn as_first_form(&self) -> Result<Polynomial<'_, ChebyshevBasis<T>, T>> {
+        let u = self.coefficients();
+        let t = SecondFormChebyshevBasis::first_form_coefficients(u);
+
+        ChebyshevBasis::new_polynomial(self.basis().normalizer.src_range(), t)
     }
 }
 impl<T: Value> Basis<T> for SecondFormChebyshevBasis<T> {
@@ -173,5 +224,32 @@ impl<T: Value> IntegralBasis<T> for SecondFormChebyshevBasis<T> {
 
         let basis = ChebyshevBasis::from_normalizer(self.normalizer);
         Ok((basis, coefs))
+    }
+}
+
+impl<T: Value> RootFindingBasis<T> for SecondFormChebyshevBasis<T> {
+    fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>> {
+        let t = SecondFormChebyshevBasis::first_form_coefficients(coefs);
+        ChebyshevBasis::from_normalizer(self.normalizer).roots(&t, x_range)
+    }
+
+    fn complex_y(&self, z: Complex<T>, coefs: &[T]) -> Complex<T> {
+        let t = SecondFormChebyshevBasis::first_form_coefficients(coefs);
+        ChebyshevBasis::from_normalizer(self.normalizer).complex_y(z, &t)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test::basis_assertions;
+
+    use super::*;
+
+    #[test]
+    fn test_chebyshev_second_form() {
+        let polyt = ChebyshevBasis::new_polynomial((0.0, 1000.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
+        let c2 = polyt.derivative().unwrap();
+
+        basis_assertions::test_root_finding(&c2, 0.0..=1000.0);
     }
 }

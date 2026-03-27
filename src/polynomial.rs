@@ -769,30 +769,42 @@ where
         B: DifferentialBasis<T>,
     {
         let dx = self.derivative()?;
-        let roots = root_finder(&dx, x_range.clone())?;
+        let mut roots = root_finder(&dx, x_range.clone())?;
+        roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         if roots.is_empty() {
             // No critical points -> derivative does not change sign
             return Ok(vec![]);
         }
 
+        let tol = T::epsilon().sqrt();
+
         let mut violated_at = vec![];
 
-        let mut prev_sign = dx.y(*x_range.start()).f_signum();
         for x in roots {
-            let y = dx.y(x);
-            if Value::abs(y) > T::epsilon() {
-                let sign = y.f_signum();
-                if sign != prev_sign {
+            let tol = tol * (T::one() + Value::abs(x));
+            let left = dx.y(x - tol);
+            let right = dx.y(x + tol);
+
+            let left_sign = left.f_signum();
+            let right_sign = right.f_signum();
+
+            if left_sign == T::zero() && right_sign == T::zero() {
+                // Too flat - could be a plateau, or just a very flat critical point. We can't reliably determine if it's a violation or not, so we skip it.
+                continue;
+            }
+
+            if left_sign == T::zero() || right_sign == T::zero() {
+                // use raw values to decide
+                if left * right < T::zero() {
                     violated_at.push(x);
                 }
-                prev_sign = sign;
+                continue;
             }
-        }
 
-        let sign = dx.y(*x_range.end()).f_signum();
-        if sign != prev_sign {
-            violated_at.push(*x_range.end());
+            if left_sign != right_sign {
+                violated_at.push(x);
+            }
         }
 
         Ok(violated_at)

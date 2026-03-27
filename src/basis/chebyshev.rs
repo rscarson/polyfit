@@ -1,4 +1,4 @@
-use std::ops::RangeInclusive;
+use std::{borrow::Cow, ops::RangeInclusive};
 
 use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut};
 
@@ -68,10 +68,10 @@ impl<T: Value> ChebyshevBasis<T> {
     /// use polyfit::basis::ChebyshevBasis;
     /// let chebyshev_poly = ChebyshevBasis::new_polynomial((-1.0, 1.0), &[1.0, 0.0, -0.5]).unwrap();
     /// ```
-    pub fn new_polynomial(
+    pub fn new_polynomial<'a>(
         x_range: (T, T),
-        coefficients: &[T],
-    ) -> Result<crate::Polynomial<'_, Self, T>> {
+        coefficients: impl Into<Cow<'a, [T]>>,
+    ) -> Result<crate::Polynomial<'a, Self, T>> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
     }
