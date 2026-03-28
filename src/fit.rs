@@ -661,8 +661,8 @@ where
     ///
     /// # Parameters
     /// - `data`: Slice of `(x, y)` points to fit.
-    /// - `method`: [`crate::score`] to evaluate model quality.  
-    ///   - `AIC`: Akaike Information Criterion (uses `AICc` if `n/k < 4`)  
+    /// - `method`: [`crate::score`] to evaluate model quality.
+    ///   - `AIC`: Akaike Information Criterion (uses `AICc` if `n/k < 4`)
     ///   - `BIC`: Bayesian Information Criterion
     ///
     /// # Choosing a scoring method
@@ -674,7 +674,7 @@ where
     ///
     /// # Errors
     /// Returns [`Error`] if:
-    /// - `data` is empty (`Error::NoData`)  
+    /// - `data` is empty (`Error::NoData`)
     /// - A numeric value cannot be represented in the target type (`Error::CastFailed`)
     ///
     /// # Behavior
@@ -837,7 +837,7 @@ where
     ///
     /// # Errors
     /// Returns [`Error`] if:
-    /// - `data` is empty or `folds < 2` (`Error::NoData`)  
+    /// - `data` is empty or `folds < 2` (`Error::NoData`)
     /// - A numeric value cannot be represented in the target type (`Error::CastFailed`)
     /// - No valid model could be fitted (`Error::NoModel`)
     ///
@@ -1232,8 +1232,8 @@ where
     /// into account both the fit error and model complexity.
     ///
     /// # Parameters
-    /// - `method`: [`ModelScoreProvider`] to use for scoring.  
-    ///   - `AIC`: Akaike Information Criterion (uses `AICc` if `n/k < 4`)  
+    /// - `method`: [`ModelScoreProvider`] to use for scoring.
+    ///   - `AIC`: Akaike Information Criterion (uses `AICc` if `n/k < 4`)
     ///   - `BIC`: Bayesian Information Criterion
     ///
     /// # Returns

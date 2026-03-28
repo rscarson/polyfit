@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "poisson_example.png",
     )?;
 
-    // 
+    //
     // Salt and pepper noise
     let data = SourceSampleType::Growing(false).generate();
     let low_abs = NoiseTransform::Impulse { probability: 0.03, alpha: 0.0, beta: 0.0, min: Strength::Absolute(-50.0), max: Strength::Absolute(50.0), seed: None };
@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
 
     //
-    // Shift 
+    // Shift
     let data = SourceSampleType::Growing(false).generate();
     let shift_up = ScaleTransform::Shift(500.0);
     let shift_down = ScaleTransform::Shift(-500.0);
