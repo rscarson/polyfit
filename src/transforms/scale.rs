@@ -40,9 +40,9 @@ pub enum ScaleTransform<T: Value> {
     /// </div>
     ///
     /// # Parameters
-    /// - `factor`: The multiplier applied to each element.  
-    ///   - `factor > 1` → enlarges values  
-    ///   - `factor = 1` → leaves values unchanged  
+    /// - `factor`: The multiplier applied to each element.
+    ///   - `factor > 1` → enlarges values
+    ///   - `factor = 1` → leaves values unchanged
     ///   - `factor < 0` → flips the sign
     Linear(T),
 
@@ -202,9 +202,9 @@ pub trait ApplyScale<T: Value> {
     /// </div>
     ///
     /// # Parameters
-    /// - `factor`: The multiplier applied to each element.  
-    ///   - `factor > 1` → enlarges values  
-    ///   - `factor = 1` → leaves values unchanged  
+    /// - `factor`: The multiplier applied to each element.
+    ///   - `factor > 1` → enlarges values
+    ///   - `factor = 1` → leaves values unchanged
     ///   - `factor < 0` → flips the sign
     ///
     /// # Example
