@@ -376,7 +376,7 @@ let bad_and_silly_prediction = fit.y(150.0); // This is outside the range of the
                                              // Violating that is called extrapolation, which we generally want to avoid
                                              // This will return an error!
 
-let bad_prediction_probably = fit.as_polynomial().y(150.0); // This is outside the range of the data, but you asked for it specifically        
+let bad_prediction_probably = fit.as_polynomial().y(150.0); // This is outside the range of the data, but you asked for it specifically
                                                             // Unlike a CurveFit, a Polynomial is just a mathematical function - no seatbelts
                                                             // This will return a value, but it is probably nonsense
 

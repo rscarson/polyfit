@@ -61,6 +61,8 @@
 //! - Z-Score Normalization: [`NormalizationTransform::ZScore`]
 //!   - Normalizes the dataset to zero mean and unit variance.
 //!   - [`ApplyNormalization::apply_z_score_normalization`] allows you to apply it to the Y channel of an (X, Y) dataset
+use std::borrow::BorrowMut;
+
 use crate::value::Value;
 
 mod noise;
@@ -87,24 +89,35 @@ pub trait Transform<T: Value> {
     }
 }
 
+/// Allow passing an `&impl Transform` to anything that wants `impl Transform`.
+///
+/// This way if you don't need to re-use a transform, you can pass it directly,
+/// but you can still pass large ones by reference where that's helpful.
+impl<T: Value, R: ?Sized + Transform<T>> Transform<T> for &R {
+    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
+        <R as Transform<T>>::apply(*self, data);
+    }
+}
+
 /// Trait for transforming data.
 pub trait Transformable<T: Value> {
     /// Transforms the data in place.
-    fn transform<R: Transform<T>>(&mut self, transform: &R);
+    fn transform<R: Transform<T>>(&mut self, transform: R);
 
     /// Returns a transformed copy of the data.
     #[must_use]
-    fn transformed<R: Transform<T>>(&self, transform: &R) -> Self
+    fn transformed<R: Transform<T>>(&self, transform: R) -> Self::Owned
     where
-        Self: Sized + Clone,
+        Self: ToOwned,
+        Self::Owned: BorrowMut<Self>,
     {
-        let mut new_data = self.clone();
-        new_data.transform(transform);
+        let mut new_data = self.to_owned();
+        new_data.borrow_mut().transform(transform);
         new_data
     }
 }
-impl<T: Value> Transformable<T> for Vec<(T, T)> {
-    fn transform<R: Transform<T>>(&mut self, transform: &R) {
+impl<T: Value> Transformable<T> for [(T, T)] {
+    fn transform<R: Transform<T>>(&mut self, transform: R) {
         transform.apply(self.iter_mut().map(|(_, y)| y));
     }
 }
@@ -226,5 +239,17 @@ impl SeedSource {
         writeln!(out, "    data.apply_poisson_noise(Strength::Absolute(0.1), Some(src.seed()); // Poisson used for example").ok()?;
 
         Some(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transformed_slice_gives_vec() {
+        let points = [(-0.5, -4.0), (1.0, 3.0), (5.0, 4.0)];
+        let new_points: Vec<_> = points[1..].transformed(ScaleTransform::Quadratic(0.5));
+        assert_eq!(new_points, [(1.0, 4.5), (5.0, 8.0)]);
     }
 }
