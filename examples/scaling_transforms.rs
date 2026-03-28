@@ -9,7 +9,7 @@ use polyfit::{
         plotters::{Plot, Root, Split},
         PlotOptions, PlottingElement,
     },
-    transforms::{ApplyScale, ScaleTransform, Transform},
+    transforms::{ApplyScale, ScaleTransform, Transform, XTransform},
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Let's also convert time to minutes
     // The trait applies to y, so let's apply it manually
     let transformation = ScaleTransform::Linear(1.0 / 60.0);
-    transformation.apply(voltage_data.iter_mut().map(|(x, _)| x));
+    XTransform(transformation).apply::<Vec<_>>(&mut voltage_data);
 
     //
     // Let's plot these side-by-side
