@@ -1,7 +1,8 @@
-use nalgebra::MatrixViewMut;
+use nalgebra::{ComplexField, MatrixViewMut};
+use num_traits::{One, Zero};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, RootFindingBasis},
     display::{self, format_coefficient, PolynomialDisplay, Sign, Term, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
@@ -272,6 +273,42 @@ impl<T: Value> OrthogonalBasis<T> for LegendreBasis<T> {
     }
 }
 
+impl<T: Value> RootFindingBasis<T> for LegendreBasis<T> {
+    fn complex_y(&self, z: nalgebra::Complex<T>, coefs: &[T]) -> nalgebra::Complex<T> {
+        use nalgebra::Complex;
+
+        if coefs.is_empty() {
+            return Complex::zero();
+        }
+
+        // P0
+        let mut p_nm1 = Complex::one();
+        if coefs.len() == 1 {
+            return p_nm1 * Complex::from_real(coefs[0]);
+        }
+
+        // P1
+        let mut p_n = z;
+        let mut result = Complex::from_real(coefs[0]) * p_nm1 + Complex::from_real(coefs[1]) * p_n;
+
+        for n in 1..coefs.len() - 1 {
+            let n_t = T::from_positive_int(n);
+            let n1_t = T::from_positive_int(n + 1);
+
+            let a = Complex::from_real(T::from_positive_int(2 * n + 1)) * z * p_n;
+            let b = Complex::from_real(n_t) * p_nm1;
+            let p_np1 = (a - b) / Complex::from_real(n1_t);
+
+            result += Complex::from_real(coefs[n + 1]) * p_np1;
+
+            p_nm1 = p_n;
+            p_n = p_np1;
+        }
+
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -314,5 +351,7 @@ mod tests {
         // Calculus tests
         let poly = LegendreBasis::new_polynomial((0.0, 100.0), &[3.0, 2.0, 1.5, 3.0]).unwrap();
         basis_assertions::test_derivation(&poly, &poly.basis().normalizer);
+
+        basis_assertions::test_complex_y(&poly, 0.0..=100.0);
     }
 }

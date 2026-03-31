@@ -4,7 +4,7 @@ authors = ["@rscarson"]
 description = "Because you don't need to be able to build a powerdrill to use one safely"
 edition = "2021"
 license = "MIT"
-version = "0.10.2"
+version = "0.11.0"
 repository = "https://github.com/rscarson/polyfit"
 homepage = "https://polyfit.richardcarson.ca"
 
@@ -49,6 +49,10 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 name = "fitting"
 harness = false
 
+[[bench]]
+name = "root_finding"
+harness = false
+
 [[bin]]
 name = "basis_select"
 path = "src/bin/basis_select.rs"
@@ -75,10 +79,6 @@ required-features = ["transforms", "plotting"]
 
 [[example]]
 name = "outlier_detection"
-required-features = ["plotting"]
-
-[[example]]
-name = "generate_logo"
 required-features = ["plotting"]
 
 [[example]]

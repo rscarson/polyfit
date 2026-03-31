@@ -1,11 +1,14 @@
-use nalgebra::MatrixViewMut;
+use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut, Normed};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, MonomialBasis, OrthogonalBasis},
-    display::{self, format_coefficient, Sign, Term, DEFAULT_PRECISION},
+    basis::{
+        trigonometric_polynomial, Basis, DifferentialBasis, IntegralBasis,
+        LinearAugmentedFourierBasis, OrthogonalBasis, Root, RootFindingBasis,
+    },
+    display::{self, Term},
     error::Result,
     statistics::DomainNormalizer,
-    value::{IntClampedCast, Value},
+    value::Value,
     Polynomial,
 };
 
@@ -53,50 +56,14 @@ impl<T: Value> FourierPolynomial<'_, T> {
     /// Useful if you integrate a Fourier series and want the terms to line up with the original function, for example.
     #[must_use]
     pub fn with_dc_offset(&self, offset: T) -> Self {
-        let dc_terms = [offset];
-        self.with_dc_component(&dc_terms)
-    }
-
-    /// Creates a copy of the fourier series with a specified DC offset (monomial constant term).
-    /// This is useful for adjusting the baseline of the function without affecting its oscillatory behavior.
-    ///
-    /// Useful if you integrate a Fourier series and want the terms to line up with the original function, for example.
-    #[must_use]
-    pub fn with_dc_component(&self, dc_terms: &[T]) -> Self {
-        let mut basis = self.basis().clone();
-        let coefficients = self.coefficients();
-
-        let fourier_terms = &coefficients[basis.polynomial_terms.min(coefficients.len())..];
-        let coefficients = dc_terms
-            .iter()
-            .copied()
-            .chain(fourier_terms.iter().copied())
-            .collect::<Vec<_>>();
-        basis.polynomial_terms = dc_terms.len(); // Ensure we have enough monomial terms for the DC components
-
-        let degree = fourier_terms.len() / 2;
-        unsafe { Polynomial::from_raw(basis, coefficients.into(), degree) }
-    }
-
-    /// Returns a new Fourier polynomial with the same oscillatory behavior but centered around the specified DC offset.
-    /// This is useful for adjusting the baseline of the function without affecting its oscillatory behavior.
-    ///
-    /// This method calculates the necessary DC offset to ensure that the sum of the Fourier terms (sine and cosine) is centered around the target DC value.
-    #[must_use]
-    pub fn center_on_dc(&self, target_dc: T) -> Self {
-        let coefficients = self.coefficients();
-        let basis = self.basis();
-
-        // Sum up only the Cosine coefficients (indices 0, 2, 4... in the Fourier part)
-        let fourier_terms = &coefficients[basis.polynomial_terms..];
-        let mut cos_sum = T::zero();
-        for i in (0..fourier_terms.len()).step_by(2) {
-            cos_sum += fourier_terms[i];
+        let mut coefficients = self.coefficients().to_vec();
+        if coefficients.is_empty() {
+            coefficients.push(offset);
+        } else {
+            coefficients[0] = offset;
         }
 
-        // The new DC offset needs to cancel out the starting values of the cosines
-        let corrected_offset = target_dc - cos_sum;
-        self.with_dc_offset(corrected_offset)
+        unsafe { Polynomial::from_raw(self.basis().clone(), coefficients.into(), self.degree()) }
     }
 }
 
@@ -121,16 +88,22 @@ impl<T: Value> FourierPolynomial<'_, T> {
 #[derive(Debug, Clone)]
 pub struct FourierBasis<T: Value = f64> {
     normalizer: DomainNormalizer<T>,
-    polynomial_terms: usize,
+}
+impl<T: Value> trigonometric_polynomial::TrigonometricPolynomialBasis<0, T> for FourierBasis<T> {
+    fn normalizer(&self) -> &DomainNormalizer<T> {
+        &self.normalizer
+    }
 }
 impl<T: Value> FourierBasis<T> {
     /// Creates a new Fourier basis that normalizes inputs from the given range to [0, 2π].
     pub fn new(x_min: T, x_max: T) -> Self {
         let normalizer = DomainNormalizer::new((x_min, x_max), (T::zero(), T::two_pi()));
-        Self {
-            normalizer,
-            polynomial_terms: 1,
-        }
+        Self { normalizer }
+    }
+
+    /// Creates a new Fourier polynomial with the given coefficients over the specified x-range.
+    pub fn from_normalizer(normalizer: DomainNormalizer<T>) -> Self {
+        Self { normalizer }
     }
 
     /// Creates a new Fourier polynomial with the given coefficients over the specified x-range.
@@ -157,14 +130,38 @@ impl<T: Value> FourierBasis<T> {
         let basis = Self::new(x_range.0, x_range.1);
         crate::Polynomial::<Self, T>::from_basis(basis, coefficients)
     }
+
+    /// Convert Fourier coefficients to complex monomial coefficients.
+    ///
+    /// This is useful for certain mathematical operations, such as root finding
+    pub fn as_complex_monomial(&self, coefs: &[T]) -> Vec<Complex<T>> {
+        let n = (coefs.len() - 1) / 2;
+
+        let mut c = vec![Complex::new(T::zero(), T::zero()); 2 * n + 1];
+
+        // c_0
+        c[n] = Complex::from_real(coefs[0]);
+
+        let half = T::one() / T::two();
+
+        for k in 1..=n {
+            let b_k = coefs[2 * k - 1]; // sin
+            let a_k = coefs[2 * k]; // cos
+
+            // +k
+            c[n + k] = Complex::new(a_k * half, -b_k * half);
+
+            // -k
+            c[n - k] = Complex::new(a_k * half, b_k * half);
+        }
+
+        c
+    }
 }
 impl<T: Value> Basis<T> for FourierBasis<T> {
     fn from_range(x_range: std::ops::RangeInclusive<T>) -> Self {
-        let normalizer = DomainNormalizer::from_range(x_range, (T::zero(), T::two_pi()));
-        Self {
-            normalizer,
-            polynomial_terms: 1,
-        }
+        let normalizer = trigonometric_polynomial::new_normalizer(*x_range.start(), *x_range.end());
+        Self { normalizer }
     }
 
     #[inline(always)]
@@ -179,52 +176,22 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
 
     #[inline(always)]
     fn k(&self, degree: usize) -> usize {
-        2 * degree + 1
+        trigonometric_polynomial::TrigonometricPolynomialBasis::k(self, degree)
     }
 
     #[inline(always)]
     fn degree(&self, k: usize) -> Option<usize> {
-        let fourier_terms = k.checked_sub(self.polynomial_terms)?;
-        Some(fourier_terms / 2)
+        trigonometric_polynomial::TrigonometricPolynomialBasis::degree(self, k)
     }
 
     #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
-        // Because we support calculus, there can be a polynomial series at the start
-        // The first [0..polynomial_terms] are monomial terms
-        if j < self.polynomial_terms {
-            // we must undo the normalization for the monomial terms to get the correct values, since the Fourier basis normalizes x to [0, 2π]
-            let x = self.denormalize_x(x);
+        trigonometric_polynomial::TrigonometricPolynomialBasis::solve_function(self, j, x)
+    }
 
-            return Value::powi(x, j.clamped_cast());
-        }
-
-        let j = j - self.polynomial_terms;
-        // Now we have the Fourier terms
-
-        if j % 2 == 0 {
-            // Sine terms (odd indices)
-            let n = (j + 1).div_ceil(2);
-
-            // Infallible multiplication for the *n term
-            let mut angle = x;
-            for _ in 1..n {
-                angle += x;
-            }
-
-            angle.sin()
-        } else {
-            // Cosine terms (even indices)
-            let n = j.div_ceil(2);
-
-            // Infallible multiplication for the *n term
-            let mut angle = x;
-            for _ in 1..n {
-                angle += x;
-            }
-
-            angle.cos()
-        }
+    #[inline(always)]
+    fn solve(&self, x: T, coefficients: &[T]) -> T {
+        trigonometric_polynomial::TrigonometricPolynomialBasis::solve(self, x, coefficients)
     }
 
     //
@@ -235,160 +202,53 @@ impl<T: Value> Basis<T> for FourierBasis<T> {
         &self,
         start_index: usize,
         x: T,
-        mut row: MatrixViewMut<'_, T, R, C, RS, CS>,
+        row: MatrixViewMut<'_, T, R, C, RS, CS>,
     ) {
-        for j in start_index..row.ncols() {
-            row[j] = match j {
-                0 => T::one(),
-                1 => x.sin(), // first sin
-                2 => x.cos(), // first cos
-                3 => T::two() * x.cos() * row[1],
-                4 => T::two() * x.cos() * row[2] - T::one(),
-                _ => T::two() * x.cos() * row[j - 2] - row[j - 4],
-            }
-        }
+        trigonometric_polynomial::TrigonometricPolynomialBasis::fill_matrix_row(
+            self,
+            start_index,
+            x,
+            row,
+        );
     }
 }
 
 impl<T: Value> display::PolynomialDisplay<T> for FourierBasis<T> {
     fn format_term(&self, degree: i32, coef: T) -> Option<Term> {
-        if degree < self.polynomial_terms.clamped_cast() {
-            return MonomialBasis::format_term(&MonomialBasis::default(), degree, coef);
-        }
-
-        let degree = degree - self.polynomial_terms.clamped_cast::<i32>() + 1;
-
-        let sign = Sign::from_coef(coef);
-        let coef = format_coefficient(coef, degree, DEFAULT_PRECISION)?;
-
-        // frequency index
-        let n = (degree + 1) / 2;
-        let n = if n == 1 { String::new() } else { n.to_string() };
-
-        // even -> cos, odd -> sin
-        let function = if degree % 2 == 0 { "cos" } else { "sin" };
-
-        let x = display::unicode::subscript("s");
-        let x = format!("x{x}");
-
-        let glue = if coef.is_empty() || function.is_empty() {
-            ""
-        } else {
-            "·"
-        };
-
-        let body = format!("{coef}{glue}{function}({n}{x})");
-        Some(Term { sign, body })
+        trigonometric_polynomial::TrigonometricPolynomialBasis::format_term(self, degree, coef)
     }
 
     fn format_scaling_formula(&self) -> Option<String> {
-        let x = display::unicode::subscript("s");
-        let x = format!("x{x}");
-
-        Some(format!("{x} = {}", self.normalizer))
+        trigonometric_polynomial::TrigonometricPolynomialBasis::format_scaling_formula(self)
     }
 }
 
 impl<T: Value> IntegralBasis<T> for FourierBasis<T> {
-    type B2 = Self;
+    type B2 = LinearAugmentedFourierBasis<T>;
 
-    fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self, Vec<T>)> {
-        if coefficients.is_empty() {
-            return Ok((self.clone(), vec![constant]));
-        }
+    fn integral(&self, coefficients: &[T], constant: T) -> Result<(Self::B2, Vec<T>)> {
+        let coefs = trigonometric_polynomial::TrigonometricPolynomialBasis::integral(
+            self,
+            coefficients,
+            constant,
+        )?;
 
-        //
-        // We do a monomial integral for the first [0..polynomial_terms]
-        let polynomial_terms = &coefficients[..self.polynomial_terms.min(coefficients.len())];
-        let (_, mut integral_coeffs) =
-            MonomialBasis::default().integral(polynomial_terms, constant)?;
-
-        //
-        // The integral is actually not hard here
-        // 2- an * sin(nx) -> -an/n * cos(nx)
-        // 3- bn * cos(nx) -> bn/n * sin(nx)
-        // We can do the last 2 by flipping pairs of coefficients and dividing by n
-        let fourier_terms = &coefficients[self.polynomial_terms.min(coefficients.len())..];
-
-        let mut n = T::one(); // frequency index
-        let mut coef_iter = fourier_terms.iter();
-        while let Some(a) = coef_iter.next().copied() {
-            let b = coef_iter.next().copied().unwrap_or(T::zero());
-
-            // Fourier expects pairs of (sin, cos), so originally we had (a, b)
-            // Now under integration we need (b, -a) to get the right functions
-            integral_coeffs.push(b / n);
-            integral_coeffs.push(-a / n);
-
-            n += T::one(); // increment frequency index
-        }
-
-        // Scale only the fourier coefficients to account for original domain
-        let scale = self.normalizer.scale();
-        for coeff in &mut integral_coeffs[(self.polynomial_terms + 1).min(coefficients.len())..] {
-            *coeff /= scale;
-        }
-
-        let basis = Self {
-            normalizer: self.normalizer,
-            polynomial_terms: self.polynomial_terms + 1,
-        };
-        Ok((basis, integral_coeffs))
+        let basis = LinearAugmentedFourierBasis::from_normalizer(self.normalizer);
+        Ok((basis, coefs))
     }
 }
 
 impl<T: Value> DifferentialBasis<T> for FourierBasis<T> {
     type B2 = Self;
 
-    fn derivative(&self, coefficients: &[T]) -> Result<(Self, Vec<T>)> {
-        if coefficients.len() <= 1 {
-            return Ok((self.clone(), vec![T::zero()]));
-        }
-
-        //
-        // We do a monomial differential for the first [0..polynomial_terms]
-        let polynomial_terms = &coefficients[..self.polynomial_terms.min(coefficients.len())];
-        let (_, mut derivative_coeffs) = MonomialBasis::default().derivative(polynomial_terms)?;
-
-        let fourier_terms = &coefficients[self.polynomial_terms.min(coefficients.len())..];
-
-        //
-        // Similar to integral, we can do this by flipping pairs of coefficients:
-        // 2- an * sin(nx) -> n * an * cos(nx)
-        // 3- bn * cos(nx) -> -n * bn * sin(nx)
-
-        let mut n = T::one(); // frequency index
-        let mut coef_iter = fourier_terms.iter();
-        while let Some(a) = coef_iter.next().copied() {
-            let b = coef_iter.next().copied().unwrap_or(T::zero());
-
-            // Fourier expects pairs of (sin, cos), so originally we had (a, b)
-            // Now under differentiation we need (b, -a) to get the right functions
-            derivative_coeffs.push(n * -b);
-            derivative_coeffs.push(n * a);
-
-            n += T::one(); // increment frequency index
-        }
-
-        // Scale only the fourier coefficients to account for original domain
-        let scale = self.normalizer.scale();
-        for coeff in &mut derivative_coeffs[(self.polynomial_terms - 1).min(coefficients.len())..] {
-            *coeff *= scale;
-        }
-
-        let basis = Self {
-            normalizer: self.normalizer,
-            polynomial_terms: (self.polynomial_terms - 1).max(1),
-        };
-        Ok((basis, derivative_coeffs))
+    fn derivative(&self, coefficients: &[T]) -> Result<(Self::B2, Vec<T>)> {
+        let coefs =
+            trigonometric_polynomial::TrigonometricPolynomialBasis::derivative(self, coefficients)?;
+        Ok((self.clone(), coefs))
     }
 }
 
 impl<T: Value> OrthogonalBasis<T> for FourierBasis<T> {
-    fn is_orthogonal(&self) -> bool {
-        self.polynomial_terms < 2
-    }
-
     fn gauss_weight(&self, _: T) -> T {
         T::one()
     }
@@ -421,52 +281,104 @@ impl<T: Value> OrthogonalBasis<T> for FourierBasis<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        assert_close, assert_fits,
-        score::Aic,
-        statistics::DegreeBound,
-        test::basis_assertions::{self, assert_basis_orthogonal},
-        FourierFit, Polynomial,
-    };
+impl<T: Value> RootFindingBasis<T> for FourierBasis<T> {
+    fn roots(
+        &self,
+        coefs: &[T],
+        x_range: std::ops::RangeInclusive<T>,
+    ) -> Result<Vec<super::Root<T>>> {
+        let orig_coefs = coefs.to_vec();
+        let mut coefs = self.as_complex_monomial(coefs);
 
-    fn get_poly() -> Polynomial<'static, FourierBasis<f64>> {
-        let basis = FourierBasis::new(0.0, 100.0);
-        Polynomial::from_basis(basis, &[1.0, 2.0, -0.5]).unwrap()
-    }
-
-    #[test]
-    #[allow(clippy::unreadable_literal)]
-    fn test_fourier_basis() {
-        // Recover polynomial
-        let poly = get_poly();
-        let data = poly.solve_range(0.0..=100.0, 1.0);
-        let fit = FourierFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
-        assert_fits!(&poly, &fit);
-
-        // Solve known values
-        let basis = FourierBasis::new(0.0, 2.0 * std::f64::consts::PI);
-        assert_close!(basis.solve_function(0, 0.5), 1.0);
-        assert_close!(basis.solve_function(1, 0.5), 0.479425538604203);
-        assert_close!(basis.solve_function(2, 0.5), 0.8775825618903728);
-        assert_close!(basis.solve_function(3, 0.5), 0.8414709848078965);
-
-        // Integrate -> differentiate = Original
-        let poly = FourierBasis::new_polynomial((0.0, 100.0), &[0.5, 2.0, -1.5]).unwrap();
-        basis_assertions::test_reversible_derivation(&poly, &fit.basis().normalizer);
-        basis_assertions::test_reversible_integration(&poly, &fit.basis().normalizer);
-
-        let org_coefs = fit.coefficients();
-        let (bi, int_coefs) = fit.basis().integral(org_coefs, 0.0).unwrap();
-        let (_, diff_coefs) = bi.derivative(&int_coefs).unwrap();
-        assert_close!(org_coefs[0], diff_coefs[0]); // constant term
-        for (a, b) in org_coefs.iter().skip(1).zip(diff_coefs.iter().skip(1)) {
-            assert_close!(*a, *b); // Phase-shifted Fourier terms (negated)
+        let n = coefs.len() - 1; // degree of polynomial
+        if n == 0 {
+            return Ok(vec![]);
         }
 
-        // Orthogonality test points
-        assert_basis_orthogonal(&basis, 7, 100, 1e-12);
+        let mut companion = DMatrix::zeros(n, n);
+
+        // Find last non-zero (by magnitude)
+        let leading_index = coefs.iter().rposition(|c| c.norm() > T::epsilon());
+
+        if let Some(idx) = leading_index {
+            let leading = coefs[idx];
+
+            if leading.norm() > T::epsilon() && leading != Complex::from_real(T::one()) {
+                for c in &mut coefs {
+                    *c /= leading;
+                }
+            }
+        } else {
+            // All coefficients are zero
+            return Ok(vec![]);
+        }
+
+        for i in 1..n {
+            companion[(i, i - 1)] = Complex::from_real(T::one());
+        }
+
+        let leading = coefs[n];
+
+        for i in 0..n {
+            companion[(i, n - 1)] = -coefs[i] / leading;
+        }
+
+        let Some(eigs) = companion.eigenvalues() else {
+            return Err(crate::error::Error::Algebra(
+                "Failed to compute eigenvalues for root finding",
+            ));
+        };
+
+        let mut eigs = eigs.as_slice().to_vec();
+        for z in &mut eigs {
+            let norm = z.norm();
+            if norm > T::epsilon() {
+                *z /= norm;
+            }
+        }
+
+        // Filter and categorize roots
+        let test = eigs
+            .iter()
+            .map(|e| {
+                let arg = e.argument() + T::pi(); // Shift to align with Fourier basis
+                self.denormalize_x(arg)
+            })
+            .collect::<Vec<_>>();
+        println!("Eigenvalue arguments: {:?}", test);
+        let roots = Root::roots_from_complex(&eigs, |z| self.complex_y(*z, &orig_coefs));
+
+        // Remove roots outside the specified x_range
+        let x_min = *x_range.start();
+        let x_max = *x_range.end();
+        let roots = roots
+            .into_iter()
+            .filter(|root| match root {
+                Root::Real(r) => *r >= x_min && *r <= x_max,
+                Root::Complex(_) | Root::ComplexPair(_, _) => true, // Keep complex roots
+            })
+            .collect();
+
+        Ok(roots)
+    }
+
+    fn complex_y(&self, z: Complex<T>, coefs: &[T]) -> Complex<T> {
+        let complex_coefs = self.as_complex_monomial(coefs);
+        let n = (complex_coefs.len() - 1) / 2;
+
+        let mut result = Complex::new(T::zero(), T::zero());
+
+        for k in 0..=2 * n {
+            let exp = k as isize - n as isize;
+
+            let term = if exp >= 0 {
+                z.powi(exp as i32)
+            } else {
+                Complex::from_real(T::one()) / z.powi((-exp) as i32)
+            };
+
+            result += complex_coefs[k] * term;
+        }
+        result
     }
 }

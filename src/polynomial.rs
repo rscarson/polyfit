@@ -3,14 +3,74 @@ use std::{borrow::Cow, ops::RangeInclusive};
 use crate::{
     basis::{
         Basis, CriticalPoint, DifferentialBasis, IntegralBasis, IntoMonomialBasis, OrthogonalBasis,
-        Root, RootFindingBasis,
+        Root, RootFindingBasis, RootFindingMethod,
     },
     display::PolynomialDisplay,
-    error::{Error, Result},
+    error::Result,
     statistics,
-    value::{bisect, CoordExt, FloatClampedCast, SteppedValues, Value},
-    MonomialPolynomial,
+    value::{CoordExt, FloatClampedCast, SteppedValues, Value},
 };
+
+/// Logarithmic series curve
+///
+/// Uses logarithmic basis functions, which are particularly useful for modeling data that exhibits logarithmic growth or decay.
+/// The basis functions include terms like 1, ln(x), (ln(x))^2, ..., (ln(x))^n.
+pub type LogarithmicPolynomial<'data, T = f64> =
+    Polynomial<'data, crate::basis::LogarithmicBasis<T>, T>;
+
+/// Laguerre series curve
+///
+/// Uses Laguerre polynomials, which are orthogonal polynomials defined on the interval \[0, ∞\].
+/// These polynomials are particularly useful in quantum mechanics and numerical analysis.
+pub type LaguerrePolynomial<'data, T = f64> = Polynomial<'data, crate::basis::LaguerreBasis<T>, T>;
+
+/// Physicists' Hermite series curve
+///
+/// Uses Physicists' Hermite polynomials, which are orthogonal polynomials defined on the interval \[-∞, ∞\].
+/// These polynomials are particularly useful in probability, combinatorics, and physics, especially in quantum mechanics.
+pub type PhysicistsHermitePolynomial<'data, T = f64> =
+    Polynomial<'data, crate::basis::PhysicistsHermiteBasis<T>, T>;
+
+/// Probabilists' Hermite series curve
+///
+/// Uses Probabilists' Hermite polynomials, which are orthogonal polynomials defined on the interval \[-∞, ∞\].
+/// These polynomials are particularly useful in probability theory and statistics, especially in the context of Gaussian distributions.
+pub type ProbabilistsHermitePolynomial<'data, T = f64> =
+    Polynomial<'data, crate::basis::ProbabilistsHermiteBasis<T>, T>;
+
+/// Legendre series curve
+///
+/// Uses Legendre polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
+/// These polynomials are particularly useful for minimizing oscillation in polynomial interpolation.
+pub type LegendrePolynomial<'data, T = f64> = Polynomial<'data, crate::basis::LegendreBasis<T>, T>;
+
+/// Fourier series curve
+///
+/// Uses a Fourier series basis, which is particularly well-suited for modeling periodic functions.
+/// The basis functions include sine and cosine terms, allowing for effective representation of oscillatory behavior.
+pub type FourierPolynomial<'data, T = f64> = Polynomial<'data, crate::basis::FourierBasis<T>, T>;
+
+/// Linear Augmented Fourier series curve
+///
+/// Uses a Fourier series basis augmented with a linear term, allowing it to capture both periodic and linear trends in data.
+/// While this can be useful for fitting data with both periodic and linear components, it is not orthogonal due to the presence of the linear term.
+pub type LinearAugmentedFourierPolynomial<'data, T = f64> =
+    Polynomial<'data, crate::basis::LinearAugmentedFourierBasis<T>, T>;
+
+/// Normalized Chebyshev polynomial curve
+///
+/// Uses the Chebyshev polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
+/// These polynomials are particularly useful for minimizing Runge's phenomenon in polynomial interpolation.
+pub type ChebyshevPolynomial<'data, T = f64> =
+    Polynomial<'data, crate::basis::ChebyshevBasis<T>, T>;
+
+/// Non-normalized monomial polynomial curve
+///
+/// Uses the standard monomial functions: 1, x, x^2, ..., x^n
+///
+/// It is the most basic form of polynomial basis and is not normalized.
+/// It can lead to numerical instability for high-degree polynomials.
+pub type MonomialPolynomial<'data, T = f64> = Polynomial<'data, crate::basis::MonomialBasis<T>, T>;
 
 /// Represents a polynomial function in a given basis.
 ///
@@ -195,13 +255,8 @@ where
     /// let y = poly.y(2.0); // evaluates 1 + 2*2 + 3*2^2 = 17.0
     /// ```
     pub fn y(&self, x: T) -> T {
-        let mut y = T::zero();
         let x = self.basis.normalize_x(x);
-        for (i, &coef) in self.coefficients.iter().enumerate() {
-            y += coef * self.basis.solve_function(i, x);
-        }
-
-        y
+        self.basis.solve(x, self.coefficients())
     }
 
     /// Evaluates the polynomial at multiple x-values.
@@ -391,14 +446,13 @@ where
 
     /// Estimates the critical points (where the derivative is zero) of a polynomial in this basis.
     ///
-    /// This is a less precise method that uses the `approximate_real_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
+    /// This is a less precise method that uses the `iterative_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
     /// and is available for all bases, but may not be as accurate as the exact root finding method used in [`Self::critical_points`].
     ///
     /// This corresponds to the polynomial's local minima and maxima (The `x` values where curvature changes).
     ///
     /// # Parameters
     /// - `x_range`: The range of x-values to search for critical points.
-    /// - `max_newton_iterations`: Optional maximum number of iterations to refine each critical point.
     ///
     /// <div class="warning">
     ///
@@ -422,19 +476,23 @@ where
     /// ```rust
     /// # use polyfit::MonomialPolynomial;
     /// let poly = MonomialPolynomial::borrowed(&[1.0, 2.0, 3.0]); // 1 + 2x + 3x^2
-    /// let critical_points = poly.approximate_critical_points(0.0..=100.0, None).unwrap();
+    /// let critical_points = poly.iterative_critical_points(0.0..=100.0).unwrap();
     /// ```
-    pub fn approximate_critical_points(
+    pub fn iterative_critical_points(
         &self,
         x_range: RangeInclusive<T>,
-        max_newton_iterations: Option<usize>,
     ) -> Result<Vec<CriticalPoint<T>>>
     where
         B: DifferentialBasis<T>,
-        B::B2: DifferentialBasis<T>,
+        B::B2: RootFindingBasis<T>,
     {
         self.critical_points_from_roots(x_range, |f, x| {
-            f.approximate_real_roots(x, max_newton_iterations)
+            f.iterative_roots(x).map(|roots| {
+                roots
+                    .into_iter()
+                    .filter_map(|r| if let Root::Real(x) = r { Some(x) } else { None })
+                    .collect()
+            })
         })
     }
 
@@ -476,13 +534,15 @@ where
     /// - `Root::ComplexPair(z, z2)` indicates a pair of complex conjugate roots. These do not correspond to x-axis crossings but are important in the polynomial's overall behavior.
     /// - `Root::Complex(z)` indicates a single complex root (not part of a conjugate pair). Should be rare for polynomials with real coefficients.
     ///
+    /// You can call [`Self::root_finding_method`] to determine the method used to find the roots, which may be exact or approximate depending on the basis and implementation.
+    ///
     /// <div class="warning">
     ///
     /// **Technical Details**
     ///
     /// The roots are found by solving the equation `f(x) = 0`, where `f(x)` is the polynomial.
     ///
-    /// This is done in a basis-specific manner, often involving finding the eigenvalues of the companion matrix of the polynomial.
+    /// This is done in a basis-specific manner, often involving finding the eigenvalues of the companion matrix of the polynomial, or by numerical methods.
     ///
     /// </div>
     ///
@@ -498,6 +558,19 @@ where
         self.basis.roots(self.coefficients(), x_range)
     }
 
+    /// Returns the method used for root finding in this polynomial's basis.
+    ///
+    /// Will be one of:
+    ///
+    /// - `RootFindingMethod::Analytical`: An exact method that finds all roots (real and complex) using algebraic techniques, typically by finding the eigenvalues of the companion matrix. This is more precise but can be less stable for high-degree polynomials.
+    /// - `RootFindingMethod::Iterative{ samples, max_newton_iterations }`: An approximate method that finds only real roots using iterative techniques (e.g., sampling and Newton-Raphson refinement). This is often faster and more stable for high-degree polynomials but may misses complex roots and is less precise.
+    pub fn root_finding_method(&self) -> RootFindingMethod
+    where
+        B: RootFindingBasis<T>,
+    {
+        self.basis.root_finding_method()
+    }
+
     /// Uses a less precise iterative method to find only the real roots of the polynomial.
     ///
     /// This is less precise than [`Self::roots`] and will not find complex roots, but is often faster and more stable for high-degree polynomials
@@ -509,112 +582,30 @@ where
     ///   This helps improve the accuracy of the found roots. If omitted, a sensible value will be calculated
     ///
     /// # Returns
-    /// A vector of `T` representing the real roots of the polynomial within the specified range
+    /// A vector of `Root<T>` representing the roots of the polynomial.
     ///
     /// # Errors
     /// Returns an error if the derivative cannot be computed.
-    #[allow(clippy::many_single_char_names, reason = "begone, peasant")]
-    pub fn approximate_real_roots(
-        &self,
-        x_range: RangeInclusive<T>,
-        max_newton_iterations: Option<usize>,
-    ) -> Result<Vec<T>>
+    pub fn iterative_roots(&self, x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>>
     where
-        B: DifferentialBasis<T>,
+        B: RootFindingBasis<T>,
     {
-        const DEFAULT_SAMPLES: f64 = 500_000.0;
-        const DEFAULT_ITERATIONS: usize = 500;
+        let default_max_iterations = B::DEFAULT_ROOT_FINDING_MAX_ITERATIONS;
 
-        let mut roots = vec![];
-        let mut prev_x = *x_range.start();
-        let mut prev_y = self.y(prev_x);
+        let leading_coef = self.leading_coefficient();
+        let coef_scalar = Value::min(Value::abs(leading_coef.log10()), T::one());
 
-        // The aim is ~5000 samples, given a 64bit float precision and a width of domain of 100
-        // We scale this up or down based on the actual domain width and type precision
-        //
-        // We will scale logarithmically with respect to width, and linearly with respect to precision
-        let domain_width = *x_range.end() - *x_range.start();
-        let domain_scalar = match (Value::abs(domain_width) + T::one()).log10() - T::one() {
-            x if x > T::zero() => x,
-            x if x < T::zero() => T::one() / -x,
-            _ => T::one(),
-        };
         let precision_scalar = T::epsilon() / f64::EPSILON.clamped_cast::<T>();
-        let num_samples = DEFAULT_SAMPLES.clamped_cast::<T>() * domain_scalar * precision_scalar;
+        let max = T::from_positive_int(default_max_iterations) * coef_scalar * precision_scalar;
+        let recommended_max = max.as_usize().unwrap_or(default_max_iterations);
+        let max_iterations = recommended_max.max(default_max_iterations);
 
-        // Determine a sensible number of newton iterations if not provided
-        // This is based leading coefficient, and type precision
-        //
-        // 20 iterations is usually sufficient for double precision and well-scaled polynomials
-        let max_newton_iterations = if let Some(max) = max_newton_iterations {
-            max
-        } else {
-            let leading_coef = self.leading_coefficient();
-            let coef_scalar = Value::min(Value::abs(leading_coef.log10()), T::one());
-            let max =
-                (DEFAULT_ITERATIONS as f64).clamped_cast::<T>() * coef_scalar * precision_scalar;
-
-            max.as_usize().unwrap_or(DEFAULT_ITERATIONS)
-        };
-
-        let dx = self.derivative()?;
-        let sqrt_eps = T::epsilon().sqrt();
-        for x in SteppedValues::new(x_range, domain_width / num_samples) {
-            let y = self.y(x);
-            if (prev_y * y).is_sign_negative() || prev_y.is_near_zero() || y.is_near_zero() {
-                let (x, _) = bisect(
-                    &|x| self.y(x),
-                    prev_x,
-                    x,
-                    prev_y,
-                    y,
-                    4, // small fixed count
-                );
-
-                let mut a = prev_x;
-                let mut b = x;
-                let mut fa = prev_y;
-
-                // shrink interval FIRST
-                for _ in 0..max_newton_iterations {
-                    let m = (a + b) / T::two();
-                    let fm = self.y(m);
-
-                    if (fa * fm).is_sign_negative() {
-                        b = m;
-                    } else {
-                        a = m;
-                        fa = fm;
-                    }
-                }
-
-                let x = (a + b) / T::two();
-
-                // Newton iterations to refine
-                let mut newton_prev_x = x;
-                let mut newton_x;
-                for _ in 0..max_newton_iterations {
-                    let y = self.y(newton_prev_x);
-                    let dy = dx.y(newton_prev_x);
-                    newton_x = newton_prev_x - y / dy;
-                    newton_x = Value::clamp(newton_x, prev_x, x);
-
-                    let rel_tol = sqrt_eps + (T::one() * Value::abs(newton_x));
-                    if Value::abs(y) <= rel_tol || Value::abs(newton_x - newton_prev_x) <= rel_tol {
-                        break;
-                    }
-
-                    newton_prev_x = newton_x;
-                }
-
-                roots.push(newton_prev_x);
-            }
-
-            prev_x = x;
-            prev_y = y;
-        }
-
-        Ok(roots)
+        self.basis.roots_iterative(
+            &self.coefficients,
+            x_range,
+            B::DEFAULT_ROOT_FINDING_SAMPLES,
+            max_iterations,
+        )
     }
 
     /// Computes the indefinite integral of this polynomial.
@@ -700,12 +691,11 @@ where
 
     /// Estimates the X-values where the function is not monotone (i.e., where the derivative changes sign - meaning the function changes direction).
     ///
-    /// This is a less precise method that uses the `approximate_real_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
+    /// This is a less precise method that uses the `iterative_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
     /// and is available for all bases, but may not be as accurate as the exact root finding method used in [`Self::monotonicity_violations`].
     ///
     /// # Parameters
     /// - `x_range`: The range of x-values to search for monotonicity violations.
-    /// - `max_newton_iterations`: The maximum number of Newton-Raphson iterations to refine each critical point.
     ///
     /// # Errors
     /// Returns an error if the derivative cannot be computed.
@@ -714,19 +704,20 @@ where
     /// ```rust
     /// polyfit::function!(poly(x) = 4 x^3 + 2);
     /// let area = poly.area_under_curve(0.0, 3.0, None).unwrap();
-    /// let violations = poly.approximate_monotonicity_violations(0.0..=3.0, None).unwrap();
+    /// let violations = poly.iterative_monotonicity_violations(0.0..=3.0).unwrap();
     /// ```
-    pub fn approximate_monotonicity_violations(
-        &self,
-        x_range: RangeInclusive<T>,
-        max_newton_iterations: Option<usize>,
-    ) -> Result<Vec<T>>
+    pub fn iterative_monotonicity_violations(&self, x_range: RangeInclusive<T>) -> Result<Vec<T>>
     where
         B: DifferentialBasis<T>,
-        B::B2: DifferentialBasis<T>,
+        B::B2: RootFindingBasis<T>,
     {
         self.monotonicity_violations_from_roots(x_range, |f, x| {
-            f.approximate_real_roots(x, max_newton_iterations)
+            f.iterative_roots(x).map(|roots| {
+                roots
+                    .into_iter()
+                    .filter_map(|r| if let Root::Real(x) = r { Some(x) } else { None })
+                    .collect()
+            })
         })
     }
 
@@ -944,17 +935,6 @@ where
         Ok(poly)
     }
 
-    /// Checks if the polynomial's basis is orthogonal.
-    ///
-    /// Can be used to determine if methods that require orthogonality can be applied.
-    /// Returns true if the basis is orthogonal, false otherwise, like in the case of integrated Fourier series.
-    pub fn is_orthogonal(&self) -> bool
-    where
-        B: OrthogonalBasis<T>,
-    {
-        self.basis.is_orthogonal()
-    }
-
     /// Computes the energy contribution of each coefficient in an orthogonal basis.
     ///
     /// This is a measure of how much each basis function contributes to the resulting polynomial.
@@ -978,27 +958,18 @@ where
     ///
     /// # Returns
     /// A vector of energy contributions for each coefficient.
-    ///
-    /// # Errors
-    /// Returns an error if the basis is not orthogonal. This can be checked with [`Polynomial::is_orthogonal`].
-    /// Can happen for integrated Fourier series
-    pub fn coefficient_energies(&self) -> Result<Vec<T>>
+    pub fn coefficient_energies(&self) -> Vec<T>
     where
         B: OrthogonalBasis<T>,
     {
-        if !self.basis.is_orthogonal() {
-            return Err(Error::NotOrthogonal);
-        }
-
-        Ok(self
-            .coefficients()
+        self.coefficients()
             .iter()
             .enumerate()
             .map(|(degree, &c)| {
                 let norm = self.basis.gauss_normalization(degree);
                 c * c * norm
             })
-            .collect())
+            .collect()
     }
 
     /// Computes a smoothness metric for the polynomial.
@@ -1021,14 +992,11 @@ where
     ///
     /// # Returns
     /// A smoothness value, where lower values indicate a smoother polynomial.
-    ///
-    /// # Errors
-    /// Returns an error if the basis is not orthogonal. This can be checked with [`Polynomial::is_orthogonal`].
-    pub fn smoothness(&self) -> Result<T>
+    pub fn smoothness(&self) -> T
     where
         B: OrthogonalBasis<T>,
     {
-        let energies = self.coefficient_energies()?;
+        let energies = self.coefficient_energies();
 
         let mut smoothness = T::zero();
         let mut total_energy = T::zero();
@@ -1039,10 +1007,10 @@ where
         }
 
         if total_energy.is_near_zero() {
-            return Ok(T::zero());
+            return T::zero();
         }
 
-        Ok(smoothness / total_energy)
+        smoothness / total_energy
     }
 
     /// Applies a spectral energy filter to the polynomial.
@@ -1077,19 +1045,19 @@ where
     ///
     /// # Errors
     /// Returns an error if the basis is not orthogonal. This can be checked with [`Polynomial::is_orthogonal`].
-    pub fn spectral_energy_filter(&mut self) -> Result<()>
+    pub fn spectral_energy_filter(&mut self)
     where
         B: OrthogonalBasis<T>,
     {
         let n = self.coefficients().len();
-        let energies = self.coefficient_energies()?;
+        let energies = self.coefficient_energies();
         let mut total_energy = T::zero();
         for &e in &energies {
             total_energy += e;
         }
 
         if total_energy.is_near_zero() || n <= 1 {
-            return Ok(()); // Nothing to filter
+            return; // Nothing to filter
         }
 
         // compute suffix-sums for R(K)
@@ -1114,7 +1082,7 @@ where
 
         // Use Lanczos Sigma to smooth in the cutoff
         let Some(k_keep) = best_k else {
-            return Ok(());
+            return;
         };
         let m = T::from_positive_int(k_keep + 1);
         for k in 1..=k_keep.saturating_sub(1) {
@@ -1131,8 +1099,6 @@ where
         for i in (k_keep + 1)..n {
             self.coefficients_mut()[i] = T::zero();
         }
-
-        Ok(())
     }
 
     /// Returns a human-readable string of the polynomial equation.

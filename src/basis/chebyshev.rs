@@ -3,7 +3,10 @@ use std::{borrow::Cow, ops::RangeInclusive};
 use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, Root, RootFindingBasis},
+    basis::{
+        Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, Root, RootFindingBasis,
+        RootFindingMethod,
+    },
     display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     statistics::DomainNormalizer,
@@ -265,6 +268,10 @@ impl<T: Value> DifferentialBasis<T> for ChebyshevBasis<T> {
 }
 
 impl<T: Value> RootFindingBasis<T> for ChebyshevBasis<T> {
+    fn root_finding_method(&self) -> RootFindingMethod {
+        RootFindingMethod::Analytical
+    }
+
     fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>> {
         let n = coefs.len() - 1;
         if n == 0 {
@@ -448,5 +455,7 @@ mod tests {
 
         // Test root finding
         basis_assertions::test_root_finding(&polyt, 0.0..=1000.0);
+
+        basis_assertions::test_complex_y(&polyt, 0.0..=1000.0);
     }
 }

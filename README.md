@@ -95,18 +95,18 @@ Polyfit supports indefinite integration and differentiation in many bases, as we
 
 *Note: Exact root finding is a faster method only available for some bases*
 
-| Basis                     | Exact Root Finding | Derivative      | Integral (Indefinite) | As Monomial |
-|---------------------------|--------------------|-----------------|-----------------------|-------------|
-| **Monomial**              | Yes                | Yes             | Yes                   | Yes         |
-| **Chebyshev (1st form)**  | Yes                | Yes             | No                    | Yes         |
-| **Chebyshev (2nd form)**  | No                 | Yes             | Yes                   | No          |
-| **Chebyshev (3rd form)**  | No                 | No              | Yes                   | No          |
-| **Legendre**              | No                 | Yes             | No                    | Yes         |
-| **Laguerre**              | No                 | Yes             | No                    | Yes         |
-| **Hermite (Both kinds)**  | No                 | Yes             | No                    | Yes         |
-| **Fourier (sin/cos)**     | No                 | Yes             | Yes                   | No          |
-| **Exponential (e^{λx})**  | No                 | Yes             | Yes                   | No          |
-| **Logarithmic (ln^n x)**  | No                 | No              | No                    | No          |
+| Basis                     | Fast/Complex Roots | Derivative | Integral | As Monomial |
+|---------------------------|--------------------|------------|----------|-------------|
+| **Monomial**              | Yes                | Yes        | Yes      | Yes         |
+| **Chebyshev (1st form)**  | Yes                | Yes        | No       | Yes         |
+| **Chebyshev (2nd form)**  | Yes                | Yes        | Yes      | No          |
+| **Chebyshev (3rd form)**  | No                 | No         | Yes      | No          |
+| **Legendre**              | No                 | Yes        | No       | Yes         |
+| **Laguerre**              | No                 | Yes        | No       | Yes         |
+| **Hermite (Both kinds)**  | No                 | Yes        | No       | Yes         |
+| **Fourier (sin/cos)**     | Yes                | Yes        | Yes      | No          |
+| **Exponential (e^{λx})**  | No                 | Yes        | Yes      | No          |
+| **Logarithmic (ln^n x)**  | No                 | No         | No       | No          |
 
 **Monomial Conversions for Calculus**
 Most bases without calculus support implement [`IntoMonomialBasis`](https://docs.rs/polyfit/latest/polyfit/basis/trait.IntoMonomialBasis.html), which allows them to be converted into a monomial for calculus operations, or for the recognizable formula (for example `y(x) = 3x³ + 2x² + 1`).

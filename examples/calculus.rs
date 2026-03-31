@@ -41,7 +41,7 @@ fn main() -> Result<(), Error> {
     //
     // It would also be to find the critical points - where the curve changes from concave up to concave down, or vice versa.
     // this can tell us when the rate of change of power is increasing or decreasing.
-    let critical_points = fit.approximate_critical_points(None)?;
+    let critical_points = fit.critical_points()?;
     println!("\nCritical points:");
     for point in &critical_points {
         if point.coords().1 < 0.0 {

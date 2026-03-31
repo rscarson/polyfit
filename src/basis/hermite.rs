@@ -1,7 +1,8 @@
-use nalgebra::{Dim, MatrixViewMut};
+use nalgebra::{Complex, ComplexField, Dim, MatrixViewMut};
+use num_traits::{One, Zero};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis},
+    basis::{Basis, DifferentialBasis, IntoMonomialBasis, OrthogonalBasis, RootFindingBasis},
     display::{self, format_coefficient, PolynomialDisplay, Sign, Term, DEFAULT_PRECISION},
     error::Result,
     value::{IntClampedCast, Value},
@@ -375,6 +376,67 @@ impl<T: Value> OrthogonalBasis<T> for ProbabilistsHermiteBasis<T> {
     }
 }
 
+impl<T: Value> RootFindingBasis<T> for PhysicistsHermiteBasis<T> {
+    fn complex_y(&self, z: Complex<T>, coefs: &[T]) -> Complex<T> {
+        if coefs.is_empty() {
+            return Complex::zero();
+        }
+
+        let mut h_nm1 = Complex::one(); // H_0
+        let mut h_n = z * T::two(); // H_1
+
+        let mut result = Complex::from(coefs[0]);
+
+        if coefs.len() > 1 {
+            result += h_n * coefs[1];
+        }
+
+        for n in 1..coefs.len() - 1 {
+            let coef = coefs[n + 1];
+            let two = Complex::from_real(T::two());
+            let n_t = Complex::from_real(T::from_positive_int(n));
+
+            let h_np1 = two * z * h_n - two * n_t * h_nm1;
+
+            result += h_np1 * coef;
+
+            h_nm1 = h_n;
+            h_n = h_np1;
+        }
+
+        result
+    }
+}
+
+impl<T: Value> RootFindingBasis<T> for ProbabilistsHermiteBasis<T> {
+    fn complex_y(&self, z: Complex<T>, coefs: &[T]) -> Complex<T> {
+        if coefs.is_empty() {
+            return Complex::zero();
+        }
+
+        let mut h_nm1 = Complex::one(); // He_0
+        let mut h_n = z; // He_1 = x
+
+        let mut result = Complex::from(coefs[0]);
+        if coefs.len() > 1 {
+            result += h_n * coefs[1];
+        }
+
+        for n in 1..coefs.len() - 1 {
+            let n_t = Complex::from_real(T::from_positive_int(n));
+
+            let h_np1 = z * h_n - n_t * h_nm1; // probabilists' recurrence
+
+            result += h_np1 * coefs[n + 1];
+
+            h_nm1 = h_n;
+            h_n = h_np1;
+        }
+
+        result
+    }
+}
+
 fn format_herm<T: Value>(degree: i32, coef: T) -> Option<Term> {
     let sign = Sign::from_coef(coef);
     let coef = format_coefficient(coef, degree, DEFAULT_PRECISION)?;
@@ -438,6 +500,8 @@ mod tests {
 
         // Orthogonality test points
         assert_basis_orthogonal(&basis, 4, 100, 1e-12);
+
+        basis_assertions::test_complex_y(&poly, 0.0..=100.0);
     }
 
     #[test]
@@ -465,5 +529,7 @@ mod tests {
 
         // Orthogonality test points
         assert_basis_orthogonal(&basis, 4, 100, 1e-12);
+
+        basis_assertions::test_complex_y(&poly, 0.0..=100.0);
     }
 }

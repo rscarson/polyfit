@@ -80,7 +80,7 @@ fn main() -> Result<(), Error> {
     // of each coefficient (how much it contributes to the overall signal, vs what is likely noise)
     // and filter out the ones that are likely noise.
     let mut denoised = cheb_proj.clone();
-    denoised.spectral_energy_filter()?;
+    denoised.spectral_energy_filter();
 
     //
     // When run you'll see these values:

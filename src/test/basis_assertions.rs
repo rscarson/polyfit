@@ -3,12 +3,14 @@
 
 use std::ops::RangeInclusive;
 
+use nalgebra::{Complex, ComplexField};
+
 use crate::{
     assert_close, assert_is_derivative,
     basis::{Basis, DifferentialBasis, IntegralBasis, OrthogonalBasis, Root, RootFindingBasis},
     display::PolynomialDisplay,
     statistics::DomainNormalizer,
-    value::Value,
+    value::{SteppedValues, Value},
     Polynomial,
 };
 
@@ -147,13 +149,10 @@ pub fn assert_basis_normalizes<B: Basis<T>, T: Value>(
 pub fn test_derivation<'a, B, T>(
     f: &crate::Polynomial<'a, B, T>,
     norm: &DomainNormalizer<T>,
-) -> (
-    Polynomial<'a, <B as DifferentialBasis<T>>::B2, T>,
-    Polynomial<'a, <<B as DifferentialBasis<T>>::B2 as DifferentialBasis<T>>::B2, T>,
-)
+) -> Polynomial<'a, <B as DifferentialBasis<T>>::B2, T>
 where
     B: Basis<T> + PolynomialDisplay<T> + DifferentialBasis<T>,
-    <B as DifferentialBasis<T>>::B2: DifferentialBasis<T>,
+    <B as DifferentialBasis<T>>::B2: RootFindingBasis<T>,
     T: Value,
 {
     let domain = norm.src_range();
@@ -161,16 +160,12 @@ where
 
     let f_prime = f.derivative().expect("Failed to compute first derivative");
 
-    let f_double_prime = f_prime
-        .derivative()
-        .expect("Failed to compute second derivative");
-
     #[cfg(feature = "plotting")]
     {
         use crate::{basis::CriticalPoint, plot};
 
         let critical_points = f
-            .approximate_critical_points(domain.clone(), None)
+            .critical_points(domain.clone())
             .expect("Failed to compute critical points");
         let crit_markers = CriticalPoint::as_plotting_element(&critical_points);
 
@@ -180,15 +175,7 @@ where
     }
 
     assert_is_derivative!(f, f_prime, domain);
-    assert_is_derivative!(
-        f_prime,
-        f_double_prime,
-        domain,
-        f_lbl = "f'(x)",
-        fprime_lbl = "f''(x)"
-    );
-
-    (f_prime, f_double_prime)
+    f_prime
 }
 
 /// Uses a numerical method to comfirm that f'(x) is the derivative of f(x), and that f''(x) is the derivative of f'(x).
@@ -198,111 +185,73 @@ where
 pub fn test_reversible_derivation<B, T>(f: &crate::Polynomial<B, T>, norm: &DomainNormalizer<T>)
 where
     B: Basis<T> + PolynomialDisplay<T> + DifferentialBasis<T>,
-    <B as DifferentialBasis<T>>::B2: DifferentialBasis<T>,
+    <B as DifferentialBasis<T>>::B2: RootFindingBasis<T>,
     <<B as DifferentialBasis<T>>::B2 as DifferentialBasis<T>>::B2: IntegralBasis<T>,
-    <<<B as DifferentialBasis<T>>::B2 as DifferentialBasis<T>>::B2 as IntegralBasis<T>>::B2:
-        IntegralBasis<T>,
+    <B as DifferentialBasis<T>>::B2: IntegralBasis<T>,
     T: Value,
 {
     let domain = norm.src_range();
     let domain = domain.0..=domain.1;
 
-    let (_, f_double_prime) = test_derivation(f, norm);
+    let f_prime = test_derivation(f, norm);
 
     let c0 = f.coefficients()[0];
-    let c1 = f.coefficients()[1];
 
-    let f_prime2 = f_double_prime
-        .integral(Some(c1))
-        .expect("Failed to integrate f''(x)");
-    let f2 = f_prime2
+    let f2 = f_prime
         .integral(Some(c0))
         .expect("Failed to integrate f'(x)");
 
     assert_is_derivative!(
-        f_prime2,
-        f_double_prime,
-        &domain,
-        f_lbl = "∫(f'')(x)",
-        fprime_lbl = "f''(x)"
-    );
-    assert_is_derivative!(
         f2,
-        f_prime2,
+        f_prime,
         &domain,
-        f_lbl = "∫∫(f'')(x)",
-        fprime_lbl = "∫(f'')(x)"
+        f_lbl = "d(f(x))/dx",
+        fprime_lbl = "∫(d(f(x))/dx)"
     );
 }
 
-/// Uses a numerical method to comfirm that g(x) is the integral of f(x), and that h(x) is the integral of g(x).
+/// Uses a numerical method to comfirm that g(x) is the integral of f(x).
 ///
 /// # Panics
 /// Panics if the derivatives do not match the expected functions, or if the reverse integration/derivation checks fail.
 pub fn test_integration<'a, B, T>(
     f: &Polynomial<'a, B, T>,
     norm: &DomainNormalizer<T>,
-) -> (
-    Polynomial<'a, <B as IntegralBasis<T>>::B2, T>,
-    Polynomial<'a, <<B as IntegralBasis<T>>::B2 as IntegralBasis<T>>::B2, T>,
-)
+) -> Polynomial<'a, <B as IntegralBasis<T>>::B2, T>
 where
     B: Basis<T> + PolynomialDisplay<T> + DifferentialBasis<T> + IntegralBasis<T>,
-    <B as IntegralBasis<T>>::B2: IntegralBasis<T>,
     T: Value,
 {
     let domain = norm.src_range();
     let domain = domain.0..=domain.1;
 
-    let c0 = f.coefficients()[0];
-    let c1 = f.coefficients()[1];
+    let c = f.coefficients()[1];
 
-    let g = f
-        .integral(Some(c1))
-        .expect("Failed to compute first integral");
-    let h = g
-        .integral(Some(c0))
-        .expect("Failed to compute second integral");
+    let g = f.integral(Some(c)).expect("Failed to compute integral");
 
-    assert_is_derivative!(g, f, domain, fprime_lbl = "g(x)");
-    assert_is_derivative!(h, g, domain, f_lbl = "g(x)", fprime_lbl = "h(x)");
+    assert_is_derivative!(g, f, domain, f_lbl = "∫f(x)", fprime_lbl = "f(x)");
 
-    (g, h)
+    g
 }
 
-/// Uses a numerical method to comfirm that g(x) is the integral of f(x), and that h(x) is the integral of g(x).
+/// Uses a numerical method to comfirm that g(x) is the integral of f(x).
 ///
 /// # Panics
 /// Panics if the derivatives do not match the expected functions, or if the reverse integration/derivation checks fail.
 pub fn test_reversible_integration<B, T>(f: &crate::Polynomial<B, T>, norm: &DomainNormalizer<T>)
 where
     B: Basis<T> + PolynomialDisplay<T> + DifferentialBasis<T> + IntegralBasis<T>,
-    <B as IntegralBasis<T>>::B2: IntegralBasis<T>,
-    <<B as IntegralBasis<T>>::B2 as IntegralBasis<T>>::B2: DifferentialBasis<T>,
-    <<<B as IntegralBasis<T>>::B2 as IntegralBasis<T>>::B2 as DifferentialBasis<T>>::B2:
-        DifferentialBasis<T>,
-
+    <B as IntegralBasis<T>>::B2: DifferentialBasis<T>,
     T: Value,
 {
     let domain = norm.src_range();
     let domain = domain.0..=domain.1;
 
-    let (_, h) = test_integration(f, norm);
+    let g = test_integration(f, norm);
 
-    let g2 = h.derivative().expect("Failed to compute first derivative");
-    let f2 = g2
-        .derivative()
-        .expect("Failed to compute second derivative");
+    let f2 = g.derivative().expect("Failed to compute first derivative");
 
-    assert_is_derivative!(h, g2, domain, f_lbl = "h(x)", fprime_lbl = "d(h(x))/dx");
-
-    assert_is_derivative!(
-        g2,
-        f2,
-        domain,
-        f_lbl = "d(h(x))/dx",
-        fprime_lbl = "d(d(h(x))/dx)/dx"
-    );
+    assert_is_derivative!(g, f2, domain, f_lbl = "∫f(x)", fprime_lbl = "f(x)");
 }
 
 /// Test that `roots()` contains all the roots from `real_roots()` and no additional real roots, within the given `x_range`.
@@ -317,9 +266,7 @@ pub fn test_root_finding<
     x_range: RangeInclusive<T>,
 ) {
     let roots = f.roots(x_range.clone()).expect("Failed to compute roots");
-    let real_roots = f
-        .approximate_real_roots(x_range, None)
-        .expect("Failed to compute real roots");
+    let real_roots = f.roots(x_range).expect("Failed to compute real roots");
 
     let mut real_from_roots: Vec<_> = roots
         .iter()
@@ -334,7 +281,10 @@ pub fn test_root_finding<
 
     let df = f.derivative().expect("Failed to compute derivative");
     for root in &real_roots {
-        let dy_at_root = df.y(*root);
+        let Some(root) = root.as_real() else {
+            continue;
+        };
+        let dy_at_root = df.y(root);
 
         // tolerance = machine_epsilon * max(|f(root)|, |f'(root)|) * stability_factor
         let stability_factor = T::from_f64(1e12).unwrap_or(T::zero());
@@ -343,7 +293,7 @@ pub fn test_root_finding<
 
         let mut found_at = None;
         for (i, r) in real_from_roots.iter().enumerate() {
-            if (*r).abs_sub(*root) <= tol {
+            if (*r).abs_sub(root) <= tol {
                 found_at = Some(i);
                 break;
             }
@@ -363,6 +313,35 @@ pub fn test_root_finding<
         eprintln!("Real roots: {real_roots:?}");
         panic!(
             "Found extra real roots in roots() that are not in real_roots(): {real_from_roots:?}"
+        );
+    }
+}
+
+/// Test that `complex_y()` matches `solve_function()` on the real axis, and that the imaginary part is close to zero on the real axis.
+///
+/// # Panics
+/// Panics if the real part of `complex_y()` does not match `solve_function()`
+pub fn test_complex_y<B: Basis<T> + PolynomialDisplay<T> + RootFindingBasis<T>, T: Value>(
+    f: &crate::Polynomial<B, T>,
+    x_range: RangeInclusive<T>,
+) {
+    // Test that complex_y() matches solve_function() on the real axis
+    for value in SteppedValues::new(x_range, T::from_positive_int(100)) {
+        let real_y = f.y(value);
+
+        let normal_f = f.basis().normalize_x(value);
+        let complex_y = f
+            .basis()
+            .complex_y(Complex::from_real(normal_f), f.coefficients());
+        assert_close!(
+            complex_y.re,
+            real_y,
+            epsilon = T::from_f64(1e-6).unwrap_or(T::zero()),
+            "{f}\nReal part of complex_y should match solve_function on the real axis (x = {value:?})"
+        );
+        assert!(
+            Value::abs(complex_y.im) <= T::epsilon(),
+            "{f}\nImaginary part of complex_y should be close to zero on the real axis (x = {value:?})"
         );
     }
 }

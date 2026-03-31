@@ -3,7 +3,10 @@ use std::{borrow::Cow, fmt::Debug, ops::RangeInclusive};
 use nalgebra::{Complex, ComplexField, DMatrix, MatrixViewMut};
 
 use crate::{
-    basis::{Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis, Root, RootFindingBasis},
+    basis::{
+        Basis, DifferentialBasis, IntegralBasis, IntoMonomialBasis, Root, RootFindingBasis,
+        RootFindingMethod,
+    },
     display::{self, Sign, DEFAULT_PRECISION},
     error::Result,
     value::{IntClampedCast, Value},
@@ -122,6 +125,10 @@ impl<T: Value> DifferentialBasis<T> for MonomialBasis<T> {
 }
 
 impl<T: Value> RootFindingBasis<T> for MonomialBasis<T> {
+    fn root_finding_method(&self) -> RootFindingMethod {
+        RootFindingMethod::Analytical
+    }
+
     fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>> {
         let n = coefs.len() - 1; // degree of polynomial
         if n == 0 {
@@ -430,5 +437,7 @@ mod tests {
         // Test root finding
         function!(f(x) = 1 x^3 - 6 x^2 + 11 x - 6);
         basis_assertions::test_root_finding(&f, 0.0..=100.0);
+
+        basis_assertions::test_complex_y(&f, 0.0..=100.0);
     }
 }

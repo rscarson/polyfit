@@ -31,9 +31,6 @@ jobs:
     - name: calculus
       run: cargo run --example calculus --features="transforms plotting"
 
-    - name: generate_logo
-      run: cargo run --example generate_logo --features="transforms plotting"
-
     - name: outlier_detection
       run: cargo run --example outlier_detection --features="transforms plotting"
 

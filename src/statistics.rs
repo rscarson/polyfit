@@ -1081,6 +1081,26 @@ where
         }
     }
 
+    // Sanity check - over any tiny interval, the y position of the derivative should be the difference in y position of the original function
+    let dx = 1e-6.clamped_cast::<T>();
+    let x1 = *domain.start();
+    let x2 = *domain.start() + dx;
+    if x2 <= *domain.end() {
+        let delta_y = f.y(x2) - f.y(x1);
+        let derivative_y = f_prime.y(x1);
+        let rel_tol = tol.sqrt() * Value::max(Value::abs(derivative_y), T::one());
+        let diff = Value::abs(delta_y / dx - derivative_y);
+        if diff > rel_tol {
+            return Err(DerivationError {
+                x: x1,
+                finite_diff: delta_y / dx,
+                derivative: derivative_y,
+                diff,
+                rel_tol,
+            });
+        }
+    }
+
     Ok(())
 }
 

@@ -56,10 +56,6 @@ pub enum Error {
     #[error("Failed to cast value to target type")]
     CastFailed,
 
-    /// The basis functions are not orthogonal.
-    #[error("The series is not orthogonal")]
-    NotOrthogonal,
-
     /// The fit did not converge within the allotted iterations.
     #[error("The fitting process SVD step did not converge in time. Try an orthogonal basis, or normalizing the data.")]
     DidNotConverge,

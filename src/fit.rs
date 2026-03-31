@@ -53,6 +53,13 @@ pub type LegendreFit<'data, T = f64> = CurveFit<'data, crate::basis::LegendreBas
 /// The basis functions include sine and cosine terms, allowing for effective representation of oscillatory behavior.
 pub type FourierFit<'data, T = f64> = CurveFit<'data, crate::basis::FourierBasis<T>, T>;
 
+/// Linear Augmented Fourier series curve
+///
+/// Uses a Fourier series basis augmented with a linear term, allowing it to capture both periodic and linear trends in data.
+/// While this can be useful for fitting data with both periodic and linear components, it is not orthogonal due to the presence of the linear term.
+pub type LinearAugmentedFourierFit<'data, T = f64> =
+    CurveFit<'data, crate::basis::LinearAugmentedFourierBasis<T>, T>;
+
 /// Normalized Chebyshev polynomial curve
 ///
 /// Uses the Chebyshev polynomials, which are orthogonal polynomials defined on the interval \[-1, 1\].
@@ -1091,53 +1098,6 @@ where
         Ok(points)
     }
 
-    /// Estimates the critical points (where the derivative is zero) of a polynomial in this basis.
-    ///
-    /// This is a less precise method that uses the `approximate_real_roots` function to find roots using iterative methods, which can be more stable for high-degree polynomials
-    /// and is available for all bases, but may not be as accurate as the exact root finding method used in [`Self::critical_points`].
-    ///
-    /// This corresponds to the polynomial's local minima and maxima (The `x` values where curvature changes).
-    ///
-    /// <div class="warning">
-    ///
-    /// **Technical Details**
-    ///
-    /// The critical points are found by solving the equation `f'(x) = 0`, where `f'(x)` is the derivative of the polynomial.
-    ///
-    /// This is done with by finding the eigenvalues of the companion matrix of the derivative polynomial.
-    /// </div>
-    ///
-    /// # Returns
-    /// A vector of `x` values where the critical points occur.
-    ///
-    /// # Requirements
-    /// - The polynomial's basis `B` must implement [`DifferentialBasis`].
-    ///
-    /// # Errors
-    /// Returns an error if the critical points cannot be found.
-    ///
-    /// # Example
-    /// ```rust
-    /// # use polyfit::MonomialPolynomial;
-    /// # use polyfit::statistics::Confidence;
-    /// # use polyfit::MonomialFit;
-    /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
-    /// let critical_points = model.approximate_critical_points(None).unwrap();
-    /// ```
-    pub fn approximate_critical_points(
-        &self,
-        max_newton_iterations: Option<usize>,
-    ) -> Result<Vec<CriticalPoint<T>>>
-    where
-        B: DifferentialBasis<T>,
-        B::B2: DifferentialBasis<T>,
-    {
-        let points = self
-            .function
-            .approximate_critical_points(self.x_range.clone(), max_newton_iterations)?;
-        Ok(points)
-    }
-
     /// Computes the definite integral (area under the curve) of the fitted polynomial
     /// between `x_min` and `x_max`.
     ///
@@ -1200,30 +1160,6 @@ where
         B::B2: RootFindingBasis<T>,
     {
         self.function.monotonicity_violations(self.x_range.clone())
-    }
-
-    /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign).
-    ///
-    /// # Errors
-    /// Returns an error if the derivative cannot be computed.
-    ///
-    /// # Example
-    /// ```rust
-    /// # use polyfit::MonomialFit;
-    /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
-    /// let fit = MonomialFit::new(data, 2).unwrap();
-    /// let violations = fit.approximate_monotonicity_violations(None).unwrap();
-    /// ```
-    pub fn approximate_monotonicity_violations(
-        &self,
-        max_newton_iterations: Option<usize>,
-    ) -> Result<Vec<T>>
-    where
-        B: DifferentialBasis<T>,
-        B::B2: DifferentialBasis<T>,
-    {
-        self.function
-            .approximate_monotonicity_violations(self.x_range.clone(), max_newton_iterations)
     }
 
     /// Computes the quality score of the polynomial fit using the specified method.
@@ -1886,10 +1822,7 @@ where
     ///
     /// # Returns
     /// A vector of energy contributions for each coefficient.
-    ///
-    /// # Errors
-    /// Returns an error if the series is not orthogonal, like with integrated Fourier series.
-    pub fn coefficient_energies(&self) -> Result<Vec<T>>
+    pub fn coefficient_energies(&self) -> Vec<T>
     where
         B: OrthogonalBasis<T>,
     {
@@ -1916,10 +1849,7 @@ where
     ///
     /// # Returns
     /// A smoothness value, where lower values indicate a smoother polynomial.
-    ///
-    /// # Errors
-    /// Returns an error if the series is not orthogonal, like with integrated Fourier series.
-    pub fn smoothness(&self) -> Result<T>
+    pub fn smoothness(&self) -> T
     where
         B: OrthogonalBasis<T>,
     {
@@ -1955,14 +1885,11 @@ where
     ///
     /// # Notes
     /// - This method modifies the polynomial in place.
-    ///
-    /// # Errors
-    /// Returns an error if the basis is not orthogonal. This can be checked with [`Polynomial::is_orthogonal`].
-    pub fn spectral_energy_filter(&mut self) -> Result<()>
+    pub fn spectral_energy_filter(&mut self)
     where
         B: OrthogonalBasis<T>,
     {
-        self.function.spectral_energy_filter()
+        self.function.spectral_energy_filter();
     }
 
     /// Returns a human-readable string of the polynomial equation.

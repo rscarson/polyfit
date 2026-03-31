@@ -5,7 +5,7 @@ use nalgebra::{Complex, MatrixViewMut};
 use crate::{
     basis::{
         chebyshev::ThirdFormChebyshevBasis, Basis, ChebyshevBasis, DifferentialBasis,
-        IntegralBasis, Root, RootFindingBasis,
+        IntegralBasis, Root, RootFindingBasis, RootFindingMethod,
     },
     display,
     error::Result,
@@ -228,6 +228,10 @@ impl<T: Value> IntegralBasis<T> for SecondFormChebyshevBasis<T> {
 }
 
 impl<T: Value> RootFindingBasis<T> for SecondFormChebyshevBasis<T> {
+    fn root_finding_method(&self) -> RootFindingMethod {
+        RootFindingMethod::Analytical
+    }
+
     fn roots(&self, coefs: &[T], x_range: RangeInclusive<T>) -> Result<Vec<Root<T>>> {
         let t = SecondFormChebyshevBasis::first_form_coefficients(coefs);
         ChebyshevBasis::from_normalizer(self.normalizer).roots(&t, x_range)
@@ -251,5 +255,7 @@ mod test {
         let c2 = polyt.derivative().unwrap();
 
         basis_assertions::test_root_finding(&c2, 0.0..=1000.0);
+
+        basis_assertions::test_complex_y(&polyt, 0.0..=1000.0);
     }
 }
