@@ -427,7 +427,7 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
 /// The difference `max - min` of all elements in `data`.
 ///
 /// # Notes
-/// - Returns `T::infinity() - T::neg_infinity()` if `data` is empty  
+/// - Returns `T::infinity() - T::neg_infinity()` if `data` is empty
 ///
 /// # Examples
 /// ```rust

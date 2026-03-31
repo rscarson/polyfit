@@ -86,8 +86,8 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// **Technical Details**
     ///
-    /// - Each value is drawn from a normal distribution `N(0, strength²)`.  
-    /// - Correlation is introduced by mixing the new sample with the previous one:  
+    /// - Each value is drawn from a normal distribution `N(0, strength²)`.
+    /// - Correlation is introduced by mixing the new sample with the previous one:
     /// - The initial state is drawn from the same stationary distribution
     ///
     /// ```math
@@ -100,18 +100,18 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// # Parameters
     ///
-    /// - `rho`: Correlation factor between consecutive samples.  
-    ///   - Values near `0` → mostly independent noise.  
-    ///   - Values near `1` → highly correlated, slow-changing noise.  
+    /// - `rho`: Correlation factor between consecutive samples.
+    ///   - Values near `0` → mostly independent noise.
+    ///   - Values near `1` → highly correlated, slow-changing noise.
     ///
-    /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.  
+    /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
     CorrelatedGaussian {
-        /// Correlation factor between consecutive samples.  
-        /// - Values near `0` → mostly independent noise.  
-        /// - Values near `1` → highly correlated, slow-changing noise.  
+        /// Correlation factor between consecutive samples.
+        /// - Values near `0` → mostly independent noise.
+        /// - Values near `1` → highly correlated, slow-changing noise.
         rho: T,
 
         /// Standard deviation (spread) of the Gaussian distribution.
@@ -134,7 +134,7 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// **Technical Details**
     ///
-    /// Impulse noise can be modeled as a mixture distribution:  
+    /// Impulse noise can be modeled as a mixture distribution:
     ///
     /// ```math
     /// X = { original_value with probability (1 − p)
@@ -147,11 +147,11 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// # Parameters
     ///
-    /// - `probability`: The chance that any given value is replaced with an impulse.  
-    ///   - `0.0` → no impulses, original signal unchanged.  
-    ///   - `1.0` → every sample is replaced.  
+    /// - `probability`: The chance that any given value is replaced with an impulse.
+    ///   - `0.0` → no impulses, original signal unchanged.
+    ///   - `1.0` → every sample is replaced.
     ///
-    /// - `alpha`: Shape parameter for the impulse distribution.  
+    /// - `alpha`: Shape parameter for the impulse distribution.
     /// - `beta`: Secondary shape/scale parameter.
     ///   Together `alpha` and `beta` control how impulse magnitudes are drawn.
     ///   (For example, they may define a Beta distribution or similar skewed law,
@@ -163,16 +163,16 @@ pub enum NoiseTransform<T: Value> {
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
     ///
-    /// Typical cases:  
-    /// - With `alpha = beta = 1`, impulses are uniformly distributed in `[min, max]`.  
-    /// - With other values, impulses can be skewed toward one side or clustered around the center.  
+    /// Typical cases:
+    /// - With `alpha = beta = 1`, impulses are uniformly distributed in `[min, max]`.
+    /// - With other values, impulses can be skewed toward one side or clustered around the center.
     ///
     /// This makes impulse noise more flexible than simple salt-and-pepper noise, which
     /// only flips values to hard extremes.
     Impulse {
-        /// The chance that any given value is replaced with an impulse.  
-        /// - `0.0` → no impulses, original signal unchanged.  
-        /// - `1.0` → every sample is replaced.  
+        /// The chance that any given value is replaced with an impulse.
+        /// - `0.0` → no impulses, original signal unchanged.
+        /// - `1.0` → every sample is replaced.
         probability: f64,
 
         /// Shape parameter for the impulse distribution.
@@ -267,9 +267,9 @@ pub enum NoiseTransform<T: Value> {
     ///
     /// # Parameters
     ///
-    /// - `lambda`: Controls the intensity and rate of noise.  
-    ///   - Small `lambda` → sparse, spiky noise with frequent zeros.  
-    ///   - Large `lambda` → smoother noise that starts to resemble Gaussian.  
+    /// - `lambda`: Controls the intensity and rate of noise.
+    ///   - Small `lambda` → sparse, spiky noise with frequent zeros.
+    ///   - Large `lambda` → smoother noise that starts to resemble Gaussian.
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
@@ -433,7 +433,7 @@ where
     ///
     /// - For absolute strength, the standard deviation is simply the provided value.
     ///
-    /// - Each value is drawn from a normal distribution `N(0, strength)`.  
+    /// - Each value is drawn from a normal distribution `N(0, strength)`.
     ///
     /// ```math
     /// xₙ = x + εₙ
@@ -444,7 +444,7 @@ where
     ///
     /// # Parameters
     ///
-    /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.  
+    /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
@@ -485,8 +485,8 @@ where
     ///
     /// - For absolute strength, the standard deviation is simply the provided value.
     ///
-    /// - Each value is drawn from a normal distribution `N(0, strength)`.  
-    /// - Correlation is introduced by mixing the new sample with the previous one:  
+    /// - Each value is drawn from a normal distribution `N(0, strength)`.
+    /// - Correlation is introduced by mixing the new sample with the previous one:
     /// - The initial state is drawn from the same stationary distribution
     ///
     /// ```math
@@ -499,11 +499,11 @@ where
     ///
     /// # Parameters
     ///
-    /// - `rho`: Correlation factor between consecutive samples.  
-    ///   - Values near `0` → mostly independent noise.  
-    ///   - Values near `1` → highly correlated, slow-changing noise.  
+    /// - `rho`: Correlation factor between consecutive samples.
+    ///   - Values near `0` → mostly independent noise.
+    ///   - Values near `1` → highly correlated, slow-changing noise.
     ///
-    /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.  
+    /// - `strength`: Multiplier for the standard deviation (spread) of the Gaussian distribution.
     ///
     /// - `seed` *(optional)*: Fixes the RNG seed for reproducibility.
     ///   If not provided, a system RNG will be used each run.
@@ -544,10 +544,10 @@ where
     /// # Parameters
     ///
     /// - `lower`: Controls the maximum deviation from the original value in the lower direction.
-    ///   Noise is sampled from the interval `[-lower, +upper]`.  
+    ///   Noise is sampled from the interval `[-lower, +upper]`.
     ///
     /// - `upper`: Controls the maximum deviation from the original value in the upper direction.
-    ///   Noise is sampled from the interval `[-lower, +upper]`.  
+    ///   Noise is sampled from the interval `[-lower, +upper]`.
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
@@ -590,9 +590,9 @@ where
     ///
     /// # Parameters
     ///
-    /// - `lambda`: Controls the intensity of the noise.  
-    ///   - Small `lambda` → sparse, spiky noise with frequent zeros.  
-    ///   - Large `lambda` → smoother noise that starts to resemble Gaussian.  
+    /// - `lambda`: Controls the intensity of the noise.
+    ///   - Small `lambda` → sparse, spiky noise with frequent zeros.
+    ///   - Large `lambda` → smoother noise that starts to resemble Gaussian.
     ///
     /// - `seed` *(optional)*: Allows you to fix the random number generator seed
     ///   for reproducibility. If not provided, a system RNG will be used each run.
@@ -617,7 +617,7 @@ where
     ///
     /// **Technical Details**
     ///
-    /// Impulse noise can be modeled as a mixture distribution:  
+    /// Impulse noise can be modeled as a mixture distribution:
     ///
     /// ```math
     /// X = { original_value with probability (1 − p)
@@ -630,9 +630,9 @@ where
     ///
     /// # Parameters
     ///
-    /// - `probability`: The chance that any given value is replaced with an impulse.  
-    ///   - `0.0` → no impulses, original signal unchanged.  
-    ///   - `1.0` → every sample is replaced.  
+    /// - `probability`: The chance that any given value is replaced with an impulse.
+    ///   - `0.0` → no impulses, original signal unchanged.
+    ///   - `1.0` → every sample is replaced.
     ///
     /// - `min`: Lower bound for impulses. Relative strengths are scaled by the data's standard deviation.
     /// - `max`: Upper bound for impulses. Relative strengths are scaled by the data's standard deviation.
@@ -667,7 +667,7 @@ where
     ///
     /// **Technical Details**
     ///
-    /// Impulse noise can be modeled as a mixture distribution:  
+    /// Impulse noise can be modeled as a mixture distribution:
     ///
     /// ```math
     /// X = { original_value with probability (1 − p)
@@ -680,11 +680,11 @@ where
     ///
     /// # Parameters
     ///
-    /// - `probability`: The chance that any given value is replaced with an impulse.  
-    ///   - `0.0` → no impulses, original signal unchanged.  
-    ///   - `1.0` → every sample is replaced.  
+    /// - `probability`: The chance that any given value is replaced with an impulse.
+    ///   - `0.0` → no impulses, original signal unchanged.
+    ///   - `1.0` → every sample is replaced.
     ///
-    /// - `alpha`: Shape parameter for the impulse distribution.  
+    /// - `alpha`: Shape parameter for the impulse distribution.
     /// - `beta`: Secondary shape/scale parameter.
     ///   Together `alpha` and `beta` control how impulse magnitudes are drawn.
     ///   (For example, they may define a Beta distribution or similar skewed law,
