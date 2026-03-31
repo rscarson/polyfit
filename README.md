@@ -311,6 +311,7 @@ fit_vs_basis/Legendre           [29.325 µs 29.716 µs 30.160 µs]
 fit_vs_basis/Hermite            [30.496 µs 30.872 µs 31.321 µs]
 fit_vs_basis/Laguerre           [31.146 µs 31.428 µs 31.734 µs]
 fit_vs_basis/Fourier            [56.421 µs 56.985 µs 57.612 µs]
+fit_vs_basis/Logarithmic        [59.578 µs 60.847 µs 62.393 µs]
 
 Benchmarking auto fit vs basis (n=1000, Candidates=9)
 auto_fit_vs_basis/Monomial      [497.33 µs 500.27 µs 503.30 µs]
@@ -376,7 +377,7 @@ let bad_and_silly_prediction = fit.y(150.0); // This is outside the range of the
                                              // Violating that is called extrapolation, which we generally want to avoid
                                              // This will return an error!
 
-let bad_prediction_probably = fit.as_polynomial().y(150.0); // This is outside the range of the data, but you asked for it specifically        
+let bad_prediction_probably = fit.as_polynomial().y(150.0); // This is outside the range of the data, but you asked for it specifically
                                                             // Unlike a CurveFit, a Polynomial is just a mathematical function - no seatbelts
                                                             // This will return a value, but it is probably nonsense
 

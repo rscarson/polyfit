@@ -314,6 +314,7 @@
 //! fit_vs_basis/Hermite            [30.496 µs 30.872 µs 31.321 µs]
 //! fit_vs_basis/Laguerre           [31.146 µs 31.428 µs 31.734 µs]
 //! fit_vs_basis/Fourier            [56.421 µs 56.985 µs 57.612 µs]
+//! fit_vs_basis/Logarithmic        [59.578 µs 60.847 µs 62.393 µs]
 //!
 //! Benchmarking auto fit vs basis (n=1000, Candidates=9)
 //! auto_fit_vs_basis/Monomial      [497.33 µs 500.27 µs 503.30 µs]
