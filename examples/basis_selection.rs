@@ -64,16 +64,16 @@ fn main() -> Result<(), Error> {
     // Today we'll use Logarithmic because I want to show you how to use a different basis.
     //
     // I happen to know the data is a bit noisy, so I'll use k-fold cross validation to help avoid overfitting.
-    // We will use it to minimize bias in the fit - this means we care more about getting a good fit on average,
-    // rather than minimizing robustness to new data.
+    // We will use it to minimize variance in the fit - this means we care more about getting a model that generalizes well to new data,
+    // than we do about getting the best possible fit to this specific dataset.
     //
-    // This will be 5-fold cross validation since we are using the `MinimizeBias` strategy.
+    // This will be 5-fold cross validation since we are using the `MinimizeVariance` strategy.
     //
     // 5-fold regression means I split the data into 5 parts, fit to 4/5 of it, and test on the remaining 1/5.
     // This is repeated 5 times, each time with a different 1/5 held out for testing.
     let fit = LogarithmicFit::new_kfold_cross_validated(
         &data,
-        CvStrategy::MinimizeBias,
+        CvStrategy::MinimizeVariance,
         DegreeBound::Relaxed,
         &Aic,
     )?;

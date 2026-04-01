@@ -64,6 +64,10 @@ fn main() -> Result<(), Error> {
         "Folded RMSE: {}",
         uncertain_value.confidence_band(Confidence::P95)
     );
+    println!(
+        "Normal RMSE for Comparison: {}",
+        fit.root_mean_squared_error()
+    );
 
     // That value is small compared to the range of the data (~±150), so we can be confident in our fit!
     // And the range is small so the model will generalize well to new data within the same range.
