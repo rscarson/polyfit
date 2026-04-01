@@ -1153,7 +1153,13 @@ pub enum DegreeBound {
 
     /// Similar to Relaxed but with no smoothness assumption, or hard cap. Use this if you are trying to approximate a dataset exactly,
     ///  or if you have a very large dataset and want to explore higher degrees.
-    /// Use with caution, as it can lead to overfitting and numerical instability, especially with small datasets.
+    ///
+    /// <div class="warning">
+    ///     Use with caution, as it can lead to overfitting and numerical instability, especially with small datasets.
+    /// </div>
+    ///
+    /// In nearly every case, you should use [`DegreeBound::Relaxed`] instead of this option,
+    /// unless you understand the implications and have a specific reason for allowing such high degrees.
     ///
     /// - Assumes the data is not smooth (s=0)
     /// - No hard cap, but the theoretical maximum of n-1 still applies
@@ -1651,8 +1657,8 @@ impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
 /// - Bias: Error due to overly simplistic models (underfitting). This is how far off average predictions are from actual values.
 /// - Variance: Error due to overly complex models (overfitting). This is how much predictions vary for different training sets.
 ///
-/// - `MinimizeBias`: Uses fewer folds (e.g., k=5) to reduce bias in error estimates, at the cost of higher variance.
-/// - `MinimizeVariance`: Uses more folds (e.g., k=10) to reduce variance in error estimates, at the cost of higher bias.
+/// - `MinimizeVariance`: Uses fewer folds (e.g., k=5) to reduce variance in error estimates, at the cost of higher bias.
+/// - `MinimizeBias`: Uses more folds (e.g., k=10) to reduce bias in error estimates, at the cost of higher variance.
 /// - `LeaveOneOut`: Leave-One-Out cross-validation (LOOCV), where each data point is used once as a validation set.
 /// - `Balanced`: A compromise between bias and variance (e.g., k=7).
 ///
@@ -1664,19 +1670,19 @@ impl<T: Value> std::fmt::Display for DomainNormalizer<T> {
 /// - `Custom`: Specify your own number of folds (k) based on domain knowledge or specific requirements. Use with caution
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CvStrategy {
-    /// Uses fewer folds (e.g., k=5) to reduce bias in error estimates, at the cost of higher variance.
-    ///
-    /// When to use: When the dataset is small and you want to avoid underfitting. Prevents a model from being too simple to capture data patterns.
-    ///
-    /// When using this strategy, the data is split into 5 folds.
-    MinimizeBias,
-
-    /// Uses more folds (e.g., k=10) to reduce variance in error estimates, at the cost of higher bias.
+    /// Uses fewer folds (e.g., k=5) to reduce variance in error estimates, at the cost of higher bias.
     ///
     /// When to use: When the dataset is large and you want to avoid overfitting. Helps ensure the model generalizes well to unseen data.
     ///
-    /// When using this strategy, the data is split into 10 folds.
+    /// When using this strategy, the data is split into 5 folds.
     MinimizeVariance,
+
+    /// Uses more folds (e.g., k=10) to reduce bias in error estimates, at the cost of higher variance.
+    ///
+    /// When to use: When the dataset is small and you want to avoid underfitting. Prevents a model from being too simple to capture data patterns.
+    ///
+    /// When using this strategy, the data is split into 10 folds.
+    MinimizeBias,
 
     /// Leave-One-Out cross-validation (LOOCV), where each data point is used once as a validation set.
     ///
@@ -1701,8 +1707,8 @@ impl CvStrategy {
     #[must_use]
     pub fn k(self, n: usize) -> usize {
         match self {
-            CvStrategy::MinimizeBias => 5,
-            CvStrategy::MinimizeVariance => 10,
+            CvStrategy::MinimizeVariance => 5,
+            CvStrategy::MinimizeBias => 10,
             CvStrategy::LeaveOneOut => n,
             CvStrategy::Balanced => 7,
             CvStrategy::Custom { k } => k,

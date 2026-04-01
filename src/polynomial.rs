@@ -1042,9 +1042,6 @@ where
     ///
     /// # Notes
     /// - This method modifies the polynomial in place.
-    ///
-    /// # Errors
-    /// Returns an error if the basis is not orthogonal. This can be checked with [`Polynomial::is_orthogonal`].
     pub fn spectral_energy_filter(&mut self)
     where
         B: OrthogonalBasis<T>,

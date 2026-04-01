@@ -6,7 +6,7 @@
 //! # Overview of Available Scoring Methods
 //! - **Akaike Information Criterion (AIC)**: A commonly used method that balances fit quality and complexity. It tends to favor slightly more complex models if they provide a better fit.
 //! - **Bayesian Information Criterion (BIC)**: Similar to AIC but applies a stricter penalty for model complexity. It often prefers simpler models, even if the fit is slightly worse.
-//! - **RMSE (Root Mean Squared Error)**: A straightforward measure of fit quality that does not penalize complexity. Use this if you want to select the model that fits the data best, regardless of how complex it is. Be cautious of overfitting, especially with small datasets.
+//! - **Root Mean Squared Error (RMSE)**: A straightforward measure of fit quality that does not penalize complexity. Use this if you want to select the model that fits the data best, regardless of how complex it is. Be cautious of overfitting, especially with small datasets.
 //! - **`ShapeConstraint`**: A custom scoring method that adds a penalty for curvature and non-monotonicity, in addition to the fit quality measured by RMSE. Use this if you want to select a model that not only fits the data well, but also has a smoother curve and/or is monotonic.
 //!
 //! The [`ModelScoreProvider`] trait defines the interface for implementing custom scoring methods.
@@ -16,11 +16,14 @@
 use crate::{basis::Basis, display::PolynomialDisplay, value::Value, CurveFit};
 
 mod basic;
-pub use basic::{Aic, Bic, RMSE};
+pub use basic::*;
 
 pub mod shape_constraint;
 
 /// Trait for implementing scoring methods for model selection.
+///
+/// It is generic over basis so that a given scoring method can be made useable in only a subset of bases if desired.
+/// For example, `ShapeConstraint` is only implemented for bases that implement `DifferentialBasis`, since it needs to calculate the first and second derivatives of the curve.
 pub trait ModelScoreProvider<B: Basis<T> + PolynomialDisplay<T>, T: Value>: Send + Sync {
     /// The minimum distance between scores for them to be considered significantly different.
     /// As per burnham-anderson guidelines, a difference of less than 2 is not considered significant for AIC/BIC scores.
@@ -33,9 +36,11 @@ pub trait ModelScoreProvider<B: Basis<T> + PolynomialDisplay<T>, T: Value>: Send
     /// - This is **not** a measure of how well the model fits your data. For that, use `r_squared`.
     ///
     /// # Type Parameters
+    /// - `B`: The type of basis used in the curve fit, which must implement both `Basis<T>` and `PolynomialDisplay<T>`.
     /// - `T`: A numeric type implementing the `Value` trait.
     ///
     /// # Parameters
+    /// - `model`: The fitted curve model for which the score is being calculated.
     /// - `y`: Iterator over the observed (actual) values.
     /// - `y_fit`: Iterator over the predicted values from the model.
     /// - `k`: Number of model parameters (degrees of freedom used by the fit).

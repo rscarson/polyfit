@@ -29,7 +29,15 @@ fn main() -> Result<(), polyfit::error::Error> {
     // Here we aren't doing a normal fit where we need to worry about overfitting - we care a lot more about getting the shape right than anything else
     // ShapeConstraint is a custom scoring method that penalizes curvature and non-monotonicity, which is exactly what we want for this data
     //
-    let score = ShapeConstraint::new(SamplingStrategy::Total) // Sample all points - its not a big dataset and we want to get the shape right across the whole curve
+    // In this case, we know the data is almost perfectly monotonic, and has very little curvature (smooth, does not wiggle around much)
+    // And we don't care as much about overfitting - we want to get the shape right, even if it means a more complex model
+    //
+    // `ShapeConstraint` also needs a base score provider - the metric it uses to measure the fit quality before applying the curvature and monotonicity penalties
+    // The most common choices for this are RMSE and MAE, which are both provided as convenient constructors on `ShapeConstraint` that set up the base score provider for you
+    //
+    // Here I chose RMSE because it it punishes outliers more than MAE, which gives a stronger signal for model selection - since we want to get the shape right
+    //
+    let score = ShapeConstraint::new_rmse(SamplingStrategy::Total) // Sample all points - its not a big dataset and we want to get the shape right across the whole curve
         .with_curvature_penalty(PenaltyWeight::Medium) // We want to avoid unnecessary curvature, but we know there is some real curvature in the data
         .with_monotonic_penalty(PenaltyWeight::Large, MonotonicityDirection::Infer); // The data is monotonic, so we want to heavily penalize any non-monotonicity
 

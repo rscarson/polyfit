@@ -124,6 +124,14 @@ pub enum NormalizationTransform<T: Value> {
     /// asymptote_epsilon = mean(Y) * 1e-02
     /// asymptote = max(Y) + asymptote_epsilon
     /// yₙ = ln(asymptote - y)
+    ///
+    /// where
+    ///   Y is the dataset being transformed
+    ///   mean(Y) is the average of the dataset
+    ///   max(Y) is the maximum value in the dataset
+    ///   asymptote_epsilon is a small buffer added to ensure all points are below the asymptote, which is important for the log transformation
+    /// ```
+    /// </div>
     LogOffset {
         /// A small epsilon added to the estimated asymptote to ensure all points are below it, which is important for the log transformation.
         /// If None, a default value of 1% of the standard deviation of the data will be used.

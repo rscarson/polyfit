@@ -837,7 +837,7 @@ where
     /// - Choose [`CvStrategy::MinimizeVariance`] (e.g., k=10) with smaller datasets to reduce variance. Helps ensure the model generalizes well to unseen data.
     /// - Choose [`CvStrategy::Balanced`] (e.g., k=7) for a compromise between bias and variance.
     /// - Choose [`CvStrategy::LeaveOneOut`] (k=n) for very small datasets, but be aware of the high computational cost.
-    /// - Choose [`CvStrategy::Custom(k)`] to specify a custom number of folds, ensuring k >= 2 and k <= n.
+    /// - Choose [`CvStrategy::Custom`] to specify a custom number of folds, ensuring k >= 2 and k <= n.
     ///
     /// # Returns
     /// Returns `Ok(Self)` with the fit at the optimal degree.
@@ -1413,7 +1413,7 @@ where
     /// where
     ///   n = number of observations, k = number of model parameters
     /// ```
-    /// [`r_squared`] is used to compute R²
+    /// [`statistics::adjusted_r_squared`] is used to compute R²
     /// </div>
     ///
     /// # Type Parameters

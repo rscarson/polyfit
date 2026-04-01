@@ -3,13 +3,11 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_sign_loss)]
 
-use num_traits::Zero;
-
 use crate::{
     basis::{Basis, DifferentialBasis},
     display::PolynomialDisplay,
-    score::{ModelScoreProvider, RMSE},
-    value::Value,
+    score::{ModelScoreProvider, ScoringMethod},
+    value::{FloatClampedCast, Value},
     CurveFit,
 };
 
@@ -18,7 +16,7 @@ use crate::{
 /// This is a simple enum to make it easier to choose a penalty strength without having to guess at specific lambda values.
 /// The `Custom` variant allows you to specify an exact lambda value if you want more control.
 ///
-/// - None: I don't care about this at all, just give me the best fit according to RMSE (See [`RMSE`])
+/// - None: I don't care about this at all, just give me the best fit according to the base score provider (e.g., RMSE).
 /// - Small: A small penalty that will slightly favor smoother/monotonic models, but won't override a significantly better fit.
 /// - Medium: A moderate penalty that will favor smoother/monotonic models, but will still allow a more complex model if it provides a noticeably better fit.
 /// - Large: A strong penalty that will heavily favor smoother/monotonic models, and will only allow a more complex model if it provides a much better fit.
@@ -26,7 +24,7 @@ use crate::{
 /// - Custom: These didn't work and I want to find a better value by trial and error, so let me specify an exact lambda value.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PenaltyWeight {
-    /// No penalty - just use RMSE to select the best fit.
+    /// No penalty - just use the base score provider (e.g., RMSE) to select the best fit.
     None,
 
     /// A small penalty (1e-6) that will slightly favor smoother/monotonic models, but won't override a significantly better fit.
@@ -45,20 +43,22 @@ pub enum PenaltyWeight {
     Custom(f64),
 }
 impl PenaltyWeight {
-    fn to_lambda(self) -> f64 {
-        match self {
+    #[inline(always)]
+    fn to_lambda<T: Value>(self) -> T {
+        let l = match self {
             PenaltyWeight::None => 0.0,
             PenaltyWeight::Small => 1e-6,
             PenaltyWeight::Medium => 1e-4,
             PenaltyWeight::Large => 1e-2,
             PenaltyWeight::Hard => 1e6,
             PenaltyWeight::Custom(value) => value,
-        }
+        };
+        l.clamped_cast()
     }
 }
-impl From<f64> for PenaltyWeight {
-    fn from(value: f64) -> Self {
-        PenaltyWeight::Custom(value)
+impl<T: Value> From<T> for PenaltyWeight {
+    fn from(value: T) -> Self {
+        PenaltyWeight::Custom(value.clamped_cast())
     }
 }
 
@@ -103,7 +103,9 @@ impl SamplingStrategy {
     #[must_use]
     pub fn count(&self, data_len: usize) -> usize {
         match self {
-            SamplingStrategy::Percentage(percent) => (percent * (data_len as f64)).round() as usize,
+            SamplingStrategy::Percentage(percent) => {
+                (percent.clamp(0.0, 1.0) * (data_len as f64)).round() as usize
+            }
             SamplingStrategy::Count(count) => (*count).clamp(1, data_len),
             SamplingStrategy::Total => data_len,
         }
@@ -132,24 +134,51 @@ pub enum MonotonicityDirection {
 ///
 /// This is useful for specific data sets with known properties, such as growth curves.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ShapeConstraint {
-    lambda_curvature: f64,
-    lambda_monotonic: f64,
+pub struct ShapeConstraint<T: Value> {
+    base_score_provider: ScoringMethod,
+
+    lambda_curvature: T,
+    lambda_monotonic: T,
     monotonic_direction: MonotonicityDirection,
     samples: SamplingStrategy,
 }
-impl ShapeConstraint {
-    /// Creates a new `ShapeConstraint` scoring method with the specified sampling strategy and no penalties for curvature or monotonicity.
+
+impl<T: Value> ShapeConstraint<T> {
+    /// Creates a new `ShapeConstraint` scoring method with the specified sampling strategy and base score provider, and no penalties for curvature or monotonicity.
     ///
-    /// Until you call `with_curvature_penalty` or `with_monotonic_penalty`, this scoring method is equivalent to just using RMSE
+    /// Until you call `with_curvature_penalty` or `with_monotonic_penalty`, this scoring method is equivalent to just using the specified base score provider (e.g., RMSE)
     #[must_use]
-    pub fn new(sampling_strategy: SamplingStrategy) -> Self {
+    pub fn new_with_provider(
+        base_score_provider: impl Into<ScoringMethod>,
+        sampling_strategy: SamplingStrategy,
+    ) -> Self {
         Self {
-            lambda_curvature: 0.0,
-            lambda_monotonic: 0.0,
+            base_score_provider: base_score_provider.into(),
+
+            lambda_curvature: T::zero(),
+            lambda_monotonic: T::zero(),
             monotonic_direction: MonotonicityDirection::Infer,
             samples: sampling_strategy,
         }
+    }
+
+    /// Creates a new `ShapeConstraint` scoring method with the specified sampling strategy and RMSE as the base score provider, and no penalties for curvature or monotonicity.
+    ///
+    /// RMSE is a good default base score provider to use with `ShapeConstraint`, since it directly measures the fit quality without any penalties,
+    /// allowing the curvature and monotonicity penalties to have a clear impact on the model selection.
+    #[must_use]
+    pub fn new_rmse(sampling_strategy: SamplingStrategy) -> Self {
+        Self::new_with_provider(ScoringMethod::RootMeanSquaredError, sampling_strategy)
+    }
+
+    /// Creates a new `ShapeConstraint` scoring method with the specified sampling strategy and MAE as the base score provider, and no penalties for curvature or monotonicity.
+    ///
+    /// MAE is a more robust base score provider that is less sensitive to outliers than RMSE, so it can be a good choice if your data has significant outliers
+    /// that you want to ignore when selecting the model shape. However, it may not provide as strong of a signal for model selection as RMSE,
+    /// since it does not penalize larger errors as heavily.
+    #[must_use]
+    pub fn new_mae(sampling_strategy: SamplingStrategy) -> Self {
+        Self::new_with_provider(ScoringMethod::MeanAbsoluteError, sampling_strategy)
     }
 
     /// Add a curvature penalty to this `ShapeConstraint` scoring method, with the specified strength, to favor smoother curves.
@@ -161,7 +190,7 @@ impl ShapeConstraint {
     /// ```
     /// # use polyfit::{score::shape_constraint::*, value::Value, ChebyshevFit, statistics::DegreeBound};
     /// let data = &[(1.0, 2.0), (2.0, 3.0), (3.0, 5.0)];
-    /// let score = ShapeConstraint::new(SamplingStrategy::new_total()).with_curvature_penalty(PenaltyWeight::Medium);
+    /// let score = ShapeConstraint::new_rmse(SamplingStrategy::new_total()).with_curvature_penalty(PenaltyWeight::Medium);
     /// let fit = ChebyshevFit::new_auto(data, DegreeBound::Relaxed, &score).unwrap();
     /// ```
     #[must_use]
@@ -179,7 +208,7 @@ impl ShapeConstraint {
     /// ```
     /// # use polyfit::{score::shape_constraint::*, value::Value, ChebyshevFit, statistics::DegreeBound};
     /// let data = &[(1.0, 2.0), (2.0, 3.0), (3.0, 5.0)];
-    /// let score = ShapeConstraint::new(SamplingStrategy::new_total()).with_monotonic_penalty(PenaltyWeight::Medium, MonotonicityDirection::Infer);
+    /// let score = ShapeConstraint::new_rmse(SamplingStrategy::new_total()).with_monotonic_penalty(PenaltyWeight::Medium, MonotonicityDirection::Infer);
     /// let fit = ChebyshevFit::new_auto(data, DegreeBound::Relaxed, &score).unwrap();
     /// ```
     #[must_use]
@@ -193,9 +222,10 @@ impl ShapeConstraint {
         self
     }
 }
-impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for ShapeConstraint
+impl<B, T> ModelScoreProvider<B, T> for ShapeConstraint<T>
 where
-    B: DifferentialBasis<T>,
+    T: Value,
+    B: Basis<T> + PolynomialDisplay<T> + DifferentialBasis<T>,
     B::B2: DifferentialBasis<T>,
 {
     fn minimum_significant_distance(&self) -> Option<usize> {
@@ -209,7 +239,7 @@ where
         y_fit: impl Iterator<Item = T>,
         k: T,
     ) -> T {
-        let base_score = RMSE.score(model, y, y_fit, k);
+        let base_score = self.base_score_provider.score(model, y, y_fit, k);
 
         let range = model.x_range();
         let min = *range.start();
@@ -222,8 +252,13 @@ where
         let mut curvature = T::zero();
         let mut monotonic = T::zero();
 
-        let d1 = model.as_polynomial().derivative().unwrap();
-        let d2 = d1.derivative().unwrap();
+        let Ok(d1) = model.as_polynomial().derivative() else {
+            // If we can't take the derivative, just return the base score without any penalties
+            return base_score;
+        };
+
+        // Without d2 we can still calculate the monotonicity penalty, we just wont be able to calculate the curvature penalty
+        let d2 = d1.derivative().ok();
 
         let samples = self.samples.count(model.data().len());
         if samples < 2 {
@@ -267,7 +302,7 @@ where
             }
 
             let mut v1 = d1.y(x);
-            let mut v2 = d2.y(x);
+            let mut v2 = d2.as_ref().map_or(T::zero(), |d| d.y(x));
 
             //
             // Ok So RMSE is in y units
@@ -293,8 +328,8 @@ where
 
         // * stepsize here approximates a riemann sum, so the penalty is roughly proportional to the integral of the curvature/monotonicity violation across the curve
         // RMSE is already normalized by the number of data points, so we dont need to worry about that here
-        let curvature_penalty = T::from_f64(self.lambda_curvature).unwrap_or(T::zero()) * stepsize;
-        let monotonic_penalty = T::from_f64(self.lambda_monotonic).unwrap_or(T::zero()) * stepsize;
+        let curvature_penalty = self.lambda_curvature * stepsize;
+        let monotonic_penalty = self.lambda_monotonic * stepsize;
         base_score + curvature_penalty * curvature + monotonic_penalty * monotonic
     }
 }
