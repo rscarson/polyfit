@@ -76,6 +76,9 @@ use crate::{
     Polynomial,
 };
 
+mod aggregators;
+pub use aggregators::{Aggregator, MinMax, Variance};
+
 /// Computes the residual variance of a model's predictions.
 ///
 /// Residual variance is the unbiased estimate of the variance of the
@@ -269,17 +272,12 @@ pub fn median<T: Value>(data: &[T]) -> T {
 /// assert_eq!(s, 0.816496580927726); // sqrt(2/3)
 /// ```
 pub fn stddev_and_mean<T: Value>(data: impl Iterator<Item = T>) -> (T, T) {
-    let data: Vec<_> = data.collect();
-    let mean = mean(data.iter().copied());
-    let mut sum_sq_diff = T::zero();
-    let mut count = T::zero();
+    let mut agg = Variance::empty();
     for value in data {
-        sum_sq_diff += Value::powi(value - mean, 2);
-        count += T::one();
+        agg.inspect(value);
     }
-    let dev = (sum_sq_diff / count).sqrt();
 
-    (dev, mean)
+    (agg.stdev(), agg.mean())
 }
 
 /// Computes the skewness and excess kurtosis of a dataset.
@@ -436,17 +434,11 @@ pub fn residual_normality<T: Value>(residuals: &[T]) -> T {
 /// assert_eq!(r, 8.0); // 9 - 1
 /// ```
 pub fn spread<T: Value>(data: impl Iterator<Item = T>) -> T {
-    let mut min = T::infinity();
-    let mut max = T::neg_infinity();
+    let mut agg = MinMax::empty();
     for value in data {
-        if value < min {
-            min = value;
-        }
-        if value > max {
-            max = value;
-        }
+        agg.inspect(value);
     }
-    max - min
+    agg.max - agg.min
 }
 
 /// Uses huber loss to compute a robust R-squared value.
