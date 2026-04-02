@@ -277,15 +277,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // Exponential
     let data = SourceSampleType::GrowingSlow(false).generate();
-    let base2_1 = ScaleTransform::Exponential(2.0, 1.0);
-    let basee = ScaleTransform::Exponential(2.0, 0.5);
-    let tiny_coeff = ScaleTransform::Exponential(std::f64::consts::E, 0.01);
+    let base2 = ScaleTransform::Exponential(2.0);
+    let base3 = ScaleTransform::Exponential(3.0);
+    let basee = ScaleTransform::Exponential(std::f64::consts::E);
     generate_plot(
         data.clone(),
         vec![
-            ("Exponential base=2, factor=1.0", data.transformed(&base2_1)),
-            ("Exponential base=2, factor=0.5", data.transformed(&basee)),
-            ("Exponential base=e, factor=0.01", data.transformed(&tiny_coeff)),
+            ("Exponential base=2", data.transformed(&base2)),
+            ("Exponential base=3", data.transformed(&base3)),
+            ("Exponential base=e", data.transformed(&basee)),
         ],
         false,
         "Exponential Transform",
@@ -295,8 +295,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // Logarithmic (base, factor)
     let data = SourceSampleType::GrowingSlow(false).generate().apply_shift_scale(10.0);
-    let log_base_10 = ScaleTransform::Logarithmic(10.0, 2.0);
-    let log_base_e = ScaleTransform::Logarithmic(std::f64::consts::E, 1.0);
+    let log_base_10 = ScaleTransform::Logarithmic(10.0);
+    let log_base_e = ScaleTransform::Logarithmic(std::f64::consts::E);
 
     generate_plot(
         data.clone(),

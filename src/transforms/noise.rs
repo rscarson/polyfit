@@ -3,7 +3,7 @@ use rand_distr::{Bernoulli, Beta, Distribution, Normal, Poisson, Uniform};
 
 use crate::{
     statistics::DomainNormalizer,
-    transforms::{SeedSource, Transform},
+    transforms::{SeedSource, Transform, Transformable},
     value::{FloatClampedCast, Value},
 };
 
@@ -28,21 +28,27 @@ impl<T: Value> Strength<T> {
     /// Get a strength-ajusted std-dev for some data
     ///
     /// Does not mutate data - but this is the form the transforms get
-    pub(crate) fn into_stddev(self, data: &[&mut T]) -> T {
+    pub(crate) fn into_stddev<I: ?Sized>(self, data: &mut I) -> T
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
         let mut std_dev = match self {
             Strength::Absolute(tol) => tol,
             Strength::Relative(rel) => {
                 let mut mean = T::zero();
                 let mut n = T::zero();
-                for v in data {
-                    mean += **v;
+
+                // Clippy doesn't understand reborrowing and is wrong
+                #[expect(clippy::explicit_into_iter_loop)]
+                for v in data.into_iter() {
+                    mean += *v;
                     n += T::one();
                 }
                 mean /= n;
 
                 let mut std_dev = T::zero();
                 for v in data {
-                    std_dev += Value::powi(**v - mean, 2);
+                    std_dev += Value::powi(*v - mean, 2);
                 }
                 std_dev = T::sqrt(std_dev / n);
 
@@ -311,14 +317,15 @@ where
     rand_distr::Exp1: rand_distr::Distribution<T>,
     rand_distr::Open01: rand_distr::Distribution<T>,
 {
-    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
         let mut rng = Self::rng(self.seed());
         match self {
             NoiseTransform::CorrelatedGaussian { rho, strength, .. } => {
-                let data = data.collect::<Vec<_>>();
-
                 let rho = num_traits::Float::clamp(*rho, -T::one(), T::one());
-                let mut std_dev = strength.into_stddev(data.as_slice());
+                let mut std_dev = strength.into_stddev::<I>(data);
                 std_dev = Value::max(std_dev, num_traits::Float::epsilon());
                 let gaussian = Normal::new(T::zero(), std_dev)
                     .map_err(|e| e.to_string())
@@ -348,9 +355,8 @@ where
                 //
                 // Get the min and max values
                 // Relative strengths calculate bounds based on data std-dev
-                let data = data.collect::<Vec<_>>();
-                let min = min.into_stddev(data.as_slice());
-                let max = max.into_stddev(data.as_slice());
+                let min = min.into_stddev::<I>(data);
+                let max = max.into_stddev::<I>(data);
 
                 // The activation possibility
                 let flip = Bernoulli::new(probability).expect("p not in 0..1");
@@ -381,9 +387,8 @@ where
             }
 
             NoiseTransform::Uniform { upper, lower, .. } => {
-                let data = data.collect::<Vec<_>>();
-                let upper = upper.into_stddev(data.as_slice());
-                let lower = lower.into_stddev(data.as_slice());
+                let upper = upper.into_stddev::<I>(data);
+                let lower = lower.into_stddev::<I>(data);
 
                 let uniform = Uniform::new(-lower, upper)
                     .map_err(|e| e.to_string())
@@ -399,7 +404,7 @@ where
                 let lambda_abs = Value::clamp(lambda.inner(), num_traits::Float::epsilon(), l_max);
 
                 let poisson = Poisson::new(lambda_abs).expect("Invalid Poisson distribution");
-                data.for_each(|v| {
+                data.into_iter().for_each(|v| {
                     let noise = poisson.sample(&mut rng) - lambda_abs; // center around 0
                     *v += noise * lambda.into_point(*v);
                 });
@@ -722,22 +727,20 @@ where
     rand_distr::Open01: rand_distr::Distribution<T>,
 {
     fn apply_normal_noise(mut self, strength: Strength<T>, seed: Option<u64>) -> Self {
-        NoiseTransform::CorrelatedGaussian {
+        self.transform(NoiseTransform::CorrelatedGaussian {
             rho: T::zero(),
             strength,
             seed,
-        }
-        .apply(self.iter_mut().map(|(_, y)| y));
+        });
         self
     }
 
     fn apply_correlated_noise(mut self, strength: Strength<T>, rho: T, seed: Option<u64>) -> Self {
-        NoiseTransform::CorrelatedGaussian {
+        self.transform(NoiseTransform::CorrelatedGaussian {
             rho,
             strength,
             seed,
-        }
-        .apply(self.iter_mut().map(|(_, y)| y));
+        });
         self
     }
 
@@ -747,12 +750,12 @@ where
         upper: Strength<T>,
         seed: Option<u64>,
     ) -> Self {
-        NoiseTransform::Uniform { lower, upper, seed }.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(NoiseTransform::Uniform { lower, upper, seed });
         self
     }
 
     fn apply_poisson_noise(mut self, lambda: Strength<T>, seed: Option<u64>) -> Self {
-        NoiseTransform::Poisson { lambda, seed }.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(NoiseTransform::Poisson { lambda, seed });
         self
     }
 
@@ -763,15 +766,14 @@ where
         max: Strength<T>,
         seed: Option<u64>,
     ) -> Self {
-        NoiseTransform::Impulse {
+        self.transform(NoiseTransform::Impulse {
             probability: amount,
             alpha: T::zero(),
             beta: T::zero(),
             min,
             max,
             seed,
-        }
-        .apply(self.iter_mut().map(|(_, y)| y));
+        });
         self
     }
 
@@ -784,15 +786,14 @@ where
         beta: T,
         seed: Option<u64>,
     ) -> Self {
-        NoiseTransform::Impulse {
+        self.transform(NoiseTransform::Impulse {
             probability: amount,
             alpha,
             beta,
             min,
             max,
             seed,
-        }
-        .apply(self.iter_mut().map(|(_, y)| y));
+        });
         self
     }
 }

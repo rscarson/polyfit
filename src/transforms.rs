@@ -65,6 +65,9 @@ use std::borrow::BorrowMut;
 
 use crate::value::Value;
 
+mod adapters;
+pub use adapters::{XTransform, YTransform};
+
 mod noise;
 pub use noise::{ApplyNoise, NoiseTransform, Strength};
 
@@ -79,13 +82,30 @@ pub use rand;
 pub use rand_distr;
 
 /// Trait for applying transformations to data.
-pub trait Transform<T: Value> {
+pub trait Transform<T> {
     /// Applies the transformation to the given data.
-    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>);
+    ///
+    /// Taking a mutable reference to something implementing `IntoIterator`
+    /// allows transforms to take multiple passes over the data.
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>;
 
     /// Applies the transformation to a single data point.
-    fn apply_to(&self, point: &mut T) {
-        self.apply(std::iter::once(point));
+    ///
+    /// Beware that this only makes sense for *pure* transforms that are independent
+    /// of other points in the data.  For example, it's fine with [`ScaleTransform`]s
+    /// and [`NoiseTransform::Uniform`]-with-[`Strength::Absolute`] and
+    /// [`NormalizationTransform::Clip`], but not with [`NormalizationTransform::LogOffset`]
+    /// nor [`NoiseTransform::Uniform`]-with-[`Strength::Relative`] nor
+    /// [`SmoothingTransform::Gaussian`].
+    fn apply_to(&self, point: &mut T)
+    where
+        T: Copy,
+    {
+        let mut single = [*point];
+        self.apply::<[T; 1]>(&mut single);
+        [*point] = single;
     }
 }
 
@@ -94,13 +114,37 @@ pub trait Transform<T: Value> {
 /// This way if you don't need to re-use a transform, you can pass it directly,
 /// but you can still pass large ones by reference where that's helpful.
 impl<T: Value, R: ?Sized + Transform<T>> Transform<T> for &R {
-    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
-        <R as Transform<T>>::apply(*self, data);
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
+        <R as Transform<T>>::apply::<I>(*self, data);
+    }
+}
+
+/// Applies each of the transforms in the slice in order.
+impl<T: Value, E: Transform<T>> Transform<T> for [E] {
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
+        for transform in self {
+            transform.apply::<I>(data);
+        }
+    }
+}
+/// Applies each of the transforms in the array in order.
+impl<T: Value, E: Transform<T>, const N: usize> Transform<T> for [E; N] {
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
+        self.as_slice().apply::<I>(data);
     }
 }
 
 /// Trait for transforming data.
-pub trait Transformable<T: Value> {
+pub trait Transformable<T> {
     /// Transforms the data in place.
     fn transform<R: Transform<T>>(&mut self, transform: R);
 
@@ -116,9 +160,18 @@ pub trait Transformable<T: Value> {
         new_data
     }
 }
+impl<T: Value> Transformable<T> for [T] {
+    fn transform<R: Transform<T>>(&mut self, transform: R) {
+        transform.apply::<Self>(self);
+    }
+}
+/// Applies the transform to the second ("y") element of the pairs.
+///
+/// See [`XTransform`] if you're trying to modify the first ("x") element,
+/// or [`YTransform`] for what this uses internally.
 impl<T: Value> Transformable<T> for [(T, T)] {
     fn transform<R: Transform<T>>(&mut self, transform: R) {
-        transform.apply(self.iter_mut().map(|(_, y)| y));
+        YTransform(transform).apply::<Self>(self);
     }
 }
 

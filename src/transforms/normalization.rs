@@ -1,6 +1,6 @@
 use crate::{
     statistics::{self, DomainNormalizer},
-    transforms::Transform,
+    transforms::{Transform, Transformable, XTransform},
     value::Value,
 };
 
@@ -140,12 +140,14 @@ pub enum NormalizationTransform<T: Value> {
 }
 
 impl<T: Value> Transform<T> for NormalizationTransform<T> {
-    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
-        let data: Vec<_> = data.collect();
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
         match self {
             Self::Domain { min, max } => {
                 let normalizer =
-                    DomainNormalizer::from_data(data.iter().map(|d| **d), (*min, *max))
+                    DomainNormalizer::from_data(data.into_iter().map(|d| *d), (*min, *max))
                         .unwrap_or_default();
                 for value in data {
                     *value = normalizer.normalize(*value);
@@ -159,14 +161,14 @@ impl<T: Value> Transform<T> for NormalizationTransform<T> {
             }
 
             Self::MeanSubtraction => {
-                let mean = statistics::mean(data.iter().map(|d| **d));
+                let mean = statistics::mean(data.into_iter().map(|d| *d));
                 for value in data {
                     *value -= mean;
                 }
             }
 
             Self::ZScore => {
-                let (s, m) = statistics::stddev_and_mean(data.iter().map(|d| **d));
+                let (s, m) = statistics::stddev_and_mean(data.into_iter().map(|d| *d));
                 for value in data {
                     *value = (*value - m) / s;
                 }
@@ -176,16 +178,13 @@ impl<T: Value> Transform<T> for NormalizationTransform<T> {
                 let buffer_weight =
                     asymptote_epsilon.unwrap_or_else(|| T::from(1e-2).unwrap_or(T::zero()));
 
-                if data.is_empty() {
+                let Some(asymptote) = data.into_iter().map(|d| *d).reduce(Value::max) else {
+                    // data was empty
                     return;
-                }
-
-                let asymptote = data
-                    .iter()
-                    .fold(T::neg_infinity(), |v, d| Value::max(v, **d));
+                };
 
                 // Add a small buffer to the asymptote to ensure all points are below it, which is important for the log transformation
-                let (stdev, _) = statistics::stddev_and_mean(data.iter().map(|d| **d));
+                let (stdev, _) = statistics::stddev_and_mean(data.into_iter().map(|d| *d));
                 let buffer = stdev * buffer_weight; // small fraction of typical deviation
 
                 for p in data {
@@ -355,28 +354,28 @@ pub trait ApplyNormalization<T: Value> {
 }
 impl<T: Value> ApplyNormalization<T> for Vec<(T, T)> {
     fn apply_domain_normalization(mut self, min: T, max: T) -> Self {
-        NormalizationTransform::Domain { min, max }.apply(self.iter_mut().map(|(x, _)| x));
+        let transform = NormalizationTransform::Domain { min, max };
+        XTransform(transform).apply::<Self>(&mut self);
         self
     }
 
     fn apply_clipping(mut self, min: T, max: T) -> Self {
-        NormalizationTransform::Clip { min, max }.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(NormalizationTransform::Clip { min, max });
         self
     }
 
     fn apply_mean_subtraction(mut self) -> Self {
-        NormalizationTransform::MeanSubtraction.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(NormalizationTransform::MeanSubtraction);
         self
     }
 
     fn apply_z_score_normalization(mut self) -> Self {
-        NormalizationTransform::ZScore.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(NormalizationTransform::ZScore);
         self
     }
 
     fn apply_log_offset_normalization(mut self, asymptote_epsilon: Option<T>) -> Self {
-        NormalizationTransform::LogOffset { asymptote_epsilon }
-            .apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(NormalizationTransform::LogOffset { asymptote_epsilon });
         self
     }
 }
@@ -448,8 +447,11 @@ pub enum SmoothingTransform<T: Value> {
     },
 }
 impl<T: Value> Transform<T> for SmoothingTransform<T> {
-    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
-        let data: Vec<_> = data.collect();
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
+        let data: Vec<_> = data.into_iter().collect();
         match self {
             Self::MovingAverage { window_size } => {
                 let n = data.len();
@@ -604,12 +606,12 @@ pub trait ApplySmoothing<T: Value> {
 }
 impl<T: Value> ApplySmoothing<T> for Vec<(T, T)> {
     fn apply_moving_average_smoothing(mut self, window_size: usize) -> Self {
-        SmoothingTransform::MovingAverage { window_size }.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(SmoothingTransform::MovingAverage { window_size });
         self
     }
 
     fn apply_gaussian_smoothing(mut self, sigma: T) -> Self {
-        SmoothingTransform::Gaussian { sigma }.apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(SmoothingTransform::Gaussian { sigma });
         self
     }
 }

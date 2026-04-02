@@ -1,9 +1,21 @@
 use crate::{
-    basis::Basis, display::PolynomialDisplay, transforms::Transform, value::Value, Polynomial,
+    basis::Basis,
+    display::PolynomialDisplay,
+    transforms::{Transform, Transformable},
+    value::Value,
+    Polynomial,
 };
 
 /// Types of scaling transformations for data
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[non_exhaustive] // More may be added in future
 pub enum ScaleTransform<T: Value> {
+    /// Applies no tranformation to the dataset.
+    ///
+    /// This is only useful if you have a function which expects a `ScaleTransform`
+    /// but your data is already fine as-is without extra scaling.
+    Identity,
+
     /// Adds a fixed offset to every element of a dataset.
     ///
     /// This is useful for translating a signal up or down without changing its shape.
@@ -66,6 +78,23 @@ pub enum ScaleTransform<T: Value> {
     /// - `factor`: Multiplier applied after squaring each element.
     Quadratic(T),
 
+    /// Applies a square-root scaling to each element of a dataset.
+    ///
+    /// Each element is square-rooted and then multiplied by the specified factor.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * √x
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
+    /// - `factor`: Multiplier applied after square-rooting each element.
+    SquareRoot(T),
+
     /// Applies a cubic scaling to each element of a dataset.
     ///
     /// Each element is cubed and then multiplied by the specified factor.
@@ -86,6 +115,25 @@ pub enum ScaleTransform<T: Value> {
     /// - `factor`: Multiplier applied after cubing each element.
     Cubic(T),
 
+    /// Applies a cube-root scaling to each element of a dataset.
+    ///
+    /// Each element is cube-rooted and then multiplied by the specified factor.
+    ///
+    /// ![Cubic example](https://raw.githubusercontent.com/caliangroup/polyfit/refs/heads/master/.github/assets/cubic_example.png)
+    ///
+    /// <div class="warning">
+    ///
+    /// **Technical Details**
+    ///
+    /// ```math
+    /// xₙ = factor * ∛x
+    /// ```
+    /// </div>
+    ///
+    /// # Parameters
+    /// - `factor`: Multiplier applied after cubing each element.
+    CubeRoot(T),
+
     /// Applies an exponential scaling to each element of a dataset.
     ///
     /// Each element is transformed using exponentiation with the specified base
@@ -97,14 +145,13 @@ pub enum ScaleTransform<T: Value> {
     /// **Technical Details**
     ///
     /// ```math
-    /// xₙ = factor * base^x
+    /// xₙ = base^x
     /// ```
     /// </div>
     ///
     /// # Parameters
     /// - `base`: The exponent to which each element is raised.
-    /// - `factor`: The multiplier applied after exponentiation.
-    Exponential(T, T),
+    Exponential(T),
 
     /// Applies a logarithmic scaling to each element of a dataset.
     ///
@@ -116,43 +163,110 @@ pub enum ScaleTransform<T: Value> {
     ///
     /// # Parameters
     /// - `base`: The base of the logarithm.
-    /// - `factor`: The multiplier applied after logarithmic transformation.
-    Logarithmic(T, T),
+    Logarithmic(T),
 }
 impl<T: Value> Transform<T> for ScaleTransform<T> {
-    fn apply<'a>(&self, data: impl Iterator<Item = &'a mut T>) {
-        match self {
+    fn apply<I: ?Sized>(&self, data: &mut I)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = &'a mut T>,
+    {
+        match *self {
+            ScaleTransform::Identity => {}
             ScaleTransform::Shift(amount) => {
                 for value in data {
-                    *value += *amount;
+                    *value += amount;
                 }
             }
             ScaleTransform::Linear(slope) => {
                 for value in data {
-                    *value *= *slope;
+                    *value *= slope;
                 }
             }
             ScaleTransform::Quadratic(coef) => {
                 for value in data {
-                    *value = *value * *value * *coef;
+                    *value = *value * *value * coef;
+                }
+            }
+            ScaleTransform::SquareRoot(coef) => {
+                for value in data {
+                    *value = value.sqrt() * coef;
                 }
             }
             ScaleTransform::Cubic(coef) => {
                 for value in data {
-                    *value = *value * *value * *value * *coef;
+                    *value = *value * *value * *value * coef;
                 }
             }
-            ScaleTransform::Exponential(base, coef) => {
+            ScaleTransform::CubeRoot(coef) => {
                 for value in data {
-                    *value = base.powf(*value) * *coef;
+                    *value = value.cbrt() * coef;
                 }
             }
-            ScaleTransform::Logarithmic(base, coef) => {
+            ScaleTransform::Exponential(base) => {
                 for value in data {
-                    *value = Value::max(*value, T::epsilon()).log(*base) * *coef;
+                    *value = base.powf(*value);
+                }
+            }
+            ScaleTransform::Logarithmic(base) => {
+                for value in data {
+                    *value = Value::max(*value, T::min_positive_value()).log(base);
                 }
             }
         }
+    }
+}
+
+impl<T: Value> ScaleTransform<T> {
+    /// Returns the inverse transform that will undo this transform.
+    ///
+    /// For example, `ScaleTransform::Shift(10).inverse()` gives `ScaleTransform::Shift(-1)`,
+    /// and `ScaleTransform::Linear(0.25).inverse()` gives `ScaleTransform::Linear(4.0)`.
+    #[must_use]
+    pub fn inverse(self) -> Self {
+        // I hate pedantic lints; there's nothing wrong with this inside a function.
+        #![expect(clippy::enum_glob_use)]
+        use ScaleTransform::*;
+        match self {
+            Identity => Identity,
+            Shift(amount) => Shift(-amount),
+            Linear(slope) => Linear(T::one() / slope),
+            Quadratic(coef) => SquareRoot(T::one() / coef.sqrt()),
+            SquareRoot(coef) => Quadratic(T::one() / (coef * coef)),
+            Cubic(coef) => CubeRoot(T::one() / coef.cbrt()),
+            CubeRoot(coef) => Cubic(T::one() / (coef * coef * coef)),
+            Exponential(base) => Logarithmic(base),
+            Logarithmic(base) => Exponential(base),
+        }
+    }
+
+    /// Returns the sequence of transformations that will undo
+    /// the sequence of tranformations in `array`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use polyfit::transforms::{ScaleTransform, Transform, Transformable};
+    ///
+    /// let celcius_to_fahrenheit = [
+    ///     ScaleTransform::Linear(9.0 / 5.0),
+    ///     ScaleTransform::Shift(32.0),
+    /// ];
+    /// let known_c = [-40.0, 0.0, 100.0];
+    /// let equivalent_f = known_c.transformed(&celcius_to_fahrenheit);
+    /// assert_eq!(equivalent_f, [-40.0, 32.0, 212.0]);
+    ///
+    /// let fahrenheit_to_celcius = ScaleTransform::inverse_array(celcius_to_fahrenheit);
+    /// assert!(matches!(
+    ///     fahrenheit_to_celcius,
+    ///     [ScaleTransform::Shift(_), ScaleTransform::Linear(_)],
+    /// ));
+    /// let mut x = 32.0;
+    /// fahrenheit_to_celcius.apply_to(&mut x);
+    /// assert_eq!(x, 0.0);
+    /// ```
+    #[must_use]
+    pub fn inverse_array<const N: usize>(array: [Self; N]) -> [Self; N] {
+        std::array::from_fn(move |i| array[N - 1 - i].inverse())
     }
 }
 
@@ -342,27 +456,30 @@ pub trait ApplyScale<T: Value> {
 }
 impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
     fn apply_shift_scale(mut self, amount: T) -> Self {
-        ScaleTransform::Shift(amount).apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(ScaleTransform::Shift(amount));
         self
     }
 
     fn apply_linear_scale(mut self, factor: T) -> Self {
-        ScaleTransform::Linear(factor).apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(ScaleTransform::Linear(factor));
         self
     }
 
     fn apply_quadratic_scale(mut self, coef: T) -> Self {
-        ScaleTransform::Quadratic(coef).apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(ScaleTransform::Quadratic(coef));
         self
     }
 
     fn apply_cubic_scale(mut self, coef: T) -> Self {
-        ScaleTransform::Cubic(coef).apply(self.iter_mut().map(|(_, y)| y));
+        self.transform(ScaleTransform::Cubic(coef));
         self
     }
 
-    fn apply_exponential_scale(mut self, degree: T, factor: T) -> Self {
-        ScaleTransform::Exponential(degree, factor).apply(self.iter_mut().map(|(_, y)| y));
+    fn apply_exponential_scale(mut self, base: T, factor: T) -> Self {
+        self.transform([
+            ScaleTransform::Exponential(base),
+            ScaleTransform::Linear(factor),
+        ]);
         self
     }
 
@@ -379,14 +496,48 @@ impl<T: Value> ApplyScale<T> for Vec<(T, T)> {
     }
 
     fn apply_logarithmic_scale(mut self, base: T, factor: T) -> Self {
-        ScaleTransform::Logarithmic(base, factor).apply(self.iter_mut().map(|(_, y)| y));
+        self.transform([
+            ScaleTransform::Logarithmic(base),
+            ScaleTransform::Linear(factor),
+        ]);
         self
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::transforms::ApplyScale;
+    use crate::assert_close;
+
+    use super::*;
+
+    #[test]
+    fn test_inverse() {
+        use ScaleTransform::*;
+        let pairs = [
+            (Identity, Identity),
+            (Shift(7.0), Shift(-7.0)),
+            (Linear(8.0), Linear(0.125)),
+            (Quadratic(0.25), SquareRoot(2.0)),
+            (Cubic(0.125), CubeRoot(2.0)),
+            (Exponential(3.0), Logarithmic(3.0)),
+        ];
+        for (a, b) in pairs {
+            assert_eq!(a.inverse(), b);
+            assert_eq!(a, b.inverse());
+
+            let expected = 12.34;
+
+            let mut x = expected;
+            a.apply_to(&mut x);
+            b.apply_to(&mut x);
+            assert_close!(x, expected, epsilon = 1.0e-12);
+
+            let mut x = expected;
+            b.apply_to(&mut x);
+            a.apply_to(&mut x);
+            assert_close!(x, expected, epsilon = 1.0e-12);
+        }
+    }
 
     #[test]
     fn test_shift_scale() {
