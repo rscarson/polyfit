@@ -121,7 +121,7 @@ macro_rules! assert_r_squared {
         {
             let ref fit = $fit;
             let threshold = $r2;
-            #[allow(unused_mut)] let mut r2 = fit.r_squared(None);
+            #[allow(unused_mut)] let mut r2 = fit.r_squared(None).expect("Failed to compute R² for assert_r_squared - No data points in fit");
 
             if r2 <= threshold {
                 // Print any seeds used in the test thread so far
@@ -338,7 +338,8 @@ macro_rules! assert_residuals_normal {
             };
 
             let residuals_y: Vec<_> = residuals.y();
-            let p_value = $crate::statistics::residual_normality(&residuals_y);
+            let normality = $crate::statistics::normality(residuals_y.into_iter()).expect("Failed to compute normality for assert_residuals_normal! - Not enough data");
+            let p_value = normality.likelihood;
 
             if p_value < tolerance {
                 // Print any seeds used in the test thread so far
@@ -389,7 +390,7 @@ macro_rules! assert_residuals_normal {
                     }
                 }
 
-                let (skewness, kurtosis) = $crate::statistics::skewness_and_kurtosis(&residuals_y);
+                let (skewness, kurtosis) = (normality.skewness, normality.kurtosis);
 
                 #[allow(unused_mut, unused_assignments)] let mut msg = format!(
                     "Residuals not normal - p={p_value:.2} - skew={skewness:.4}, kurt={kurtosis:.4}, tol={tolerance}"

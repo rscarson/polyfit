@@ -6,7 +6,7 @@ use crate::{
         Root, RootFindingBasis, RootFindingMethod,
     },
     display::PolynomialDisplay,
-    error::Result,
+    error::{Error, Result},
     statistics,
     value::{CoordExt, FloatClampedCast, SteppedValues, Value},
 };
@@ -329,13 +329,16 @@ where
     /// See [`statistics::r_squared`] for more details.
     ///
     /// # Returns
-    /// The R-squared value as type `T`.
-    pub fn r_squared(&self, data: &[(T, T)]) -> T {
+    /// The R-squared value as type `T`
+    ///
+    /// # Errors
+    /// Returns `Err(Error::NoData)` if the R-squared value cannot be computed due to insufficient data (e.g., empty dataset).
+    pub fn r_squared(&self, data: &[(T, T)]) -> Result<T> {
         let x = data.x_iter();
         let y = data.y_iter();
         let y_fit = self.solve(x).into_iter().map(|(_, y)| y);
 
-        statistics::r_squared(y, y_fit)
+        statistics::r_squared(y, y_fit).ok_or(Error::NoData)
     }
 
     /// Removes leading zero coefficients from the polynomial in place.

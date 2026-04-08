@@ -238,8 +238,8 @@ where
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         k: T,
-    ) -> T {
-        let base_score = self.base_score_provider.score(model, y, y_fit, k);
+    ) -> Option<T> {
+        let base_score = self.base_score_provider.score(model, y, y_fit, k)?;
 
         let range = model.x_range();
         let min = *range.start();
@@ -254,7 +254,7 @@ where
 
         let Ok(d1) = model.as_polynomial().derivative() else {
             // If we can't take the derivative, just return the base score without any penalties
-            return base_score;
+            return Some(base_score);
         };
 
         // Without d2 we can still calculate the monotonicity penalty, we just wont be able to calculate the curvature penalty
@@ -263,7 +263,7 @@ where
         let samples = self.samples.count(model.data().len());
         if samples < 2 {
             // Not enough samples to calculate curvature/monotonicity, so just return the base score
-            return base_score;
+            return Some(base_score);
         }
 
         let mono_epsilon = Value::abs(max - min) * T::from_f64(1e-8).unwrap_or(T::epsilon());
@@ -330,6 +330,6 @@ where
         // RMSE is already normalized by the number of data points, so we dont need to worry about that here
         let curvature_penalty = self.lambda_curvature * stepsize;
         let monotonic_penalty = self.lambda_monotonic * stepsize;
-        base_score + curvature_penalty * curvature + monotonic_penalty * monotonic
+        Some(base_score + curvature_penalty * curvature + monotonic_penalty * monotonic)
     }
 }

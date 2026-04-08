@@ -454,6 +454,7 @@
 #![allow(clippy::similar_names)] //         Clippy does not get to decide what names are similar
 #![allow(clippy::inline_always)] //         I know it doesn't do anything but it makes me feel better
 #![allow(clippy::manual_is_multiple_of)] // I hate this one deep in my soul
+#![allow(clippy::enum_glob_use)] //         If scottmcm hates it I hate it too
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[macro_use]

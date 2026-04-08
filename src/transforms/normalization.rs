@@ -161,16 +161,32 @@ impl<T: Value> Transform<T> for NormalizationTransform<T> {
             }
 
             Self::MeanSubtraction => {
-                let mean = statistics::mean(data.into_iter().map(|d| *d));
+                let mean = match statistics::mean(data.into_iter().map(|d| *d)) {
+                    Some(m) => m.mean,
+                    None => return, // data was empty
+                };
+
                 for value in data {
                     *value -= mean;
                 }
             }
 
             Self::ZScore => {
-                let (s, m) = statistics::stddev_and_mean(data.into_iter().map(|d| *d));
+                let (mean, stdev) = match statistics::mean(data.into_iter().map(|d| *d)) {
+                    Some(m) => (m.mean, m.std_dev),
+                    None => return, // data was empty
+                };
+
+                if stdev == T::zero() {
+                    // All values are the same, so we can't scale by stdev. Just set them all to zero.
+                    for value in data {
+                        *value = T::zero();
+                    }
+                    return;
+                }
+
                 for value in data {
-                    *value = (*value - m) / s;
+                    *value = (*value - mean) / stdev;
                 }
             }
 
@@ -183,8 +199,12 @@ impl<T: Value> Transform<T> for NormalizationTransform<T> {
                     return;
                 };
 
+                let stdev = match statistics::mean(data.into_iter().map(|d| *d)) {
+                    Some(m) => m.std_dev,
+                    None => return, // data was empty
+                };
+
                 // Add a small buffer to the asymptote to ensure all points are below it, which is important for the log transformation
-                let (stdev, _) = statistics::stddev_and_mean(data.into_iter().map(|d| *d));
                 let buffer = stdev * buffer_weight; // small fraction of typical deviation
 
                 for p in data {

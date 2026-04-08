@@ -188,7 +188,7 @@ impl<T: crate::value::Value> FitProps<T> {
         fit: &crate::CurveFit<B, T>,
         basis_name: &'static str,
         method: &impl crate::score::ModelScoreProvider<B, T>,
-    ) -> FitProps<T>
+    ) -> Option<FitProps<T>>
     where
         B: crate::basis::Basis<T> + crate::display::PolynomialDisplay<T>,
     {
@@ -202,12 +202,14 @@ impl<T: crate::value::Value> FitProps<T> {
 
         let equation = fit.equation();
 
-        let model_score = fit.model_score(method);
+        let model_score = fit.model_score(method).ok()?;
         let residuals = fit.filtered_residuals().y();
-        let r2 = fit.r_squared(None);
-        let robust_r2 = fit.robust_r_squared(None);
+        let r2 = fit.r_squared(None).ok()?;
+        let robust_r2 = fit.robust_r_squared(None).ok()?;
         let max_r2 = crate::value::Value::max(r2, robust_r2);
-        let p_value = crate::statistics::residual_normality(&residuals);
+
+        let normality = crate::statistics::normality(residuals.into_iter())?;
+        let p_value = normality.likelihood;
 
         let r2_weight = R2_WEIGHT.clamped_cast::<T>();
         let p_weight = P_VALUE_WEIGHT.clamped_cast::<T>();
@@ -218,7 +220,7 @@ impl<T: crate::value::Value> FitProps<T> {
         #[cfg(feature = "plotting")]
         let plot_e = fit.as_plotting_element(&[], crate::statistics::Confidence::P95, None);
 
-        Self {
+        Some(Self {
             model_score,
             rating,
 
@@ -232,7 +234,7 @@ impl<T: crate::value::Value> FitProps<T> {
             stars: T::zero(), // to be filled later
             equation,
             parameters,
-        }
+        })
     }
 }
 
@@ -328,17 +330,25 @@ macro_rules! basis_select {
         $(
             if let Ok(fit) = $crate::CurveFit::<$basis>::new_auto($data, $degree_bound, $method) {
                 #[allow(unused_mut, unused_assignments)] let mut name = stringify!($basis); $( name = $name; )?
-                let props = $crate::test::FitProps::from_fit(&fit, name, $method);
 
-                if props.parameters < min_params {
-                    min_params = props.parameters;
+                match $crate::test::FitProps::from_fit(&fit, name, $method) {
+                    Some(props) => {
+                        if props.parameters < min_params {
+                            min_params = props.parameters;
+                        }
+
+                        if props.p_value > f64::EPSILON {
+                            all_normals_zero = false;
+                        }
+
+                        options.push(props);
+                    }
+
+                    None => {
+                        eprintln!("Failed to compute properties for basis {name}");
+                    }
                 }
 
-                if props.p_value > f64::EPSILON {
-                    all_normals_zero = false;
-                }
-
-                options.push(props);
             }
         )+
 

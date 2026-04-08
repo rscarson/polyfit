@@ -413,12 +413,15 @@ macro_rules! plot_residuals {
 
         let fit = &$fit;
         let y_range = fit.y_range();
-        let residuals = fit.residuals();
-
-        let p = $crate::statistics::residual_normality(&residuals.y());
+        let residuals = fit.filtered_residuals();
 
         #[allow(unused_mut)] let mut options = fit.options_with_type_from();
-        options.title = format!("Residuals for fit (normality p = {:.3})", p);
+
+        options.title = match $crate::statistics::normality(residuals.y().into_iter()) {
+            Some(normality) => format!("Residuals for fit (normality p = {:.3})", normality.likelihood),
+            None => "Residuals for fit".to_string(),
+        };
+
         options.y_range = Some(*y_range.start()..*y_range.end()); // keep same y-range as fit for visual consistency
         $( options.$name = $value; )*
 

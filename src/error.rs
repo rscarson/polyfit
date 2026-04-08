@@ -39,8 +39,16 @@ pub enum Error {
     /// The requested polynomial degree is too high for the dataset.
     ///
     /// The degree must be less than the number of data points.
-    #[error("Polynomial degree `{0}` is too high for the dataset")]
-    DegreeTooHigh(usize),
+    #[error("Polynomial degree `{requested_degree}` is too high for the dataset{}", 
+        max_degree.map(|d| format!(" (max degree is {d})")).unwrap_or_default()
+    )]
+    DegreeTooHigh {
+        /// The degree that was requested
+        requested_degree: usize,
+
+        /// The maximum degree allowed for the dataset
+        max_degree: Option<usize>,
+    },
 
     /// The input x-values are outside the valid range for this fit.
     ///
@@ -51,6 +59,10 @@ pub enum Error {
         "This fit is only stable within the x-value range {0}..{1}. Use call `as_polynomial` to ignore these bounds"
     )]
     DataRange(String, String),
+
+    /// The model is perfectly interpolating the data (number of parameters equals number of data points), so it is not possible to compute a covariance matrix.
+    #[error("This model interpolates (number of parameters equals number of data points), so it is not possible to compute a covariance matrix.")]
+    NoCovarianceMatrix,
 
     /// A numeric value could not be cast to the target type. This is usually a custom type much smaller than f64/f32
     #[error("Failed to cast value to target type")]

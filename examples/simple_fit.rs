@@ -33,7 +33,7 @@ fn main() -> Result<(), Error> {
 
     //
     // Now we can print out the polynomial and some stats about the fit
-    let r_squared = fit.r_squared(None);
+    let r_squared = fit.r_squared(None)?;
     if r_squared < 0.9 {
         eprintln!("Warning: Low R² - noisy data or poor fit: {}", r_squared);
     }

@@ -34,6 +34,7 @@ pub trait ModelScoreProvider<B: Basis<T> + PolynomialDisplay<T>, T: Value>: Send
     /// # Notes
     /// - Lower scores indicate a "better" choice for automatically selecting the polynomial degree.
     /// - This is **not** a measure of how well the model fits your data. For that, use `r_squared`.
+    /// - Scoring methods are allowed to fail if there is not enough data to compute a meaningful score
     ///
     /// # Type Parameters
     /// - `B`: The type of basis used in the curve fit, which must implement both `Basis<T>` and `PolynomialDisplay<T>`.
@@ -53,7 +54,7 @@ pub trait ModelScoreProvider<B: Basis<T> + PolynomialDisplay<T>, T: Value>: Send
     /// # use polyfit::{score::{Aic, ModelScoreProvider}, value::Value, ChebyshevFit, statistics::DegreeBound};
     /// let data = &[(1.0, 2.0), (2.0, 3.0), (3.0, 5.0)];
     /// let fit = ChebyshevFit::new_auto(data, DegreeBound::Relaxed, &Aic).unwrap();
-    /// let score = fit.model_score(&Aic);
+    /// let score = fit.model_score(&Aic).unwrap();
     /// ```
     fn score(
         &self,
@@ -61,7 +62,7 @@ pub trait ModelScoreProvider<B: Basis<T> + PolynomialDisplay<T>, T: Value>: Send
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         k: T,
-    ) -> T;
+    ) -> Option<T>;
 }
 
 #[cfg(test)]
@@ -77,8 +78,12 @@ mod tests {
         let y = vec![1.0, 2.0, 3.0, 4.0];
         let y_fit = y.clone();
         let k = 2.0;
-        let aic: f64 = Aic.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
-        let bic: f64 = Bic.score(&model, y.into_iter(), y_fit.into_iter(), k);
+        let aic: f64 = Aic
+            .score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k)
+            .unwrap();
+        let bic: f64 = Bic
+            .score(&model, y.into_iter(), y_fit.into_iter(), k)
+            .unwrap();
         assert!(aic.is_finite());
         assert!(bic.is_finite());
     }
@@ -90,7 +95,9 @@ mod tests {
         let y = vec![1.0, 2.0, 3.0];
         let y_fit = vec![1.8, 2.7, 3.6];
         let k = 2.0; // n/k = 1.5 < 4 → triggers correction
-        let score: f64 = Aic.score(&model, y.into_iter(), y_fit.into_iter(), k);
+        let score: f64 = Aic
+            .score(&model, y.into_iter(), y_fit.into_iter(), k)
+            .unwrap();
         assert!(score.is_finite());
     }
 
@@ -102,8 +109,12 @@ mod tests {
         let y_fit_good = vec![1.0, 2.0, 3.0];
         let y_fit_bad = vec![0.0, 0.0, 0.0];
         let k = 2.0;
-        let score_good = Bic.score(&model, y.clone().into_iter(), y_fit_good.into_iter(), k);
-        let score_bad = Bic.score(&model, y.into_iter(), y_fit_bad.into_iter(), k);
+        let score_good = Bic
+            .score(&model, y.clone().into_iter(), y_fit_good.into_iter(), k)
+            .unwrap();
+        let score_bad = Bic
+            .score(&model, y.into_iter(), y_fit_bad.into_iter(), k)
+            .unwrap();
         assert!(score_bad > score_good);
     }
     #[test]
@@ -113,10 +124,19 @@ mod tests {
         let y: Vec<f64> = vec![];
         let y_fit: Vec<f64> = vec![];
         let k = 2.0;
-        let aic: f64 = Aic.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
-        let bic: f64 = Bic.score(&model, y.into_iter(), y_fit.into_iter(), k);
-        assert!(aic.is_nan());
-        assert!(bic.is_nan());
+        let aic = Aic.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
+        assert!(aic.is_none());
+
+        let bic = Bic.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
+        assert!(bic.is_none());
+
+        let rmse =
+            RootMeanSquaredError.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
+        assert!(rmse.is_none());
+
+        let mae =
+            MeanAbsoluteError.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
+        assert!(mae.is_none());
     }
 
     #[test]
@@ -132,8 +152,12 @@ mod tests {
             3.0, 4.0, 5.0,
         ];
         let k = 3.0;
-        let aic: f64 = Aic.score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k);
-        let bic: f64 = Bic.score(&model, y.into_iter(), y_fit.into_iter(), k);
+        let aic: f64 = Aic
+            .score(&model, y.clone().into_iter(), y_fit.clone().into_iter(), k)
+            .unwrap();
+        let bic: f64 = Bic
+            .score(&model, y.into_iter(), y_fit.into_iter(), k)
+            .unwrap();
 
         assert!(bic >= aic);
     }

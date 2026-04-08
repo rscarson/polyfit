@@ -216,8 +216,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     generate_plot(
         data.clone(),
         vec![
-            ("Shift +500", data.transformed(&shift_up)),
-            ("Shift -500", data.transformed(&shift_down)),
+            ("Shift +500", data.transformed(shift_up)),
+            ("Shift -500", data.transformed(shift_down)),
         ],
         false,
         "Shift Transform",
@@ -233,9 +233,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     generate_plot(
         data.clone(),
         vec![
-            ("Linear x2", data.transformed(&linear_double)),
-            ("Linear x0.5", data.transformed(&linear_half)),
-            ("Linear x-1", data.transformed(&linear_invert)),
+            ("Linear x2", data.transformed(linear_double)),
+            ("Linear x0.5", data.transformed(linear_half)),
+            ("Linear x-1", data.transformed(linear_invert)),
         ],
         false,
         "Linear Transform",
@@ -250,8 +250,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     generate_plot(
         data.clone(),
         vec![
-            ("Quadratic coef=0.5", data.transformed(&half_coeff)),
-            ("Quadratic coef=2.0", data.transformed(&double_coeff)),
+            ("Quadratic coef=0.5", data.transformed(half_coeff)),
+            ("Quadratic coef=2.0", data.transformed(double_coeff)),
         ],
         false,
         "Quadratic Transform",
@@ -266,8 +266,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     generate_plot(
         data.clone(),
         vec![
-            ("Cubic coef=0.5", data.transformed(&half_coeff)),
-            ("Cubic coef=2.0", data.transformed(&double_coeff)),
+            ("Cubic coef=0.5", data.transformed(half_coeff)),
+            ("Cubic coef=2.0", data.transformed(double_coeff)),
         ],
         false,
         "Cubic Transform",
@@ -283,9 +283,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     generate_plot(
         data.clone(),
         vec![
-            ("Exponential base=2", data.transformed(&base2)),
-            ("Exponential base=3", data.transformed(&base3)),
-            ("Exponential base=e", data.transformed(&basee)),
+            ("Exponential base=2", data.transformed(base2)),
+            ("Exponential base=3", data.transformed(base3)),
+            ("Exponential base=e", data.transformed(basee)),
         ],
         false,
         "Exponential Transform",
@@ -301,8 +301,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     generate_plot(
         data.clone(),
         vec![
-            ("Logarithmic base=10, factor=2.0", data.transformed(&log_base_10)),
-            ("Logarithmic base=e, factor=1.0", data.transformed(&log_base_e)),
+            ("Logarithmic base=10, factor=2.0", data.transformed(log_base_10)),
+            ("Logarithmic base=e, factor=1.0", data.transformed(log_base_e)),
         ],
         false,
         "Logarithmic Transform",

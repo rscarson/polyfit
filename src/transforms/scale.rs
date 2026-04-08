@@ -223,8 +223,6 @@ impl<T: Value> ScaleTransform<T> {
     /// and `ScaleTransform::Linear(0.25).inverse()` gives `ScaleTransform::Linear(4.0)`.
     #[must_use]
     pub fn inverse(self) -> Self {
-        // I hate pedantic lints; there's nothing wrong with this inside a function.
-        #![expect(clippy::enum_glob_use)]
         use ScaleTransform::*;
         match self {
             Identity => Identity,

@@ -4,7 +4,11 @@
 #![allow(clippy::cast_sign_loss)]
 
 use crate::{
-    basis::Basis, display::PolynomialDisplay, score::ModelScoreProvider, statistics, value::Value,
+    basis::Basis,
+    display::PolynomialDisplay,
+    score::ModelScoreProvider,
+    statistics::{self, accumulator::HuberLogLikelihoodAccumulator, median_absolute_deviation},
+    value::Value,
 };
 
 /// Akaike Information Criterion. Uses a more lenient penalty for model complexity
@@ -38,20 +42,24 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for 
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         k: T,
-    ) -> T {
-        let (log_likelihood, n) = statistics::robust_mse_with_n(y, y_fit);
-        let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
-        if n == T::zero() {
-            return T::nan();
-        }
+    ) -> Option<T> {
+        let y: Vec<_> = y.collect();
+        let y_fit: Vec<_> = y_fit.collect();
 
+        let mad = median_absolute_deviation(y.iter().copied(), y_fit.iter().copied())?;
+        let mut acc = HuberLogLikelihoodAccumulator::new(mad, None);
+        acc.add_iter(y.into_iter(), y_fit.into_iter());
+
+        let n = acc.count();
+        let log_likelihood = acc.log_likelihood()?;
+        let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
         let mut aic = n * log_likelihood.ln() + T::two() * k;
         if n / k < T::two() + T::two() && n > k + T::one() {
             // Apply AICc correction
             aic += T::two() * k * (k + T::one()) / (n - k - T::one());
         }
 
-        aic
+        Some(aic)
     }
 }
 
@@ -83,14 +91,19 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for 
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         k: T,
-    ) -> T {
-        let (log_likelihood, n) = statistics::robust_mse_with_n(y, y_fit);
-        let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
-        if n == T::zero() {
-            return T::nan();
-        }
+    ) -> Option<T> {
+        let y: Vec<_> = y.collect();
+        let y_fit: Vec<_> = y_fit.collect();
 
-        n * log_likelihood.ln() + k * n.ln()
+        let mad = median_absolute_deviation(y.iter().copied(), y_fit.iter().copied())?;
+        let mut acc = HuberLogLikelihoodAccumulator::new(mad, None);
+        acc.add_iter(y.into_iter(), y_fit.into_iter());
+
+        let n = acc.count();
+        let log_likelihood = acc.log_likelihood()?;
+        let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
+
+        Some(n * log_likelihood.ln() + k * n.ln())
     }
 }
 
@@ -112,7 +125,7 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T>
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         _: T,
-    ) -> T {
+    ) -> Option<T> {
         statistics::root_mean_squared_error(y, y_fit)
     }
 }
@@ -133,7 +146,7 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for 
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         _: T,
-    ) -> T {
+    ) -> Option<T> {
         statistics::mean_absolute_error(y, y_fit)
     }
 }
@@ -195,7 +208,7 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for 
         y: impl Iterator<Item = T>,
         y_fit: impl Iterator<Item = T>,
         k: T,
-    ) -> T {
+    ) -> Option<T> {
         match self {
             ScoringMethod::Aic => Aic.score(model, y, y_fit, k),
             ScoringMethod::Bic => Bic.score(model, y, y_fit, k),

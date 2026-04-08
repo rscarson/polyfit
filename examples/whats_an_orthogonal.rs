@@ -41,7 +41,7 @@ fn main() -> Result<(), Error> {
     println!("Chebyshev fit:\n{cheb_fit}\n");
     println!(
         "R² of Chebyshev fit: {}\n",
-        cheb_fit.as_polynomial().r_squared(&clean_data)
+        cheb_fit.as_polynomial().r_squared(&clean_data)?
     );
 
     //
@@ -51,7 +51,7 @@ fn main() -> Result<(), Error> {
     println!("Fourier fit:\n{fourier_fit}\n");
     println!(
         "R² of Fourier fit: {}\n",
-        fourier_fit.as_polynomial().r_squared(&clean_data)
+        fourier_fit.as_polynomial().r_squared(&clean_data)?
     );
 
     //
@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
     );
     println!(
         "R² of projected Chebyshev fit: {}\n",
-        cheb_proj.r_squared(&clean_data)
+        cheb_proj.r_squared(&clean_data)?
     );
 
     // Finally, let's denoise the projected fit using a spectral energy filter
