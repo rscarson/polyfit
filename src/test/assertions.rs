@@ -780,7 +780,7 @@ mod tests {
         function!(poly(x) = 1.0 + 2.0 x^1 + 3.0 x^2);
         let data = poly
             .solve_range(0.0..=1000.0, 1.0)
-            .apply_normal_noise(Strength::Absolute(0.01), None);
+            .apply_normal_noise(Strength::Relative(0.01), None);
         let fit = MonomialFit::new_auto(&data, DegreeBound::Relaxed, &Aic).unwrap();
         assert_residuals_normal!(&fit, 0.01);
     }

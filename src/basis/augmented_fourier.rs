@@ -197,6 +197,11 @@ impl<const MONOMIAL_DEGREE: usize, T: Value> Basis<T>
     }
 
     #[inline(always)]
+    fn max_degree(&self, n: usize) -> usize {
+        n.saturating_sub(1) / 2
+    }
+
+    #[inline(always)]
     fn solve_function(&self, j: usize, x: T) -> T {
         // Because we support calculus, there can be a polynomial series at the start
         // The first [0..polynomial_terms] are monomial terms

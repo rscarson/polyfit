@@ -331,6 +331,15 @@ where
     #[cfg(feature = "parallel")]
     const MAX_STABLE_DIGITS: usize = 8; // Given digits=log10(-epsilon) for T, 10^(digits - MAX_STABLE_DIGITS) gives a threshold for condition number
 
+    #[cfg(feature = "parallel")]
+    const STABILITY_SAMPLE_BLOCKS: usize = 8; // How many blocks to sample in the data (This actually happens twice)
+
+    #[cfg(feature = "parallel")]
+    const STABILITY_SAMPLE_BLOCKLEN: usize = 1250; // How many rows to sample in each block for the stability check
+
+    #[cfg(feature = "parallel")]
+    const SAMPLE_LEN: usize = Self::STABILITY_SAMPLE_BLOCKLEN * Self::STABILITY_SAMPLE_BLOCKS; // Convenience constant for the total sample length
+
     fn create_bigx(data: &[(T, T)], basis: &B, k: usize) -> DMatrix<T> {
         let mut bigx = DMatrix::zeros(data.len(), k);
         for (row, (x, _)) in bigx.row_iter_mut().zip(data.iter()) {
@@ -422,40 +431,139 @@ where
         }
     }
 
+    /// Computes the condition number of the matrix X^T X, which is a measure of numerical stability.
+    fn compute_condition_number(xtx: &DMatrix<T>) -> T {
+        let eigen = xtx.complex_eigenvalues().map(nalgebra::ComplexField::real);
+        let max_eigen = eigen.max();
+        let min_eigen = eigen.min();
+        (max_eigen / min_eigen).sqrt()
+    }
+
+    /// Performs a fast, non-branching pseudorandom walk of the data to create a sample
+    ///
+    /// Will panic if the data is too small for the given block size and halfsegment count
+    /// Data should be at least `block_size * (halfsegment_count * 2 + 1)` in length to ensure
+    /// we have enough data for the walk and slack in each segment
+    ///
+    /// The output is going to be a vector of length `[block_size * halfsegment_count * 2`]
+    ///
+    /// The algorithm will work as follows:
+    ///
+    /// - Get `n_segments = halfsegment_count * 2`
+    /// - Get the length of each segment by evenly dividing the data into `n_segments`
+    /// - Get the slack in each segment by subtracting the block size, and find the largest power of 2 that is less than the slack
+    /// - For each segment, use a golden ratio prime to generate a pseudorandom offset from the segment start for that block
+    /// - Copy the block into the target vector, interleaving the blocks into the left and right of the vector
+    fn randomwalk_sample(data: &[(T, T)]) -> Vec<(T, T)> {
+        #[cfg(target_pointer_width = "64")]
+        const PRIME: usize = 0x9e37_79b9_7f4a_7c15; //x64 golden ratio prime
+
+        #[cfg(target_pointer_width = "32")]
+        const PRIME: usize = 0x9E37_79B1; //x32 golden ratio prime
+
+        let block_size = Self::STABILITY_SAMPLE_BLOCKLEN;
+        let halfsegment_count = Self::STABILITY_SAMPLE_BLOCKS;
+
+        debug_assert!(
+            data.len() >= block_size * (halfsegment_count * 2 + 1),
+            "Data too small for the given block size and halfsegment count"
+        );
+
+        let n_segments = halfsegment_count * 2;
+        let segment_length = data.len() / n_segments;
+        let slack = segment_length.saturating_sub(block_size);
+
+        // Find the largest power of 2 fitting - this should use the CLZ instruction once compiled, so it should be very fast
+        let pow2 = (usize::BITS - 1) - slack.leading_zeros();
+        let segment_header_len = 1usize << pow2;
+
+        // Set up the output vector, we will write into this in chunks based on the pseudorandom walk
+        let mut out: Vec<(T, T)> = Vec::with_capacity(block_size * n_segments);
+        let ptr = out.as_mut_ptr().cast::<std::mem::MaybeUninit<(T, T)>>();
+
+        // Precalculate the RS offset - the whole right side, plus the wasted slack for a RS segment, plus the unused space after the last segment
+        let rs_offset = halfsegment_count * segment_length
+            + (slack - segment_header_len)
+            + (data.len() % n_segments);
+
+        let mask = segment_header_len - 1; // Mask for the pseudorandom offset, ensures we stay within the slack
+        let high_shift = usize::BITS - pow2; // To use the high bits of the state for the offset, since the low bits are less random
+        let mut state = PRIME; // Seed the offset
+        for i in 0..n_segments {
+            let segment_start = (i >> 1) * segment_length + (i & 1) * rs_offset; // Interleave left and right halves of the segments
+            state = state.wrapping_add(PRIME);
+            let block_offset = (state >> high_shift) & mask;
+
+            let block_start = segment_start + block_offset;
+            let write_start = i * block_size;
+            unsafe {
+                let dst = ptr.add(write_start);
+                let src = data.as_ptr().add(block_start);
+                std::ptr::copy_nonoverlapping(src, dst.cast::<(T, T)>(), block_size);
+            } // Safety: block_start is guaranteed to be within the segment, which is guaranteed to have enough slack for the block
+              // The output vector is allocated with enough capacity for all blocks, and we only write within that capacity, so we won't overflow the output vector
+        }
+
+        unsafe {
+            out.set_len(block_size * n_segments);
+        } // Safety: We have written exactly block_size * n_segments
+        out
+    }
+
     /// Checks if the data is stable for fitting with normal eq mode with the given basis and degree.
     /// It will also return a tikhonov number based on eigenvalues.
     ///
+    /// Takes a pair of random samples of the data, builds the basis matrix, and computes the condition number of X^T X for each sample.
+    /// Ensures that both condition numbers are low enough to preserve a set number of digits of precision, and that they are within an
+    /// order of magnitude of each other to avoid false positives from unlucky sampling.
+    ///
     /// Some(tikhonov) if stable, None if not stable
     #[cfg(feature = "parallel")]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        reason = "8 is not gonna overflow my guy"
+    )]
     fn is_data_stable(data: &[(T, T)], basis: &B, k: usize) -> Option<T> {
         if data.len() < Self::MIN_ROWS_TO_PARALLEL {
             return None; // Not enough data to bother
         }
 
-        // First we sample ~1% of the data
-        let stride = (data.len() / 100).max(1);
-        let sample: Vec<_> = data.iter().step_by(stride).map(|(x, y)| (*x, *y)).collect();
-
-        // Build the basis matrix for the sample
+        // Get the sample matrix
+        let sample = Self::randomwalk_sample(data); // We use a sample size of 2x10k (1250 * 8 * 2 = 20k)
         let bigx = Self::create_bigx(&sample, basis, k);
-        let xtx = &bigx.transpose() * bigx;
 
-        // Eigen
-        let eigen = xtx.complex_eigenvalues().map(nalgebra::ComplexField::real);
-        let max_eigen = eigen.max();
-        let min_eigen = eigen.min();
+        // Get the top 10k x k portion of the matrix
+        let upper = bigx.view((0, 0), (Self::SAMPLE_LEN, k));
+        let xtx_upper = &upper.transpose() * upper;
+        let cnd_upper = Self::compute_condition_number(&xtx_upper);
 
-        // Get the condition number, and our threshold for stability
-        let condition_number = (max_eigen / min_eigen).sqrt();
-        let digits_to_keep = T::try_cast(Self::MAX_STABLE_DIGITS).ok()?;
-        let ten = T::try_cast(10).ok()?;
-        let threshold = T::one() / T::epsilon() * ten.powf(-T::one() * digits_to_keep);
+        // And the bottom 10k x k portion of the matrix
+        let lower = bigx.view((Self::SAMPLE_LEN, 0), (Self::SAMPLE_LEN, k));
+        let xtx_lower = &lower.transpose() * lower;
+        let cnd_lower = Self::compute_condition_number(&xtx_lower);
 
-        if condition_number >= threshold {
+        // We take the max of the two condition numbers to be conservative, since if either is unstable, we are likely to have problems
+        let max_condition_number = Value::max(cnd_upper, cnd_lower);
+
+        // Get the condition number threshold for stability
+        // threshold = (1.0 / epsilon) / 10^digits
+        let s_buffer = Value::powi(T::try_cast(10).ok()?, Self::MAX_STABLE_DIGITS as i32);
+        let threshold = T::one() / T::epsilon() / s_buffer;
+
+        // If the condition number is above the threshold, we consider it unstable and return None
+        if max_condition_number >= threshold {
             return None; // Not stable
         }
 
+        // Also verify both condition numbers are within an order of magnitude, otherwise we might have just gotten unlucky with one of the samples
+        let min_condition_number = Value::min(cnd_upper, cnd_lower);
+        if max_condition_number / min_condition_number > T::try_cast(10).ok()? {
+            return None; // Not stable, too much variance between samples
+        }
+
         // We use the mean diagonal trace as the base for tikhonov
+        let xtx = &bigx.transpose() * bigx;
         let mean_trace = xtx.trace() / T::try_cast(k).ok()?;
         Some(mean_trace * T::epsilon())
     }
@@ -748,14 +856,19 @@ where
         method: &impl ModelScoreProvider<B, T>,
     ) -> Result<Self> {
         let data: Cow<_> = data.into();
+
         let max_degree = max_degree.into().max_degree(data.len());
         if data.is_empty() {
             return Err(Error::NoData);
         }
 
-        // Step 1 - Create the basis and matrix once
+        // Create the basis once and get a hard degree cap (just in case the basis has weird behavior where k doesn't increase with degree in a predictable way)
         let x_range = data.x_range().ok_or(Error::NoData)?;
         let basis = B::from_range(x_range.clone());
+        let hard_max_degree = basis.max_degree(data.len());
+        let max_degree = max_degree.min(hard_max_degree);
+
+        // Step 1 - Create the matrix once
         let max_k = basis.k(max_degree);
         let (xtx, xtb, normal_eq) = Self::create_parallel_matrix(&data, &basis, max_k);
 
@@ -809,7 +922,7 @@ where
                         Self::from_raw(data.clone(), x_range.clone(), basis.clone(), coefs, degree)
                             .ok()?;
 
-                    let score = model.model_score(method);
+                    let score = model.model_score(method).ok()?;
                     Some((model, score))
                 })
                 .collect();
@@ -916,9 +1029,13 @@ where
             return Err(Error::NoData);
         }
 
-        // Step 1 - Create the basis and matrix once
+        // Create the basis once and get a hard degree cap (just in case the basis has weird behavior where k doesn't increase with degree in a predictable way)
         let x_range = data.x_range().ok_or(Error::NoData)?;
         let basis = B::from_range(x_range.clone());
+        let hard_max_degree = basis.max_degree(data.len());
+        let max_degree = max_degree.min(hard_max_degree);
+
+        // Step 1 - Create the basis and matrix once
         let k = basis.k(max_degree);
         let (m, b) = Self::create_matrix(data.as_ref(), &basis, k);
 
@@ -1217,7 +1334,7 @@ where
     /// # use polyfit::{ChebyshevFit, score::Aic};
     /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
     /// let fit = ChebyshevFit::new(data, 2).unwrap();
-    /// let score = fit.model_score(&Aic);
+    /// let score = fit.model_score(&Aic).unwrap();
     /// println!("Model score: {}", score);
     /// ```
     pub fn model_score(&self, method: &impl ModelScoreProvider<B, T>) -> Result<T> {
@@ -1479,7 +1596,7 @@ where
     /// # use polyfit::{ChebyshevFit, CurveFit};
     /// let data = &[(0.0, 1.0), (1.0, 3.0), (2.0, 7.0)];
     /// let fit = ChebyshevFit::new(data, 2).unwrap();
-    /// let r2 = fit.adjusted_r_squared(None);
+    /// let r2 = fit.adjusted_r_squared(None).unwrap();
     /// println!("R² = {}", r2);
     /// ```
     pub fn adjusted_r_squared(&self, data: Option<&[(T, T)]>) -> Result<T> {
@@ -2041,13 +2158,43 @@ pub struct FitProperties<T: Value> {
 mod tests {
     use crate::{
         assert_close, assert_fits, assert_true,
+        basis::{ChebyshevBasis, MonomialBasis},
         score::Aic,
         statistics::CvStrategy,
-        transforms::{ApplyNoise, Strength},
+        transforms::{ApplyNoise, ApplyNormalization, Strength},
         MonomialFit,
     };
 
     use super::*;
+
+    #[test]
+    fn test_is_data_stable() {
+        let mono_basis = MonomialBasis::default();
+        let cheb_basis = ChebyshevBasis::new(0.0, 1_000_000.0);
+
+        //
+        // Here we will generate a series of data sets with a given condition number, and verify that the algorithm correctly identifies them as stable or unstable.
+        // We need to basically 'reverse engineer' the Vandermonde matrix to create data with a specific condition number.
+        // We can do this by starting with a known set of x-values, and then applying a transformation to the y-values that corresponds to the condition number we want.
+        //
+        // For f64, to preserve 8 digits of precision, we need a condition number less than 1e8, so we will test with condition numbers around that threshold.
+        //
+        // It also needs to be >1M rows to trigger the condition number check, so we will generate 1M+ data points.
+        let num_points = 1_000_001;
+        let x_values: Vec<f64> = (0..num_points).map(f64::from).collect();
+        let data: Vec<f64> = x_values.iter().map(|&x| x.powi(2)).collect(); // Quadratic data, which is well-conditioned for fitting
+        let data: Vec<(f64, f64)> = x_values.into_iter().zip(data).collect();
+
+        // Under a monomial this huge range will produce a very high condition number, so it should be unstable
+        assert!(CurveFit::is_data_stable(&data, &mono_basis, 3).is_none());
+
+        // If we domain transform it to a smaller range, it should be stable
+        let domain_restricted = data.clone().apply_domain_normalization(-1.0, 1.0);
+        assert!(CurveFit::is_data_stable(&domain_restricted, &mono_basis, 3).is_some());
+
+        // The original data set is also stable for Chebyshev, because the basis functions are designed to be numerically stable over large ranges
+        assert!(CurveFit::is_data_stable(&data, &cheb_basis, 3).is_some());
+    }
 
     #[test]
     fn test_curvefit_new_and_coefficients() {

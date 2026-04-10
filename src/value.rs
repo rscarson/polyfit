@@ -41,6 +41,7 @@ pub trait Value:
     + nalgebra::ComplexField<RealField = Self>
     + nalgebra::RealField
     + num_traits::float::FloatCore
+    + num_traits::float::TotalOrder
     + std::fmt::LowerExp
 {
     /// Returns the value 2.0
@@ -160,6 +161,60 @@ pub trait Value:
         }
     }
 
+    /// Return the ordering between `self` and `other`.
+    ///
+    /// Unlike the standard partial comparison between floating point numbers,
+    /// this comparison always produces an ordering in accordance to
+    /// the `totalOrder` predicate as defined in the IEEE 754 (2008 revision)
+    /// floating point standard. The values are ordered in the following sequence:
+    ///
+    /// - negative quiet NaN
+    /// - negative signaling NaN
+    /// - negative infinity
+    /// - negative numbers
+    /// - negative subnormal numbers
+    /// - negative zero
+    /// - positive zero
+    /// - positive subnormal numbers
+    /// - positive numbers
+    /// - positive infinity
+    /// - positive signaling NaN
+    /// - positive quiet NaN.
+    ///
+    /// The ordering established by this function does not always agree with the
+    /// [`PartialOrd`] and [`PartialEq`] implementations. For example,
+    /// they consider negative and positive zero equal, while `total_cmp`
+    /// doesn't.
+    ///
+    /// The interpretation of the signaling NaN bit follows the definition in
+    /// the IEEE 754 standard, which may not match the interpretation by some of
+    /// the older, non-conformant (e.g. MIPS) hardware implementations.
+    ///
+    /// # Examples
+    /// ```
+    /// use num_traits::float::TotalOrder;
+    /// use std::cmp::Ordering;
+    /// use std::{f32, f64};
+    ///
+    /// fn check_eq<T: TotalOrder>(x: T, y: T) {
+    ///     assert_eq!(x.total_cmp(&y), Ordering::Equal);
+    /// }
+    ///
+    /// check_eq(f64::NAN, f64::NAN);
+    /// check_eq(f32::NAN, f32::NAN);
+    ///
+    /// fn check_lt<T: TotalOrder>(x: T, y: T) {
+    ///     assert_eq!(x.total_cmp(&y), Ordering::Less);
+    /// }
+    ///
+    /// check_lt(-f64::NAN, f64::NAN);
+    /// check_lt(f64::INFINITY, f64::NAN);
+    /// check_lt(-0.0_f64, 0.0_f64);
+    /// ```
+    fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        <Self as num_traits::float::TotalOrder>::total_cmp(self, other)
+    }
+
     /// Computes the binomial coefficient "n choose k" for integer `n` and `k`.
     #[must_use]
     fn integer_binomial(n: usize, k: usize) -> Self {
@@ -209,6 +264,7 @@ impl<T> Value for T where
         + nalgebra::ComplexField<RealField = Self>
         + nalgebra::RealField
         + num_traits::float::FloatCore
+        + num_traits::float::TotalOrder
         + std::fmt::LowerExp
 {
 }

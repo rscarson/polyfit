@@ -121,6 +121,13 @@ pub trait Basis<T: Value>: Sized + Clone + std::fmt::Debug + Send + Sync {
         }
     }
 
+    /// Returns the maximum non-interpolating polynomial degree possible for a given number of observations `n`
+    /// for this basis.
+    #[inline(always)]
+    fn max_degree(&self, n: usize) -> usize {
+        n.saturating_sub(1)
+    }
+
     /// Populates a row of a Vandermonde matrix with this basis evaluated at `x`.
     ///
     /// All basis functions (degree + 1 values) are written into `vector` starting

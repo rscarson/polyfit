@@ -3,6 +3,7 @@ use crate::{statistics::UncertainValue, value::Value};
 /// Kahan summation algorithm for improved numerical stability when summing floating-point numbers
 ///
 /// Reduces the numerical error that can occur when adding a sequence of finite precision floating-point numbers
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KahanAccumulator<T: Value> {
     sum: T,
     kahan: T,
@@ -162,6 +163,7 @@ impl<T: Value> std::iter::FromIterator<T> for MeanAccumulator<T> {
 /// but rather the likelihood that you can reject the null hypothesis of normality (i.e. that the residuals are not normally distributed).
 ///
 /// So a likelihood of 0.3 means that there is 30% chance that can reject the idea that the residuals are not normally distributed
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Normality<T: Value> {
     /// The likelihood that the residuals are normally distributed, based on D'Agostino's K-squared test.
     ///
@@ -273,17 +275,22 @@ impl<T: Value> NormalityAccumulator<T> {
 
         //
         // Get the likelihood of normality using D'Agostino's K-squared
+        //
 
-        let six = T::from_positive_int(6);
-        let twentyfour = T::from_positive_int(24);
+        // The standard error of skewness and kurtosis can be calculated using the formulas:
+        // SE_skewness = sqrt(6/n), SE_kurtosis = sqrt(24/n), where n is the sample size (count).
+        let se_skew = (T::from_positive_int(6) / self.count).sqrt();
+        let se_kurt = (T::from_positive_int(24) / self.count).sqrt();
 
-        let se_skew = (six / self.count).sqrt();
-        let se_kurt = (twentyfour / self.count).sqrt();
-
+        // Now we can calculate the z-scores for skewness and kurtosis:
+        // z_skew = skewness / SE_skewness, z_kurt = kurtosis / SE_kurtosis
         let z_skew = skewness / se_skew;
         let z_kurt = kurtosis / se_kurt;
-        let k_squared = z_skew * z_skew + z_kurt * z_kurt;
 
+        // Finally, we can calculate the combined K-squared statistic:
+        // K^2 = z_skew^2 + z_kurt^2
+        // p = 1 - CDF(K^2, 2), which has the close form p = exp(-K^2/2) for 2 degrees of freedom
+        let k_squared = z_skew * z_skew + z_kurt * z_kurt;
         let likelihood = (-k_squared / T::two()).exp();
 
         Some(Normality {

@@ -6,7 +6,6 @@ use polyfit::{
     },
     display::PolynomialDisplay,
     score::Aic,
-    statistics::DegreeBound,
     CurveFit,
 };
 use std::hint::black_box;
@@ -17,8 +16,11 @@ fn gen_sample_data(n: f64) -> Vec<(f64, f64)> {
     y.solve_range(1.0..=n, 1.0)
 }
 
-fn auto_fit<B: Basis<f64> + PolynomialDisplay<f64>>(data: &[(f64, f64)]) -> CurveFit<'_, B, f64> {
-    CurveFit::<B, f64>::new_auto(data, DegreeBound::Relaxed, &Aic).expect("Failed to fit data")
+fn auto_fit<B: Basis<f64> + PolynomialDisplay<f64>>(
+    data: &[(f64, f64)],
+    n_models: usize,
+) -> CurveFit<'_, B, f64> {
+    CurveFit::<B, f64>::new_auto(data, n_models, &Aic).expect("Failed to fit data")
 }
 
 fn fit<B: Basis<f64> + PolynomialDisplay<f64>>(
@@ -100,29 +102,29 @@ fn criterion_benchmark(c: &mut Criterion) {
     //
     // Now with auto degree selection
     let samples = gen_sample_data(1e3);
-    let n_models = DegreeBound::Relaxed.max_degree(samples.len());
-    println!("Benchmarking auto fit vs basis (n=1000, Candidates={n_models})...");
+    let n_models = 10;
+    println!("Benchmarking auto fit vs basis (n=1000, Candidates=10)...");
     let mut group = c.benchmark_group("auto_fit_vs_basis");
     group.bench_function("Monomial", |b| {
-        b.iter(|| auto_fit::<MonomialBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<MonomialBasis>(black_box(&samples), n_models))
     });
     group.bench_function("Chebyshev", |b| {
-        b.iter(|| auto_fit::<ChebyshevBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<ChebyshevBasis>(black_box(&samples), n_models))
     });
     group.bench_function("Legendre", |b| {
-        b.iter(|| auto_fit::<LegendreBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<LegendreBasis>(black_box(&samples), n_models))
     });
     group.bench_function("Hermite", |b| {
-        b.iter(|| auto_fit::<ProbabilistsHermiteBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<ProbabilistsHermiteBasis>(black_box(&samples), n_models))
     });
     group.bench_function("Laguerre", |b| {
-        b.iter(|| auto_fit::<LaguerreBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<LaguerreBasis>(black_box(&samples), n_models))
     });
     group.bench_function("Fourier", |b| {
-        b.iter(|| auto_fit::<FourierBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<FourierBasis>(black_box(&samples), n_models))
     });
     group.bench_function("Logarithmic", |b| {
-        b.iter(|| auto_fit::<LogarithmicBasis>(black_box(&samples)))
+        b.iter(|| auto_fit::<LogarithmicBasis>(black_box(&samples), n_models))
     });
     group.finish();
 }

@@ -181,7 +181,7 @@ impl<T: Value> RootFindingBasis<T> for FourierBasis<T> {
             })
             .collect::<Vec<_>>();
 
-        roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        roots.sort_by(|a, b| Value::total_cmp(a, b));
         let roots = roots
             .into_iter()
             .filter_map(|r| {

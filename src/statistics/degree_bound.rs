@@ -5,15 +5,13 @@
 ///
 /// **Technical Details**
 ///
-/// The maximum degree is chosen as the minimum of four constraints:
+/// The maximum degree is chosen as the minimum of three constraints:
 ///
-/// 1. Theoretical maximum for non-interpolating fits: `n - 1`, where `n` is the number of observations.
-///
-/// 2. A hard cap to prevent excessively high degrees:
+/// 1. A hard cap to prevent excessively high degrees:
 /// - Conservative: 8
 /// - Relaxed: 15
 ///
-/// 3. Smoothness (`s`):
+/// 2. Smoothness (`s`):
 /// ```math
 /// lim_smooth = n ^ (1 / (2s + 1))
 /// where
@@ -21,13 +19,17 @@
 ///   n = number of observations
 /// ```
 ///
-/// 4. Observations per parameter:
+/// 3. Observations per parameter:
 /// ```math
 /// lim_obs = (n / n_k_ratio_limit) - 1
 /// where
 ///   n_k_ratio_limit = minimum required number of observations per coefficient
 ///   n = number of observations
 /// ```
+///
+/// One argument against this technique is that it may be more conservative for some bases than others (Fourier for example will allow higher degrees than monomial for the same n).
+/// However, while statistically different in that case, the orthogonal nature of the Fourier basis means that it is much less likely to encounter numerical instability
+/// or overfitting for reasonable degrees, and this matches user intuition about degree more closely than the exact case by degree bounds for each basis would.
 /// </div>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DegreeBound {
@@ -95,6 +97,41 @@ impl DegreeBound {
 
                 smooth_lim.min(obs_lim).min(hard_cap).min(theoretical_max)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_theoretical_bounds_fourier() {
+        //
+        // So we will go from n=1 to n=100k
+        // For each, we will find the max degree for each bound
+        // and verify it is <= (n-1)/2 -> theoretical max for Fourier basis
+        for n in 1..=100_000 {
+            let max = DegreeBound::Relaxed.max_degree(n);
+            let theoretical_max = (n - 1) / 2;
+            assert!(
+                max <= theoretical_max,
+                "Degree bound exceeded theoretical max for n={n}: {max} > {theoretical_max}"
+            );
+
+            let hard_max = n - 1;
+            assert!(
+                max == 0 || max < hard_max,
+                "Degree bound hit hard max for n={n}: {max} > {hard_max}"
+            );
+
+            // Now the first test again for the aggressive bound
+            let max = DegreeBound::Aggressive.max_degree(n);
+            let theoretical_max = n - 1;
+            assert!(
+                max <= theoretical_max,
+                "Degree bound exceeded theoretical max for n={n}: {max} > {theoretical_max}"
+            );
         }
     }
 }

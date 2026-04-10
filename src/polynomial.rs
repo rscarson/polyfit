@@ -764,7 +764,7 @@ where
     {
         let dx = self.derivative()?;
         let mut roots = root_finder(&dx, x_range.clone())?;
-        roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        roots.sort_by(|a, b| Value::total_cmp(a, b));
 
         if roots.is_empty() {
             // No critical points -> derivative does not change sign

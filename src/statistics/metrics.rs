@@ -85,15 +85,11 @@ pub fn median<T: Value>(data: &mut [T]) -> Option<T> {
 
     let n = data.len();
     let i = n / 2;
-    let (l, mid, _) = data.select_nth_unstable_by(i, |a, b| {
-        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let (l, mid, _) = data.select_nth_unstable_by(i, |a, b| Value::total_cmp(a, b));
 
     if n % 2 == 0 {
         // Even number of elements, so n/2 is actually the upper middle
-        let lower_mid = l
-            .iter()
-            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
+        let lower_mid = l.iter().max_by(|&a, &b| Value::total_cmp(a, b))?;
         Some((*lower_mid + *mid) / T::two())
     } else {
         Some(*mid)
@@ -397,11 +393,34 @@ pub fn adjusted_r_squared<T: Value>(
 ///
 /// R-squared is calculated as:
 /// ```math
-/// R² = 1 - (SS_res / SS_tot)
-/// where
-///   SS_res = Σ (y_i - y_fit_i)²
-///   SS_tot = Σ (y_i - y_mean)²
+/// SS_res = Σ (y_i - y_fit_i)²
+/// SS_tot = Σ (y_i - y_mean)²
+///
+/// R² = { 1 - (SS_res / SS_tot)    if SS_tot > 0
+///      { 1                        if SS_tot = 0 and SS_res = 0
+///      { -inf                     if SS_tot = 0 and SS_res > 0
 /// ```
+///
+/// The justification for this piecewise approach can be split up as follows
+///
+/// Using L'Hospital's rule, we can observe the following behavior as the variance of `y` approaches zero:
+/// - If `SS_res == 0`, then as `SS_tot` approaches zero, the ratio `SS_res / SS_tot` remains 0, so R² remains 1
+/// - If `SS_res > 0`, then as `SS_tot` approaches zero, the ratio `SS_res / SS_tot` approaches infinity, so R² approaches -inf
+///
+/// In the second case, even if we assume a dataset of size `n+1` would in fact have `SS_tot > 0`, the model was unable to explain the shape of the sample of size `n`,
+/// and thus, for the sample `n`, is immeasurably worse than a model that simply predicts the mean due to introducing noise where none existed.
+/// Since such a model will always be outperformed by a model where `SS_res == 0`, we accept that `R² == -inf`
+///
+/// For the first case, the argument can be made that there is insufficient evidence to accept the model, since a set of `n + 1` items may introduce previously unseen variance.
+/// However, since the model is able to perfectly predict the observed data, from an engineering standpoint it could be harmful to reject the case where a true dataset is in fact
+/// constant, and explainable by a constant polynomial (degree 0).
+///
+/// Further, if you take a theoretical dataset with a variance approaching epsilon, the R² approaches 1, and if you expand n towards infinity with 0 variance, the threshold of
+/// insufficient data remains - one would need to reject a model explaining an infinite sized constant dataset, which seems undesirable.
+///
+/// Thus we accept the case where `SS_tot == 0` and `SS_res == 0` as R² == 1, since we do not have sufficient evidence to reject the model,
+/// but do have sufficient evidence to reject any model that does not perfectly fit the data (since it would have R² == -inf)
+///
 /// </div>
 ///
 /// # Parameters
@@ -435,7 +454,9 @@ pub fn r_squared<T: Value>(
 /// **Technical Details**
 ///
 /// ```math
-/// R²_robust = 1 - (Σ huber_loss(y_i - y_fit_i, delta)) / (Σ (y_i - y_fit_i)²)
+/// R²_robust = { 1 - (Σ huber_loss(y_i - y_fit_i, delta)) / (Σ (y_i - y_fit_i)²)   if TSS > 0
+///             { 1                                                                 if TSS = 0 and TSE = 0
+///             { -inf                                                              if TSS = 0 and TSE > 0
 /// where
 ///   huber_loss(r, delta) = { 0.5 * r²                    if |r| ≤ delta
 ///                          { delta * (|r| - 0.5 * delta) if |r| > delta
@@ -444,6 +465,8 @@ pub fn r_squared<T: Value>(
 ///  where
 ///    y_i = observed values, y_fit_i = predicted values
 /// ```
+///
+/// See [`r_squared`] for the traditional R² calculation, and for the justification of the piecewise approach when TSS == 0
 /// </div>
 ///
 /// # Type Parameters
@@ -484,6 +507,15 @@ pub fn robust_r_squared<T: Value>(
     }
 
     let tse = acc.log_likelihood_sum()?;
+
+    // Handle the cases where TSS is zero (i.e., no variance in the observed data)
+    if tss == T::zero() {
+        if tse == T::zero() {
+            return Some(T::one()); // Perfect fit
+        }
+        return Some(T::neg_infinity()); // No fit
+    }
+
     Some(T::one() - (tse / tss))
 }
 
