@@ -162,6 +162,46 @@ impl<T: Value> OrthogonalBasis<T> for ChebyshevBasis<T> {
 }
 
 impl<T: Value> IntoMonomialBasis<T> for ChebyshevBasis<T> {
+    /// Convert from the Chebyshev basis to the monomial basis.
+    ///
+    /// The conversion runs the Chebyshev recurrence
+    /// `T_{k+1}(x') = 2 x' T_k(x') − T_{k-1}(x')` in coefficient space
+    /// (`O(n²)`), then un-normalizes from the basis's internal `x' ∈ [-1, 1]`
+    /// frame back to the caller's `x ∈ [x_min, x_max]` frame.
+    ///
+    /// # Precision warning
+    ///
+    /// Both steps amplify error: the recurrence is well-conditioned in
+    /// `x'`, but the un-normalization is a Vandermonde-style change of
+    /// variable whose condition number scales like
+    /// `((x_max - x_min) / 2)^k` per term — i.e., exponential in both
+    /// degree and domain half-width. The Chebyshev-form polynomial can
+    /// be accurate well past the degree at which its monomial form has
+    /// thrown its accuracy away.
+    ///
+    /// A rough rule of thumb for f64 monomial-form Horner evaluation
+    /// after `as_monomial()`:
+    ///
+    /// | Domain half-width `(x_max - x_min) / 2` | Stable degree | Risky degree (10×+ error vs Chebyshev form) |
+    /// |---:|---:|---:|
+    /// | `≤ 1`   | up to ~25 | ~30+ |
+    /// | `~2`    | up to ~18 | ~22+ |
+    /// | `~6`    | up to ~12 | ~14+ |
+    /// | `~10`   | up to ~10 | ~12+ |
+    /// | `≥ 50`  | up to ~6  | ~8+  |
+    ///
+    /// (Numbers are conservative and depend on the specific reference
+    /// function; widen the domain by a factor of `k` and the safe
+    /// degree drops by roughly `log₂(k)`.)
+    ///
+    /// **If your fit is high degree on a wide domain, do not assume the
+    /// monomial coefficients evaluate as accurately as the Chebyshev
+    /// form.** Validate by spot-checking
+    /// `mono_poly.y(x) - chebyshev_fit.y(x)` on a dense grid before
+    /// shipping. If the gap is wider than the Chebyshev fit's
+    /// max-error-vs-reference, either reduce the degree, narrow the
+    /// domain, evaluate in the Chebyshev form directly, or split the
+    /// domain into piecewise segments.
     fn as_monomial(&self, coefficients: &mut [T]) -> Result<()> {
         let n = coefficients.len() - 1;
 
