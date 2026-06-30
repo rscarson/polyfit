@@ -99,6 +99,16 @@ impl<T: Value> Basis<T> for MonomialBasis<T> {
             _ => Value::powi(x, j.clamped_cast()),
         }
     }
+
+    /// Evaluates the polynomial at a given point `x` using Horner's method.
+    #[inline(always)]
+    fn solve(&self, x: T, coefficients: &[T]) -> T {
+        let mut result = T::zero();
+        for &coef in coefficients.iter().rev() {
+            result = result.mul_add(x, coef);
+        }
+        result
+    }
 }
 impl<T: Value> IntoMonomialBasis<T> for MonomialBasis<T> {
     fn as_monomial(&self, _: &mut [T]) -> Result<()> {

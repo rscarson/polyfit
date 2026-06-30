@@ -666,7 +666,6 @@ where
     /// # Parameters
     /// - `x_min`: Lower bound of integration.
     /// - `x_max`: Upper bound of integration.
-    /// - `constant`: Constant of integration (value at x = 0) for the indefinite integral.
     ///
     /// # Requirements
     /// - The polynomial's basis `B` must implement [`IntegralBasis`].
@@ -681,14 +680,14 @@ where
     /// # Example
     /// ```rust
     /// polyfit::function!(poly(x) = 4 x^3 + 2);
-    /// let area = poly.area_under_curve(0.0, 3.0, None).unwrap();
+    /// let area = poly.area_under_curve(0.0, 3.0).unwrap();
     /// println!("Area under curve: {}", area);
     /// ```
-    pub fn area_under_curve(&self, x_min: T, x_max: T, constant: Option<T>) -> Result<T>
+    pub fn area_under_curve(&self, x_min: T, x_max: T) -> Result<T>
     where
         B: IntegralBasis<T>,
     {
-        let integral = self.integral(constant)?;
+        let integral = self.integral(None)?; // The constant of integration cancels out
         Ok(integral.y(x_max) - integral.y(x_min))
     }
 
@@ -1211,7 +1210,7 @@ mod tests {
     fn test_area_under_curve() {
         function!(test(x) = 8.0 + 7.0 x^1 + 6.0 x^2);
         let area = test
-            .area_under_curve(0.0, 3.0, None)
+            .area_under_curve(0.0, 3.0)
             .expect("Failed to compute area");
         assert_close!(area, 109.5);
     }

@@ -132,6 +132,26 @@ impl<T: Value> Basis<T> for ChebyshevBasis<T> {
             }
         }
     }
+
+    /// Evaluates the polynomial at a given point `x` using clenshaw's algorithm.
+    #[inline(always)]
+    fn solve(&self, x: T, coefficients: &[T]) -> T {
+        if coefficients.is_empty() {
+            return T::zero();
+        }
+
+        let two = T::two();
+        let mut b_next = T::zero();
+        let mut b_next2 = T::zero();
+
+        for &a_k in coefficients[1..].iter().rev() {
+            let b = two * x * b_next - b_next2 + a_k;
+            b_next2 = b_next;
+            b_next = b;
+        }
+
+        coefficients[0] + x * b_next - b_next2
+    }
 }
 
 impl<T: Value> OrthogonalBasis<T> for ChebyshevBasis<T> {

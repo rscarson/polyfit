@@ -32,7 +32,7 @@ fn main() -> Result<(), Error> {
     // We can also use calculus to find the total energy used in the first minute (60 seconds).
     // This is just the area under the curve - so we need to integrate the function from 0 to 60.
     // The result will be in watt-seconds, or joules.
-    let energy_joules = fit.area_under_curve(0.0, 20.0, None)?;
+    let energy_joules = fit.area_under_curve(0.0, 20.0)?;
     println!(
         "Total energy used in the first 20 seconds: {:.2} kilojoules",
         energy_joules / 1000.0

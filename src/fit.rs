@@ -1266,7 +1266,6 @@ where
     /// # Parameters
     /// - `x_min`: Lower bound of integration.
     /// - `x_max`: Upper bound of integration.
-    /// - `constant`: Constant of integration (value at x = 0) for the indefinite integral.
     ///
     /// # Requirements
     /// - The polynomial's basis `B` must implement [`IntegralBasis`].
@@ -1283,14 +1282,14 @@ where
     /// # use polyfit::statistics::Confidence;
     /// # use polyfit::MonomialFit;
     /// # let model = MonomialFit::new(&[(0.0, 0.0), (1.0, 1.0)], 1).unwrap();
-    /// let area = model.area_under_curve(0.0, 3.0, None).unwrap();
+    /// let area = model.area_under_curve(0.0, 3.0).unwrap();
     /// println!("Area under curve: {}", area);
     /// ```
-    pub fn area_under_curve(&self, x_min: T, x_max: T, constant: Option<T>) -> Result<T>
+    pub fn area_under_curve(&self, x_min: T, x_max: T) -> Result<T>
     where
         B: IntegralBasis<T>,
     {
-        self.function.area_under_curve(x_min, x_max, constant)
+        self.function.area_under_curve(x_min, x_max)
     }
 
     /// Returns the X-values where the function is not monotone (i.e., where the derivative changes sign).

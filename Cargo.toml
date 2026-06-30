@@ -4,7 +4,7 @@ authors = ["@rscarson"]
 description = "Because you don't need to be able to build a powerdrill to use one safely"
 edition = "2021"
 license = "MIT"
-version = "0.11.0"
+version = "0.12.0"
 repository = "https://github.com/rscarson/polyfit"
 homepage = "https://polyfit.richardcarson.ca"
 

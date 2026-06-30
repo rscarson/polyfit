@@ -78,8 +78,8 @@ impl<T: Value> DomainNormalizer<T> {
     }
 
     /// Creates a new `DomainNormalizer` from an iterator of source values and a destination range.
-    pub fn from_data(src: impl Iterator<Item = T>, dst_range: (T, T)) -> Option<Self> {
-        let range = src.fold(None, |acc: Option<(T, T)>, x| {
+    pub fn from_data(src: impl IntoIterator<Item = T>, dst_range: (T, T)) -> Option<Self> {
+        let range = src.into_iter().fold(None, |acc: Option<(T, T)>, x| {
             Some(match acc {
                 None => (x, x),
                 Some((min, max)) => (
