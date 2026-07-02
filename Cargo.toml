@@ -53,6 +53,10 @@ harness = false
 name = "root_finding"
 harness = false
 
+[[bench]]
+name = "stats"
+harness = false
+
 [[bin]]
 name = "basis_select"
 path = "src/bin/basis_select.rs"
