@@ -7,7 +7,11 @@ use crate::{
     basis::Basis,
     display::PolynomialDisplay,
     score::ModelScoreProvider,
-    statistics::{self, accumulator::HuberLogLikelihoodAccumulator, median_absolute_deviation},
+    statistics::{
+        self,
+        accumulator::{Accumulator, AccumulatorFactory},
+        median_absolute_deviation, HuberLogLikelihoodAccumulator, HuberLogLikelihoodConfig,
+    },
     value::Value,
 };
 
@@ -43,15 +47,17 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for 
         y_fit: impl Iterator<Item = T>,
         k: T,
     ) -> Option<T> {
-        let y: Vec<_> = y.collect();
-        let y_fit: Vec<_> = y_fit.collect();
+        let residuals: Vec<_> = y.zip(y_fit).map(|(y, y_fit)| y - y_fit).collect();
+        let mad = median_absolute_deviation(residuals.clone())?;
 
-        let mad = median_absolute_deviation(y.iter().copied(), y_fit.iter().copied())?;
-        let mut acc = HuberLogLikelihoodAccumulator::new(mad, None);
-        acc.add_iter(y.into_iter(), y_fit.into_iter());
+        let mut acc = HuberLogLikelihoodAccumulator::create(HuberLogLikelihoodConfig {
+            median_absolute_deviation: mad,
+            huber_const: None,
+        });
+        acc.add_iter(residuals);
 
-        let n = acc.count();
-        let log_likelihood = acc.log_likelihood()?;
+        let n = acc.count;
+        let log_likelihood = acc.total()?;
         let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
         let mut aic = n * log_likelihood.ln() + T::two() * k;
         if n / k < T::two() + T::two() && n > k + T::one() {
@@ -92,15 +98,17 @@ impl<B: Basis<T> + PolynomialDisplay<T>, T: Value> ModelScoreProvider<B, T> for 
         y_fit: impl Iterator<Item = T>,
         k: T,
     ) -> Option<T> {
-        let y: Vec<_> = y.collect();
-        let y_fit: Vec<_> = y_fit.collect();
+        let residuals: Vec<_> = y.zip(y_fit).map(|(y, y_fit)| y - y_fit).collect();
+        let mad = median_absolute_deviation(residuals.clone())?;
 
-        let mad = median_absolute_deviation(y.iter().copied(), y_fit.iter().copied())?;
-        let mut acc = HuberLogLikelihoodAccumulator::new(mad, None);
-        acc.add_iter(y.into_iter(), y_fit.into_iter());
+        let mut acc = HuberLogLikelihoodAccumulator::create(HuberLogLikelihoodConfig {
+            median_absolute_deviation: mad,
+            huber_const: None,
+        });
+        acc.add_iter(residuals);
 
-        let n = acc.count();
-        let log_likelihood = acc.log_likelihood()?;
+        let n = acc.count;
+        let log_likelihood = acc.total()?;
         let log_likelihood = nalgebra::RealField::max(log_likelihood, T::epsilon());
 
         Some(n * log_likelihood.ln() + k * n.ln())

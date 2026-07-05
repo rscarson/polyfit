@@ -1512,6 +1512,8 @@ where
     ///
     /// That way you can test the fit against a different dataset if desired.
     ///
+    /// Warning, this will allocate memory for the median absolute deviation (MAD) calculation, which can be expensive for large datasets.
+    ///
     /// <div class="warning">
     ///
     /// **Technical Details**
@@ -1551,10 +1553,10 @@ where
     pub fn robust_r_squared(&self, data: Option<&[(T, T)]>) -> Result<T> {
         let data = data.unwrap_or(self.data());
 
-        let y = data.iter().map(|&(_, y)| y);
-        let y_fit = self.solution().into_iter().map(|(_, y)| y);
+        let y: Vec<_> = data.iter().map(|&(_, y)| y).collect();
+        let y_fit: Vec<_> = self.solution().into_iter().map(|(_, y)| y).collect();
 
-        statistics::robust_r_squared(y, y_fit).ok_or(Error::NoData)
+        statistics::robust_r_squared(&y, &y_fit).ok_or(Error::NoData)
     }
 
     /// Computes the adjusted R-squared value.

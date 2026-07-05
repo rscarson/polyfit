@@ -668,11 +668,11 @@ macro_rules! assert_close {
         let (a, b) = ($a, $b);
         assert!(
             a.imaginary() == b.imaginary() || $crate::value::Value::abs(a.imaginary() - b.imaginary()) <= epsilon,
-            "{msg} - imaginary parts differ {} != {}", a.imaginary(), b.imaginary()
+            "{msg} - imaginary parts differ {} != {} (epsilon={epsilon:.2e})", a.imaginary(), b.imaginary()
         );
         assert!(
             a.real() == b.real() || $crate::value::Value::abs(a.real() - b.real()) <= epsilon,
-            "{msg}: {a} != {b}"
+            "{msg}: {a} != {b} (epsilon={epsilon:.2e})"
         );
     }};
 }
